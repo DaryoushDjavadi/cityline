@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: cityline
+    runtime: node
+    region: frankfurt
+    plan: starter
+    # --include=dev: vite/typescript/tsx are devDependencies; keep them even if NODE_ENV=production.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data/rooms
+    # PORT is injected automatically by Render.
+    disk:
+      name: cityline-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cityline</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body data-tool="inspect" data-menu="open">
+    <canvas id="view"></canvas>
+    <header id="topbar">
+      <div class="brand">
+        <strong>Cityline</strong>
+        <span id="mode">Singleplayer</span>
+        <span id="rank">Außenposten</span>
+        <span id="players"></span>
+      </div>
+      <div class="stats">
+        <div><em>Kasse</em><b id="funds">0</b><i id="cashflow">0</i></div>
+        <div><em>Einwohner</em><b id="pop">0</b></div>
+        <div><em>Jobs</em><b id="jobs">0</b></div>
+        <div><em>Strom</em><b id="power">0/0</b></div>
+        <div><em>Wasser</em><b id="water">0/0</b></div>
+        <div><em>Verkehr</em><b id="traffic">0</b></div>
+      </div>
+      <div class="top-actions">
+        <button id="leave" type="button" hidden>Trennen</button>
+      </div>
+    </header>
+    <div id="dock">
+      <div class="dock-bar">
+        <button id="open-lobby" type="button">Städte</button>
+        <button id="open-notes" type="button">Neuigkeiten</button>
+      </div>
+      <button id="toggle-rail" class="menu-toggle" type="button" aria-expanded="true">
+        <span class="chevron" aria-hidden="true"></span>
+        <span id="toggle-label">Menü zuklappen</span>
+      </button>
+      <aside id="rail">
+        <section>
+          <p>Schauen</p>
+          <button type="button" data-tool="inspect" class="active">Lupe</button>
+        </section>
+        <section>
+          <p>Straßen</p>
+          <div class="tools">
+            <button type="button" data-tool="road">Straße</button>
+            <button type="button" data-tool="bridge">Brücke</button>
+            <button type="button" data-tool="fill">Aufschütten</button>
+            <button type="button" data-tool="bulldoze">Abriss</button>
+          </div>
+        </section>
+        <section>
+          <p>Leitungen</p>
+          <div class="tools">
+            <button type="button" data-tool="line">Strom</button>
+            <button type="button" data-tool="pipe">Wasser</button>
+          </div>
+        </section>
+        <section>
+          <p>Wohnhäuser</p>
+          <div class="tools">
+            <button type="button" data-tool="cottage">Kleines Haus</button>
+            <button type="button" data-tool="apartments">Mehrfamilienhaus</button>
+            <button type="button" data-tool="tower">Hochhaus</button>
+          </div>
+        </section>
+        <section>
+          <p>Gewerbe</p>
+          <div class="tools">
+            <button type="button" data-tool="shop">Laden</button>
+            <button type="button" data-tool="office">Bürohaus</button>
+            <button type="button" data-tool="mall">Kaufhaus</button>
+          </div>
+        </section>
+        <section>
+          <p>Industrie</p>
+          <div class="tools">
+            <button type="button" data-tool="workshop">Werkstatt</button>
+            <button type="button" data-tool="factory">Fabrik</button>
+            <button type="button" data-tool="plant">Industrieanlage</button>
+          </div>
+        </section>
+        <section>
+          <p>Versorgung</p>
+          <div class="tools">
+            <button type="button" data-tool="power">Kraftwerk</button>
+            <button type="button" data-tool="water">Wasserwerk</button>
+          </div>
+        </section>
+        <section>
+          <p>Öffentlich</p>
+          <div class="tools">
+            <button type="button" data-tool="school">Schule</button>
+            <button type="button" data-tool="university">Universität</button>
+            <button type="button" data-tool="clinic">Klinik</button>
+            <button type="button" data-tool="police">Polizei</button>
+            <button type="button" data-tool="fire">Feuerwehr</button>
+            <button type="button" data-tool="park">Park</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+    <aside id="demand">
+      <p>Nachfrage</p>
+      <label>Wohnen <b id="dem-r">0</b><i id="bar-r"></i></label>
+      <label>Gewerbe <b id="dem-c">0</b><i id="bar-c"></i></label>
+      <label>Industrie <b id="dem-i">0</b><i id="bar-i"></i></label>
+      <p id="dem-note">Ab 25 Nachfrage gibt es beim Bauen bis zu 40 % zurück.</p>
+      <div class="overlays">
+        <label><input id="ov-zones" type="checkbox" checked /> Zonen</label>
+        <label><input id="ov-power" type="checkbox" /> Stromnetz</label>
+        <label><input id="ov-water" type="checkbox" /> Wassernetz</label>
+      </div>
+    </aside>
+    <aside id="inspector" hidden data-kind="field">
+      <header class="insp-head">
+        <span id="insp-mark" aria-hidden="true"></span>
+        <div>
+          <p id="insp-kicker">Lupe</p>
+          <h2 id="insp-title">Feld</h2>
+        </div>
+        <button id="insp-close" type="button" aria-label="Schließen">×</button>
+      </header>
+      <div id="insp-stats" class="insp-stats"></div>
+      <div id="insp-families" class="insp-families"></div>
+      <div id="insp-hires" class="insp-hires"></div>
+      <p id="insp-note" class="insp-note" hidden></p>
+      <div class="insp-actions">
+        <label id="insp-budget-wrap">
+          Budget <b id="insp-budget-label">100%</b>
+          <input id="insp-budget" type="range" min="50" max="150" value="100" />
+        </label>
+        <button id="insp-gift" type="button" hidden>Studium finanzieren</button>
+      </div>
+    </aside>
+    <aside id="brief">
+      <p id="brief-kicker">Auftrag 1/10</p>
+      <h2 id="brief-title">Erste Straße</h2>
+      <p id="brief-text">Leg mindestens sechs Straßenfelder.</p>
+      <b id="brief-pay">+2.000 €</b>
+    </aside>
+    <div id="toast" hidden></div>
+    <footer>
+      <p id="status">Lupe wählen und ein Feld anklicken.</p>
+      <p id="hint"></p>
+    </footer>
+    <div id="notes" hidden>
+      <section class="sheet notes-sheet">
+        <header class="notes-head">
+          <div>
+            <p class="eyebrow">Version <b id="notes-version">0.12</b></p>
+            <h1>Was ist neu</h1>
+          </div>
+          <button id="notes-close" type="button" aria-label="Schließen">×</button>
+        </header>
+        <div id="notes-current"></div>
+        <h2>Verlauf</h2>
+        <div id="notes-list"></div>
+      </section>
+    </div>
+    <div id="lobby">
+      <section class="sheet">
+        <p class="eyebrow">Cityline</p>
+        <h1>Welche Stadt bauen wir?</h1>
+        <p id="host-note" class="note"></p>
+        <label class="field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" /></label>
+        <div class="row">
+          <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
+          <button id="solo-new" type="button">Neue lokale Stadt</button>
+        </div>
+        <label class="field">Stadtname <input id="room" value="hauptstadt" maxlength="24" /></label>
+        <div class="row">
+          <button id="save-city" type="button">Diese Stadt speichern</button>
+          <button id="connect" type="button">Im Koop öffnen</button>
+        </div>
+        <p id="save-note" class="note"></p>
+        <h2>Gespeicherte Städte</h2>
+        <div id="room-list" class="rooms"></div>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

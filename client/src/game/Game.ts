@@ -1,0 +1,785 @@
+import * as THREE from "three";
+import { io, type Socket } from "socket.io-client";
+import { apiUrl, isDevServer, socketUrl } from "./serverUrl.ts";
+import { CityRenderer } from "../render/CityRenderer.ts";
+import { RtsCamera } from "../render/RtsCamera.ts";
+import { createHud, type ToolId } from "../ui/hud.ts";
+import {
+  BUILDINGS,
+  CELL_SIZE,
+  COST,
+  POWER_BIT,
+  ServiceKind,
+  WATER_BIT,
+  Zone,
+  applyCommand,
+  asUint8Array,
+  brushCells,
+  buildMeta,
+  canPlace,
+  cellBudget,
+  cellCoords,
+  cellIndex,
+  cityToSave,
+  createCity,
+  employeesAt,
+  houseReport,
+  isLine,
+  jobOpenings,
+  isPipe,
+  isRoad,
+  lineCells,
+  packCells,
+  refreshUtilities,
+  saveToCity,
+  scholarshipCost,
+  serviceInfo,
+  serviceNearby,
+  unemployedAdults,
+  worldToCell,
+  writeCity,
+  type CityState,
+  type Command,
+  type CommandResult,
+  type LockSnapshot,
+  type PublicPlayer,
+  type ServiceId,
+  type SimMeta,
+  type StatePayload,
+  type WelcomePayload,
+} from "../../../shared/src/index.ts";
+
+const SOLO_KEY = "cityline-solo";
+
+const HINTS: Partial<Record<ToolId, string>> = {
+  inspect: "Lupe: Straßen, Häuser und fahrende Autos anklicken.",
+  road: `Straße ziehen. Gerade oder eine rechtwinklige Ecke. ${COST.road} € pro Feld.`,
+  bridge: `Brücke über Wasser, neben den Straßen. ${COST.bridge} € pro Feld.`,
+  fill: `Land aufschütten, ${COST.fill} € pro blaues Feld an der Küste, im Fluss oder im See. Das Meer außerhalb der Karte hat keine Felder.`,
+  cottage: `${BUILDINGS.cottage.name}, ein Feld an einer Straße. ${BUILDINGS.cottage.cost} €.`,
+  apartments: `${BUILDINGS.apartments.name}, ein Feld an einer Straße. ${BUILDINGS.apartments.cost} €.`,
+  tower: `${BUILDINGS.tower.name}, ein Feld an einer Straße. ${BUILDINGS.tower.cost} €.`,
+  shop: `${BUILDINGS.shop.name}, ein Feld an einer Straße. ${BUILDINGS.shop.cost} €.`,
+  office: `${BUILDINGS.office.name}, ein Feld an einer Straße. ${BUILDINGS.office.cost} €.`,
+  mall: `${BUILDINGS.mall.name}, ein Feld an einer Straße. ${BUILDINGS.mall.cost} €.`,
+  workshop: `${BUILDINGS.workshop.name}, ein Feld an einer Straße. ${BUILDINGS.workshop.cost} €.`,
+  factory: `${BUILDINGS.factory.name}, ein Feld an einer Straße. ${BUILDINGS.factory.cost} €.`,
+  plant: `${BUILDINGS.plant.name}, ein Feld an einer Straße. ${BUILDINGS.plant.cost} €.`,
+  line: `Stromleitung, auch über Straßen, Brücken und Wasser. ${COST.line} €.`,
+  pipe: `Wasserrohr, auch über Straßen, Brücken und Wasser. ${COST.pipe} €.`,
+  power: `Kraftwerk direkt neben eine Straße. ${COST.power} €.`,
+  water: `Wasserwerk direkt neben eine Straße. ${COST.water} €.`,
+  school: `Schule, damit Bewohner einen Abschluss bekommen. ${COST.school} €.`,
+  university: `Universität für bessere Jobs. ${COST.university} €.`,
+  clinic: `Klinik. ${COST.clinic} €.`,
+  police: `Polizei. ${COST.police} €.`,
+  fire: `Feuerwehr. ${COST.fire} €.`,
+  park: `Park. ${COST.park} €.`,
+  bulldoze: "Ein einzelnes Feld abreißen.",
+};
+
+const SERVICES: Partial<Record<ToolId, ServiceId>> = {
+  power: ServiceKind.Power,
+  water: ServiceKind.Water,
+  school: ServiceKind.School,
+  clinic: ServiceKind.Clinic,
+  police: ServiceKind.Police,
+  fire: ServiceKind.Fire,
+  park: ServiceKind.Park,
+  university: ServiceKind.University,
+};
+
+const REASONS: Record<string, string> = {
+  room_full: "In diesem Raum bauen schon zwei Spieler.",
+  bad_room: "Der Raumname braucht mindestens zwei Buchstaben oder Ziffern.",
+  funds: "Für den Rest der Fläche reicht das Geld nicht.",
+  locked: "Diese Felder belegt gerade der andere Spieler.",
+  empty: "Nichts zu bauen.",
+  rejected: "Die Fläche nimmt das so nicht an.",
+  no_university: "Studium braucht eine Schule und eine Universität in der Stadt.",
+};
+
+interface TickMessage {
+  t: "tick";
+  generation: number;
+  cells: Uint8Array;
+  meta: SimMeta;
+}
+
+export class Game {
+  private readonly city: CityState = createCity();
+  private readonly camera: RtsCamera;
+  private readonly view: CityRenderer;
+  private readonly worker: Worker;
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly pointer = new THREE.Vector2();
+  private readonly ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly hit = new THREE.Vector3();
+  private readonly hud = createHud({
+    onTool: (tool) => this.setTool(tool),
+    onOverlay: (overlay, enabled) => {
+      this.overlays[overlay] = enabled;
+      this.publish();
+    },
+    onJoin: (room, name) => this.join(room, name),
+    onLeave: () => this.leave(),
+    onNewSolo: () => this.startSolo(false),
+    onContinue: () => this.startSolo(true),
+    onOpenLobby: () => {
+      this.hud.setLobby(true);
+      void this.refreshLobby();
+    },
+    onSave: () => {
+      void this.saveCurrentCity();
+    },
+    onDelete: (code) => {
+      void this.deleteSavedCity(code);
+    },
+    onBudget: (value) => this.setBudget(value),
+    onGift: () => this.giveScholarship(),
+    onHire: (home, slot) => this.hire(home, slot),
+    onCloseInspect: () => {
+      this.focus = null;
+      this.hud.hideInspect();
+    },
+  });
+
+  private socket: Socket | null = null;
+  private mode: "single" | "multi" = "single";
+  private generation = 1;
+  private tool: ToolId = "inspect";
+  private focus: "cell" | null = null;
+  private selected = -1;
+  private playing = false;
+  private lastSave = 0;
+  private building = false;
+  private anchor: { x: number; y: number } | null = null;
+  private readonly painted = new Set<number>();
+  private stroke: number[] = [];
+  private readonly denied = new Set<number>();
+  private lockSig = "";
+  private playerId = "";
+  private room = "";
+  private overlays = { zones: true, power: false, water: false };
+  private statusUntil = 0;
+  private lastFrame = performance.now();
+
+  constructor(private readonly canvas: HTMLCanvasElement) {
+    this.camera = new RtsCamera();
+    this.view = new CityRenderer(canvas);
+    this.worker = new Worker(new URL("../sim/sim.worker.ts", import.meta.url), { type: "module" });
+    this.worker.onmessage = (event: MessageEvent<TickMessage>) => this.onTick(event.data);
+    this.bindInput();
+    this.resize();
+    window.addEventListener("resize", () => this.resize());
+    this.hud.setContinueVisible(localStorage.getItem(SOLO_KEY) !== null);
+    this.setTool("inspect");
+    this.rememberWorker(false);
+    void this.refreshLobby();
+    window.setInterval(() => {
+      if (!this.playing) void this.refreshLobby();
+    }, 4000);
+    this.publish();
+    requestAnimationFrame((time) => this.frame(time));
+  }
+
+  private frame(time: number): void {
+    const dt = Math.min(0.05, (time - this.lastFrame) / 1000);
+    this.lastFrame = time;
+    this.camera.update(dt);
+    this.view.update(dt, this.camera.target);
+    this.view.render(this.camera.camera);
+    requestAnimationFrame((next) => this.frame(next));
+  }
+
+  private resize(): void {
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    this.view.resize(width, height);
+    this.camera.resize(width, height);
+  }
+
+  private setTool(tool: ToolId): void {
+    this.tool = tool;
+    this.hud.setTool(tool);
+    this.hud.setHint(`${HINTS[tool] ?? "Werkzeug gewählt."} Rechte Taste schaut um, mittlere Taste verschiebt, Mausrad zoomt, Q/E dreht, WASD fährt. Escape zurück zur Lupe.`);
+    this.cancelStroke(false);
+  }
+
+  private bindInput(): void {
+    this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+    this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+    this.canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
+    window.addEventListener("pointerup", (event) => this.onPointerUp(event));
+    this.canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      this.camera.wheel(event.deltaY);
+    }, { passive: false });
+    window.addEventListener("keydown", (event) => this.onKey(event, true));
+    window.addEventListener("keyup", (event) => this.onKey(event, false));
+  }
+
+  private onKey(event: KeyboardEvent, down: boolean): void {
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    const tools: Record<string, ToolId> = {
+      Digit1: "road",
+      Digit2: "bridge",
+      Digit3: "cottage",
+      Digit4: "shop",
+      Digit5: "workshop",
+      Digit6: "line",
+      Digit7: "bulldoze",
+      Digit8: "school",
+      Digit9: "university",
+      Digit0: "inspect",
+    };
+    if (down && tools[event.code]) {
+      this.setTool(tools[event.code]);
+      return;
+    }
+    if (down && event.code === "Escape") {
+      if (this.building) this.cancelStroke(true);
+      else {
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setTool("inspect");
+      }
+    }
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"].includes(event.code)) {
+      event.preventDefault();
+      this.camera.setKey(event.code, down);
+    }
+  }
+
+  private onPointerDown(event: PointerEvent): void {
+    if (this.camera.begin(event.button, event.clientX, event.clientY)) return;
+    if (event.button !== 0) return;
+    const cell = this.pick(event);
+    if (!cell) {
+      if (this.tool === "fill") this.flash("Das offene Meer hat keine Felder. Aufschütten geht auf den blauen Feldern an der Küste.");
+      return;
+    }
+    this.anchor = cell;
+    if (this.tool === "inspect") return;
+    this.building = true;
+    this.painted.clear();
+    this.denied.clear();
+    this.updateStroke(cell);
+    this.canvas.setPointerCapture(event.pointerId);
+  }
+
+  private onPointerMove(event: PointerEvent): void {
+    this.camera.move(event.clientX, event.clientY);
+    const cell = this.pick(event);
+    this.view.setHover(this.city, cell ? cellIndex(this.city, cell.x, cell.y) : null);
+    this.describe(cell);
+    if (this.building && cell) this.updateStroke(cell);
+  }
+
+  private onPointerUp(event: PointerEvent): void {
+    if (event.button === 1 || event.button === 2) this.camera.end();
+    if (event.button !== 0) return;
+    if (this.tool === "inspect") {
+      const car = this.view.pickCar(this.camera.camera, this.pointer.x, this.pointer.y);
+      if (car) this.showCar(car);
+      else if (this.anchor) this.showCell(this.anchor);
+      this.anchor = null;
+      return;
+    }
+    if (!this.building) return;
+    this.building = false;
+    this.commit();
+  }
+
+  private updateStroke(cell: { x: number; y: number }): void {
+    if (!this.anchor) return;
+    if (this.tool === "bulldoze" || this.tool === "fill") {
+      this.stroke = [cellIndex(this.city, cell.x, cell.y)];
+    } else if (this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe") {
+      this.stroke = lineCells(this.city, this.anchor.x, this.anchor.y, cell.x, cell.y);
+    } else if (SERVICES[this.tool]) {
+      this.stroke = [cellIndex(this.city, this.anchor.x, this.anchor.y)];
+    } else if (BUILDINGS[this.tool as keyof typeof BUILDINGS]) {
+      this.painted.add(cellIndex(this.city, cell.x, cell.y));
+      this.stroke = [...this.painted];
+    } else {
+      for (const index of brushCells(this.city, cell.x, cell.y, 1)) this.painted.add(index);
+      this.stroke = [...this.painted];
+    }
+    this.refreshPreview();
+    this.syncLock();
+  }
+
+  private refreshPreview(): void {
+    const legal: boolean[] = [];
+    let running = 0;
+    for (const index of this.stroke) {
+      const allowed = this.canUse(index) && !this.denied.has(index);
+      const cost = allowed ? this.cost() : 0;
+      const accept = allowed && this.city.funds >= running + cost;
+      legal.push(accept);
+      if (accept) running += cost;
+    }
+    this.view.setPreview(this.city, this.stroke, legal);
+  }
+
+  private commit(): void {
+    const preview = this.stroke;
+    const legal: number[] = [];
+    let running = 0;
+    for (const index of preview) {
+      if (!this.canUse(index) || this.denied.has(index)) continue;
+      const cost = this.cost();
+      if (this.city.funds < running + cost) continue;
+      legal.push(index);
+      running += cost;
+    }
+    this.stroke = [];
+    this.painted.clear();
+    this.anchor = null;
+    this.lockSig = "";
+    this.view.setPreview(this.city, [], []);
+    if (this.mode === "multi") this.socket?.emit("unlock");
+    if (legal.length === 0) {
+      this.flash(this.tool === "fill" ? "Aufschütten nur auf einem blauen Wasserfeld, nicht auf Land oder auf einer Brücke." : "Keine gültige Fläche unter dem Zeiger.");
+      return;
+    }
+    const command = this.command(legal);
+    const result = applyCommand(this.city, command);
+    if (result.applied.length > 0) refreshUtilities(this.city);
+    if (this.mode === "single") this.rememberWorker(true);
+    this.publish();
+    if (this.mode === "multi") this.socket?.emit("command", { id: crypto.randomUUID(), command });
+    if (!result.ok) this.flash(REASONS[result.reason ?? "rejected"] ?? "Die Aktion wurde abgelehnt.");
+    else if (result.reason) this.flash(REASONS[result.reason] ?? result.reason);
+    if (result.bonus) this.flash(`Nachfrage zahlt ${result.bonus.toLocaleString("de-DE")} € zurück.`);
+    if (result.applied.length > 0 && (SERVICES[this.tool] || BUILDINGS[this.tool as keyof typeof BUILDINGS])) this.setTool("inspect");
+  }
+
+  private canUse(index: number): boolean {
+    if (this.tool === "inspect") return false;
+    if (this.tool === "road") return canPlace(this.city, index, "road");
+    if (this.tool === "bridge") return canPlace(this.city, index, "bridge");
+    if (this.tool === "fill") return canPlace(this.city, index, "fill");
+    if (BUILDINGS[this.tool as keyof typeof BUILDINGS]) return canPlace(this.city, index, "build");
+    if (this.tool === "line") return canPlace(this.city, index, "line");
+    if (this.tool === "pipe") return canPlace(this.city, index, "pipe");
+    if (this.tool === "bulldoze") return canPlace(this.city, index, "bulldoze");
+    const kind = SERVICES[this.tool];
+    if (kind) return canPlace(this.city, index, "service", { kind });
+    return false;
+  }
+
+  private cost(): number {
+    if (this.tool === "road") return COST.road;
+    if (this.tool === "bridge") return COST.bridge;
+    if (this.tool === "fill") return COST.fill;
+    const building = BUILDINGS[this.tool as keyof typeof BUILDINGS];
+    if (building) return building.cost;
+    if (this.tool === "line") return COST.line;
+    if (this.tool === "pipe") return COST.pipe;
+    if (this.tool === "bulldoze" || this.tool === "inspect") return 0;
+    return serviceInfo(SERVICES[this.tool] ?? 0)?.cost ?? COST.zone;
+  }
+
+  private command(cells: number[]): Command {
+    if (this.tool === "road") return { type: "road", cells };
+    if (this.tool === "bridge") return { type: "bridge", cells };
+    if (this.tool === "fill") return { type: "fill", cells };
+    const building = BUILDINGS[this.tool as keyof typeof BUILDINGS];
+    if (building) return { type: "build", cells, kind: building.id };
+    if (this.tool === "line") return { type: "line", cells };
+    if (this.tool === "pipe") return { type: "pipe", cells };
+    if (this.tool === "bulldoze") return { type: "bulldoze", cells };
+    const index = cells[0] ?? 0;
+    const kind = SERVICES[this.tool];
+    if (kind) return { type: "service", index, kind };
+    return { type: "zone", cells, zone: Zone.Residential };
+  }
+
+  private cancelStroke(announce: boolean): void {
+    this.building = false;
+    this.anchor = null;
+    this.painted.clear();
+    this.stroke = [];
+    this.lockSig = "";
+    this.view.setPreview(this.city, [], []);
+    if (this.mode === "multi") this.socket?.emit("unlock");
+    if (announce) this.flash("Bau abgebrochen.");
+  }
+
+  private syncLock(): void {
+    if (this.mode !== "multi" || !this.socket) return;
+    const signature = this.stroke.join(",");
+    if (signature === this.lockSig) return;
+    this.lockSig = signature;
+    this.socket.emit("lock", { cells: this.stroke });
+  }
+
+  private join(room: string, name: string): void {
+    this.leaveSocket();
+    const socket = io(socketUrl());
+    this.socket = socket;
+    socket.on("connect_error", () => this.flash(isDevServer ? "Server nicht erreichbar. Starte ihn auf Port 8787." : "Server nicht erreichbar. Versuch es gleich noch einmal."));
+    socket.on("joinError", (payload: { reason?: string }) => {
+      this.flash(REASONS[payload.reason ?? ""] ?? "Beitritt abgelehnt.");
+      this.leaveSocket();
+    });
+    socket.on("welcome", (payload: WelcomePayload) => {
+      this.mode = "multi";
+      this.playerId = payload.playerId;
+      this.room = payload.room;
+      this.hud.setJoined(true);
+      this.hud.setMode(`Koop · ${payload.room}`);
+      this.hud.setLobby(false);
+      this.playing = true;
+      this.renderPlayers(payload.players);
+      this.rememberWorker(false);
+      this.flash("Verbunden. Bauaktionen laufen über den Server.");
+    });
+    socket.on("state", (payload: StatePayload) => {
+      if (this.mode !== "multi") return;
+      const cells = asUint8Array(payload.cells);
+      if (!cells) return;
+      writeCity(this.city, cells, payload.meta);
+      this.publish(payload.meta);
+    });
+    socket.on("players", (payload: { players: PublicPlayer[] }) => this.renderPlayers(payload.players));
+    socket.on("locks", (payload: LockSnapshot) => {
+      const foreign = payload.locks.filter((lock) => lock.playerId !== this.playerId).map((lock) => lock.cell);
+      this.view.setLocks(this.city, foreign);
+    });
+    socket.on("lockResult", (payload: { denied: number[] }) => {
+      this.denied.clear();
+      for (const index of payload.denied) this.denied.add(index);
+      if (this.stroke.length > 0) this.refreshPreview();
+    });
+    socket.on("commandResult", (result: CommandResult) => {
+      if (!result.ok) this.flash(REASONS[result.reason ?? "rejected"] ?? "Die Aktion wurde abgelehnt.");
+      else if (result.reason) this.flash(REASONS[result.reason] ?? result.reason);
+    });
+    socket.emit("join", { room, name });
+  }
+
+  private leave(): void {
+    const wasMulti = this.mode === "multi";
+    this.leaveSocket();
+    this.mode = "single";
+    this.playerId = "";
+    this.room = "";
+    this.view.setLocks(this.city, []);
+    this.hud.setJoined(false);
+    this.hud.setMode("Singleplayer");
+    this.hud.setPlayers("");
+    if (wasMulti) {
+      this.rememberWorker(true);
+      this.flash("Getrennt. Diese Stadt läuft jetzt lokal weiter.");
+    }
+  }
+
+  private leaveSocket(): void {
+    this.socket?.removeAllListeners();
+    this.socket?.disconnect();
+    this.socket = null;
+  }
+
+  private renderPlayers(players: PublicPlayer[]): void {
+    if (players.length === 0) {
+      this.hud.setPlayers("");
+      return;
+    }
+    const text = players
+      .map((player) => `${player.name}${player.id === this.playerId ? " (du)" : ""}`)
+      .join(" · ");
+    this.hud.setPlayers(`${text} · ${players.length}/2`);
+  }
+
+  private onTick(message: TickMessage): void {
+    if (message.t !== "tick" || this.mode !== "single" || message.generation !== this.generation) return;
+    const cells = asUint8Array(message.cells);
+    if (!cells) return;
+    writeCity(this.city, cells, message.meta);
+    this.publish(message.meta);
+    if (this.stroke.length > 0) this.refreshPreview();
+  }
+
+  private rememberWorker(running: boolean): void {
+    this.generation += 1;
+    const meta = buildMeta(this.city);
+    this.worker.postMessage({
+      t: "reset",
+      generation: this.generation,
+      running,
+      cells: packCells(this.city),
+      meta,
+    });
+  }
+
+  private publish(meta: SimMeta = buildMeta(this.city)): void {
+    this.hud.setStats(meta);
+    this.view.sync(this.city, this.overlays);
+    if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
+      localStorage.setItem(SOLO_KEY, JSON.stringify(cityToSave(this.city, "lokal")));
+      this.lastSave = performance.now();
+      this.hud.setContinueVisible(true);
+    }
+    if (this.focus === "cell" && this.selected >= 0) this.showCell(cellCoords(this.city, this.selected));
+  }
+
+  private describe(cell: { x: number; y: number } | null): void {
+    if (performance.now() < this.statusUntil) return;
+    if (!cell) {
+      this.hud.setStatus(this.mode === "multi" ? `Koopraum ${this.room}` : "Bereit zum Bauen.");
+      return;
+    }
+    const index = cellIndex(this.city, cell.x, cell.y);
+    const parts = [`Feld ${cell.x}, ${cell.y}`];
+    if (isRoad(this.city, index)) parts.push("Straße");
+    if (isLine(this.city, index)) parts.push((this.city.utility[index] & POWER_BIT) !== 0 ? "Stromleitung aktiv" : "Stromleitung ohne Strom");
+    if (isPipe(this.city, index)) parts.push((this.city.utility[index] & WATER_BIT) !== 0 ? "Rohr mit Wasser" : "Rohr ohne Wasser");
+    const service = serviceInfo(this.city.services[index]);
+    if (service) parts.push(service.name);
+    if (this.city.zones[index] === Zone.Residential) parts.push(`Wohnen Stufe ${this.city.levels[index]}`);
+    if (this.city.zones[index] === Zone.Commercial) parts.push(`Gewerbe Stufe ${this.city.levels[index]}`);
+    if (this.city.zones[index] === Zone.Industrial) parts.push(`Industrie Stufe ${this.city.levels[index]}`);
+    parts.push((this.city.utility[index] & POWER_BIT) !== 0 ? "Strom" : "kein Strom");
+    parts.push((this.city.utility[index] & WATER_BIT) !== 0 ? "Wasser" : "kein Wasser");
+    this.hud.setStatus(parts.join(" · "));
+  }
+
+  private flash(text: string): void {
+    this.statusUntil = performance.now() + 2600;
+    this.hud.setStatus(text);
+  }
+
+  private pick(event: PointerEvent): { x: number; y: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera.camera);
+    const point = this.raycaster.ray.intersectPlane(this.ground, this.hit);
+    if (!point) return null;
+    if (this.tool === "fill") return this.fillTarget(point.x, point.z);
+    return worldToCell(this.city, point.x, point.z);
+  }
+
+  private fillTarget(worldX: number, worldZ: number): { x: number; y: number } | null {
+    const direct = worldToCell(this.city, worldX, worldZ);
+    if (direct && canPlace(this.city, cellIndex(this.city, direct.x, direct.y), "fill")) return direct;
+    const cx = worldX / CELL_SIZE + this.city.width / 2;
+    const cy = worldZ / CELL_SIZE + this.city.height / 2;
+    let best: { x: number; y: number } | null = null;
+    let bestDistance = 1.4;
+    for (let y = Math.floor(cy) - 1; y <= Math.ceil(cy) + 1; y += 1) {
+      for (let x = Math.floor(cx) - 1; x <= Math.ceil(cx) + 1; x += 1) {
+        if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
+        if (x < 0 || y < 0 || x >= this.city.width || y >= this.city.height) continue;
+        if (!canPlace(this.city, cellIndex(this.city, x, y), "fill")) continue;
+        const distance = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        if (distance < bestDistance) {
+          best = { x, y };
+          bestDistance = distance;
+        }
+      }
+    }
+    return best ?? direct;
+  }
+
+  private startSolo(load: boolean): void {
+    this.leaveSocket();
+    this.mode = "single";
+    this.playing = true;
+    this.hud.setJoined(false);
+    this.hud.setMode("Singleplayer");
+    this.hud.setPlayers("");
+    this.hud.setLobby(false);
+    if (load) {
+      const raw = localStorage.getItem(SOLO_KEY);
+      const loaded = raw ? saveToCity(JSON.parse(raw) as unknown) : null;
+      if (loaded) writeCity(this.city, packCells(loaded), buildMeta(loaded));
+    } else {
+      const fresh = createCity();
+      writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    }
+    refreshUtilities(this.city);
+    this.rememberWorker(true);
+    this.setTool("inspect");
+    this.publish();
+  }
+
+  private async refreshLobby(): Promise<void> {
+    try {
+      const [rooms, host] = await Promise.all([
+        fetch(apiUrl("/api/rooms")).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number }[]>),
+        fetch(apiUrl("/api/host")).then((response) => response.json() as Promise<{ urls: string[] }>),
+      ]);
+      this.hud.setRooms(rooms);
+      if (isDevServer) {
+        const local = host.urls.length > 0 ? host.urls.join(", ") : `http://${location.host}`;
+        this.hud.setHost(`Im gleichen Netzwerk öffnen andere Geräte ${local}. Aus einem anderen WLAN ist dieser Rechner nicht erreichbar.`);
+      } else {
+        this.hud.setHost(`Freunde öffnen einfach ${location.origin} und treten derselben Stadt bei.`);
+      }
+    } catch {
+      this.hud.setRooms([]);
+      this.hud.setHost(isDevServer ? "Der Koop-Server antwortet nicht. Eine lokale Stadt geht trotzdem. Koop braucht den Server auf diesem Rechner, Port 8787." : "Der Koop-Server antwortet gerade nicht. Eine lokale Stadt geht trotzdem.");
+    }
+  }
+
+  private async deleteSavedCity(code: string): Promise<void> {
+    try {
+      const response = await fetch(apiUrl(`/api/cities/${encodeURIComponent(code)}`), { method: "DELETE" });
+      const body = (await response.json()) as { ok?: boolean; reason?: string };
+      if (!response.ok || !body.ok) {
+        this.hud.setSaveNote(body.reason === "in_use" ? "Die Stadt ist gerade im Koop offen." : "Die Stadt ließ sich nicht löschen.");
+        return;
+      }
+      this.hud.setSaveNote(`„${code}“ ist gelöscht.`);
+      await this.refreshLobby();
+    } catch {
+      this.hud.setSaveNote("Der Server hat das Löschen nicht bestätigt.");
+    }
+  }
+
+  private async saveCurrentCity(): Promise<void> {
+    const save = cityToSave(this.city, this.hud.roomName());
+    localStorage.setItem(SOLO_KEY, JSON.stringify(save));
+    this.hud.setContinueVisible(true);
+    try {
+      const response = await fetch(apiUrl("/api/cities"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(save),
+      });
+      const body = (await response.json()) as { ok?: boolean; code?: string };
+      if (!response.ok || !body.ok || !body.code) {
+        this.hud.setSaveNote("Der Name braucht mindestens zwei Buchstaben oder Ziffern.");
+        return;
+      }
+      this.hud.setSaveNote(`„${body.code}“ ist gespeichert, inklusive Straßen, Leitungen, Zonen, Gebäuden, Bildung und Kasse. Im Koop öffnen lädt genau diese Stadt.`);
+      await this.refreshLobby();
+    } catch {
+      this.hud.setSaveNote("Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
+    }
+  }
+
+  private showCell(cell: { x: number; y: number }): void {
+    const index = cellIndex(this.city, cell.x, cell.y);
+    this.selected = index;
+    this.focus = "cell";
+    const families = houseReport(this.city, index);
+    const service = serviceInfo(this.city.services[index]);
+    const powered = (this.city.utility[index] & POWER_BIT) !== 0;
+    const watered = (this.city.utility[index] & WATER_BIT) !== 0;
+    const workplace = (this.city.zones[index] === Zone.Commercial || this.city.zones[index] === Zone.Industrial) && this.city.levels[index] > 0;
+    const occupied = this.city.levels[index] > 0 || this.city.services[index] !== ServiceKind.None;
+    const gifted = (this.city.skills[index] & 4) !== 0;
+    const unemployedHere = families.some((family) => family.members.some((member) => member.unemployed));
+    const staff = workplace ? employeesAt(this.city, index) : [];
+    const openings = workplace ? jobOpenings(this.city, index) : 0;
+    const seeking = workplace && openings > 0 ? unemployedAdults(this.city).slice(0, 8) : [];
+    const school = families.length > 0 && serviceNearby(this.city, index, ServiceKind.School);
+    const university = families.length > 0 && serviceNearby(this.city, index, ServiceKind.University);
+    this.hud.showInspect({
+      kind: service?.kind === ServiceKind.Power ? "power" : service?.kind === ServiceKind.Water ? "water" : workplace ? "work" : families.length > 0 ? "home" : "field",
+      kicker: service ? "Gebäude" : workplace ? (this.city.zones[index] === Zone.Industrial ? "Industrie" : "Gewerbe") : families.length > 0 ? "Wohnhaus" : "Feld",
+      title: service?.name ?? (families.length > 0 || workplace ? `Stufe ${this.city.levels[index]}` : `${cell.x}, ${cell.y}`),
+      stats: [
+        { icon: "bolt", label: "Strom", value: powered ? "versorgt" : "ohne", tone: powered ? "good" : "bad" },
+        { icon: "drop", label: "Wasser", value: watered ? "versorgt" : "ohne", tone: watered ? "good" : "bad" },
+        ...(families.length > 0 ? [
+          { icon: "people" as const, label: "Bewohner", value: String(families.reduce((sum, family) => sum + family.members.length, 0)) },
+          { icon: "car" as const, label: "Autos", value: String(families.reduce((sum, family) => sum + family.cars.length, 0)) },
+          { icon: "book" as const, label: "Schule", value: school ? "im Viertel" : "fehlt", tone: school ? "good" as const : "bad" as const },
+          { icon: "book" as const, label: "Universität", value: university ? "im Viertel" : "fehlt", tone: university ? "good" as const : "bad" as const },
+        ] : []),
+        ...(workplace ? [
+          { icon: "work" as const, label: "Frei", value: String(openings) },
+          { icon: "people" as const, label: "Belegt", value: String(staff.length) },
+        ] : []),
+      ],
+      families: families.map((family) => ({
+        surname: family.surname,
+        cars: family.cars.map((car) => car.label),
+        members: family.members.map((member) => ({
+          name: member.name,
+          child: member.child,
+          education: member.educationLabel,
+          job: member.child ? "kein Beruf" : member.job,
+          unemployed: member.unemployed,
+        })),
+      })),
+      hires: seeking.map((adult) => ({
+        name: adult.name,
+        detail: `${adult.educationLabel} · Feld ${cellCoords(this.city, adult.home).x},${cellCoords(this.city, adult.home).y}`,
+        home: adult.home,
+        slot: adult.slot,
+      })),
+      note: service?.blurb
+        ?? (workplace ? [staff.length > 0 ? `Beschäftigt: ${staff.map((adult) => adult.name).join(", ")}` : "Noch niemand angestellt.", seeking.length > 0 ? "Arbeitslose aus der Stadt anstellen." : ""].filter(Boolean).join(" ") : null)
+        ?? (unemployedHere ? "Arbeitslose stellt man im Gewerbe oder in der Industrie an." : null)
+        ?? (families.length === 0 && !service ? (isRoad(this.city, index) ? "Straße" : "Hier ist nichts gebaut.") : null),
+      budget: occupied ? cellBudget(this.city, index) : null,
+      gift: families.length > 0 && !gifted ? `Studium finanzieren (${scholarshipCost(this.city.levels[index])} €)` : null,
+    });
+  }
+
+  private showCar(car: { surname: string; driver: string; members: string; label: string; home: number }): void {
+    this.focus = null;
+    this.selected = car.home;
+    const home = cellCoords(this.city, car.home);
+    const family = houseReport(this.city, car.home).find((entry) => entry.surname === car.surname);
+    this.hud.showInspect({
+      kind: "car",
+      kicker: "Unterwegs",
+      title: `Familie ${car.surname}`,
+      stats: [
+        { icon: "car", label: "Wagen", value: car.label },
+        { icon: "people", label: "Fahrer", value: car.driver },
+        { icon: "home", label: "Wohnort", value: `${home.x}, ${home.y}` },
+      ],
+      families: family ? [{
+        surname: family.surname,
+        cars: family.cars.map((entry) => entry.label),
+        members: family.members.map((member) => ({
+          name: member.name,
+          child: member.child,
+          education: member.educationLabel,
+          job: member.child ? "kein Beruf" : member.job,
+          unemployed: member.unemployed,
+        })),
+      }] : [],
+      hires: [],
+      note: `Mitfahrt: ${car.members}`,
+      budget: null,
+      gift: null,
+    });
+  }
+
+  private setBudget(value: number): void {
+    if (this.selected < 0) return;
+    this.applyLocal({ type: "budget", index: this.selected, value });
+  }
+
+  private hire(home: number, slot: number): void {
+    if (this.selected < 0) return;
+    this.applyLocal({ type: "hire", workplace: this.selected, home, slot });
+    if (this.focus === "cell") this.showCell(cellCoords(this.city, this.selected));
+  }
+
+  private giveScholarship(): void {
+    if (this.selected < 0) return;
+    this.applyLocal({ type: "gift", index: this.selected });
+    if (this.focus === "cell") this.showCell(cellCoords(this.city, this.selected));
+  }
+
+  private applyLocal(command: Command): void {
+    const result = applyCommand(this.city, command);
+    if (result.applied.length > 0) refreshUtilities(this.city);
+    if (this.mode === "single") this.rememberWorker(true);
+    this.publish();
+    if (this.mode === "multi") this.socket?.emit("command", { id: crypto.randomUUID(), command });
+    if (!result.ok) this.flash(REASONS[result.reason ?? "rejected"] ?? "Das geht so nicht.");
+  }
+}
