@@ -58,7 +58,15 @@ export class RtsCamera {
   }
 
   wheel(deltaY: number): void {
-    this.distance = clamp(this.distance * Math.exp(deltaY * 0.0011), 48, 560);
+    this.setDistance(this.distance * Math.exp(deltaY * 0.0011));
+  }
+
+  setDistance(value: number): void {
+    this.distance = clamp(value, 48, 560);
+  }
+
+  nudge(dx: number, dy: number): void {
+    this.pan(dx, dy);
   }
 
   lookAt(x: number, z: number): void {

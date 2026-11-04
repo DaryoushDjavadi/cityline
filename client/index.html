@@ -2,11 +2,11 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off">
+  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-demand="closed" data-stats="closed">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
@@ -15,7 +15,7 @@
         <span id="rank">Außenposten</span>
         <span id="players"></span>
       </div>
-      <div class="stats">
+      <div class="stats" id="city-stats">
         <div><em>Kasse</em><b id="funds">0</b><i id="cashflow">0</i></div>
         <div><em>Einwohner</em><b id="pop">0</b></div>
         <div><em>Jobs</em><b id="jobs">0</b></div>
@@ -24,27 +24,56 @@
         <div><em>Verkehr</em><b id="traffic">0</b></div>
       </div>
       <div class="top-actions">
-        <button id="open-brief" type="button">
+        <button id="toggle-stats" class="hud-btn compact-only" type="button" aria-expanded="false" aria-controls="city-stats" aria-label="Kasse" title="Kasse">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="12" r="3"/><path d="M5 12h3M16 12h3"/></svg>
+          <span class="hud-text">Kasse</span>
+        </button>
+        <button id="open-brief" type="button" aria-label="Aufgabe">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l1.5 2H20v14H5Z"/><path d="M5 4v16"/></svg>
           <em>Aufgabe</em>
           <span id="mission-summary">1/10</span>
         </button>
-        <button id="open-players" type="button">Spieler</button>
-        <button id="open-chat" type="button">
-          Chat
+        <button id="open-players" class="hud-btn" type="button" aria-label="Spieler">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9" r="2"/><path d="M4 19c.8-2.6 2.4-4 5-4s4.2 1.4 5 4"/><path d="M13 19c.6-2 1.8-3.2 3.8-3.2 1.6 0 2.8.8 3.4 2.2"/></svg>
+          <span class="hud-text">Spieler</span>
+        </button>
+        <button id="open-chat" class="hud-btn" type="button" aria-label="Chat">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v10H9l-4 3V6Z"/></svg>
+          <span class="hud-text">Chat</span>
           <span id="chat-badge" hidden>0</span>
         </button>
-        <button id="leave" type="button" hidden>Trennen</button>
+        <button id="leave" class="hud-btn" type="button" hidden aria-label="Trennen">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 7V5h10v14H10v-2"/><path d="M4 12h11"/><path d="m12 9 3 3-3 3"/></svg>
+          <span class="hud-text">Trennen</span>
+        </button>
       </div>
     </header>
     <div id="dock">
-      <div class="dock-bar">
-        <button id="open-lobby" type="button">Städte</button>
-        <button id="open-notes" type="button">Neuigkeiten</button>
+      <div class="dock-controls">
+        <div class="dock-bar">
+          <button id="open-lobby" class="hud-btn" type="button" aria-label="Städte">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10l6-5 6 5v10"/><path d="M10 20v-6h4v6"/><path d="M20 20V11"/></svg>
+            <span class="hud-text">Städte</span>
+          </button>
+          <button id="open-notes" class="hud-btn" type="button" aria-label="Neuigkeiten">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7Z"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+            <span class="hud-text">Neuigkeiten</span>
+          </button>
+          <button id="toggle-pan-hud" class="hud-btn compact-only" type="button" aria-pressed="false" aria-label="Verschieben" title="Verschieben">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
+            <span class="hud-text">Verschieben</span>
+          </button>
+          <button id="toggle-demand" class="hud-btn compact-only" type="button" aria-expanded="false" aria-label="Nachfrage" title="Nachfrage">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18V10M10 18V6M15 18v-7M20 18V8"/></svg>
+            <span class="hud-text">Nachfrage</span>
+          </button>
+        </div>
+        <button id="toggle-rail" class="menu-toggle" type="button" aria-expanded="true">
+          <span class="chevron" aria-hidden="true"></span>
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+          <span id="toggle-label">Menü zuklappen</span>
+        </button>
       </div>
-      <button id="toggle-rail" class="menu-toggle" type="button" aria-expanded="true">
-        <span class="chevron" aria-hidden="true"></span>
-        <span id="toggle-label">Menü zuklappen</span>
-      </button>
       <aside id="rail">
         <section>
           <p>Schauen</p>
@@ -123,7 +152,10 @@
       </aside>
     </div>
     <aside id="demand">
-      <p>Nachfrage</p>
+      <header class="panel-head">
+        <p>Nachfrage</p>
+        <button id="demand-close" class="compact-only" type="button" aria-label="Schließen">×</button>
+      </header>
       <label>Wohnen <b id="dem-r">0</b><i id="bar-r"></i></label>
       <label>Gewerbe <b id="dem-c">0</b><i id="bar-c"></i></label>
       <label>Industrie <b id="dem-i">0</b><i id="bar-i"></i></label>
@@ -206,7 +238,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.22</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.23</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>

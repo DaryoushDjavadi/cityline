@@ -1,5 +1,6 @@
 import { cityTitle, currentGoal, formatClock, GOALS, LEVELS, type ChatMessage, type LevelStatus, type SimMeta } from "../../../shared/src/index.ts";
 import { CHANGELOG, type PatchNote } from "./changelog.ts";
+import { isCompactHud, onCompactHudChange } from "./layout.ts";
 
 export type ToolId =
   | "inspect"
@@ -114,6 +115,7 @@ export interface HudControls {
   onFocusPlayer: (id: string) => void;
   onNameReady: (name: string) => void;
   onTogglePan: () => void;
+  onCompactPanel: (panel: "menu" | "demand" | "stats") => void;
 }
 
 const money = new Intl.NumberFormat("de-DE");
@@ -145,6 +147,9 @@ export interface Hud {
   setChatUnread: (count: number) => void;
   setChatEnabled: (enabled: boolean, note: string) => void;
   setPanMode: (on: boolean) => void;
+  setMenuOpen: (open: boolean) => void;
+  setDemandOpen: (open: boolean) => void;
+  setStatsOpen: (open: boolean) => void;
   setPeerCursors: (cursors: { id: string; name: string; x: number; y: number }[]) => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
@@ -162,6 +167,9 @@ export interface Hud {
 export function createHud(events: HudControls): Hud {
   const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool]")];
   const togglePan = requiredButton("#toggle-pan");
+  const togglePanHud = requiredButton("#toggle-pan-hud");
+  const toggleDemand = requiredButton("#toggle-demand");
+  const toggleStats = requiredButton("#toggle-stats");
   const peerCursors = required("#peer-cursors");
   const funds = required("#funds");
   const pop = required("#pop");
@@ -262,22 +270,79 @@ export function createHud(events: HudControls): Hud {
   };
   requiredButton("#open-notes").addEventListener("click", () => paintNotes(notes.hidden));
   requiredButton("#notes-close").addEventListener("click", () => paintNotes(false));
-  let menuOpen = true;
+  let menuOpen = !isCompactHud();
+  let demandOpen = false;
+  let statsOpen = false;
   const paintMenu = () => {
     document.body.dataset.menu = menuOpen ? "open" : "closed";
-    toggleLabel.textContent = menuOpen ? "Menü zuklappen" : "Menü aufklappen";
+    toggleLabel.textContent = isCompactHud() ? "Bauen" : menuOpen ? "Menü zuklappen" : "Menü aufklappen";
     toggleRail.setAttribute("aria-expanded", String(menuOpen));
+    toggleRail.setAttribute("aria-label", menuOpen ? "Baumenü zuklappen" : "Baumenü aufklappen");
+  };
+  const paintDemandOpen = () => {
+    document.body.dataset.demand = demandOpen ? "open" : "closed";
+    toggleDemand.setAttribute("aria-expanded", String(demandOpen));
+    toggleDemand.classList.toggle("active", demandOpen);
+  };
+  const paintStatsOpen = () => {
+    document.body.dataset.stats = statsOpen ? "open" : "closed";
+    toggleStats.setAttribute("aria-expanded", String(statsOpen));
+    toggleStats.classList.toggle("active", statsOpen);
   };
   toggleRail.addEventListener("click", () => {
     menuOpen = !menuOpen;
     paintMenu();
+    if (menuOpen) events.onCompactPanel("menu");
+  });
+  toggleDemand.addEventListener("click", () => {
+    demandOpen = !demandOpen;
+    paintDemandOpen();
+    if (demandOpen) events.onCompactPanel("demand");
+  });
+  requiredButton("#demand-close").addEventListener("click", () => {
+    demandOpen = false;
+    paintDemandOpen();
+  });
+  toggleStats.addEventListener("click", () => {
+    statsOpen = !statsOpen;
+    paintStatsOpen();
+    if (statsOpen) events.onCompactPanel("stats");
+  });
+  onCompactHudChange((compact) => {
+    if (compact) {
+      menuOpen = false;
+      demandOpen = false;
+      statsOpen = false;
+    } else {
+      menuOpen = true;
+      demandOpen = false;
+      statsOpen = false;
+    }
+    paintMenu();
+    paintDemandOpen();
+    paintStatsOpen();
   });
   paintMenu();
+  paintDemandOpen();
+  paintStatsOpen();
 
   toolButtons.forEach((button) => {
-    button.addEventListener("click", () => events.onTool(button.dataset.tool as ToolId));
+    button.addEventListener("click", () => {
+      events.onTool(button.dataset.tool as ToolId);
+      if (isCompactHud()) {
+        menuOpen = false;
+        paintMenu();
+      }
+    });
   });
-  togglePan.addEventListener("click", () => events.onTogglePan());
+  togglePan.addEventListener("click", () => {
+    events.onTogglePan();
+    if (isCompactHud()) {
+      menuOpen = false;
+      paintMenu();
+    }
+  });
+  togglePanHud.addEventListener("click", () => events.onTogglePan());
   for (const overlay of ["zones", "power", "water"] as const) {
     const input = document.querySelector<HTMLInputElement>(`#ov-${overlay}`);
     input?.addEventListener("change", () => events.onOverlay(overlay, input.checked));
@@ -488,8 +553,20 @@ export function createHud(events: HudControls): Hud {
       document.body.dataset.chat = open ? "on" : "off";
       if (open) {
         chatLog.scrollTop = chatLog.scrollHeight;
-        chatInput.focus();
+        if (!isCompactHud()) chatInput.focus();
       }
+    },
+    setMenuOpen(open) {
+      menuOpen = open;
+      paintMenu();
+    },
+    setDemandOpen(open) {
+      demandOpen = open;
+      paintDemandOpen();
+    },
+    setStatsOpen(open) {
+      statsOpen = open;
+      paintStatsOpen();
     },
     setChatMessages(messages, selfId) {
       const slack = 48;
@@ -520,6 +597,8 @@ export function createHud(events: HudControls): Hud {
     setPanMode(on) {
       togglePan.classList.toggle("active", on);
       togglePan.setAttribute("aria-pressed", String(on));
+      togglePanHud.classList.toggle("active", on);
+      togglePanHud.setAttribute("aria-pressed", String(on));
       document.body.dataset.pan = on ? "on" : "off";
     },
     setPeerCursors(cursors) {
