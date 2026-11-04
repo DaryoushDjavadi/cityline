@@ -19,6 +19,7 @@ export const COST = {
   park: 2000,
   university: 18000,
   airport: 48000,
+  lamp: 120,
 } as const;
 
 export const DIRS = [
@@ -65,9 +66,24 @@ export function worldToCell(
 
 /** Orthogonal stroke: along X, then along Y, so a drag bends in one right angle and never skips a cell. */
 export function lineCells(grid: GridLike, x0: number, y0: number, x1: number, y1: number): number[] {
+  return lineStroke(grid, x0, y0, x1, y1).cells;
+}
+
+/** Same as lineCells, plus whether the L-corner stayed on the map (no gap). */
+export function lineStroke(
+  grid: GridLike,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): { cells: number[]; complete: boolean } {
   const cells: number[] = [];
+  let complete = true;
   const push = (x: number, y: number) => {
-    if (!inBounds(grid, x, y)) return;
+    if (!inBounds(grid, x, y)) {
+      complete = false;
+      return;
+    }
     const index = cellIndex(grid, x, y);
     if (cells[cells.length - 1] !== index) cells.push(index);
   };
@@ -75,7 +91,18 @@ export function lineCells(grid: GridLike, x0: number, y0: number, x1: number, y1
   for (let x = x0; x !== x1 + xDir; x += xDir) push(x, y0);
   const yDir = y0 <= y1 ? 1 : -1;
   for (let y = y0; y !== y1 + yDir; y += yDir) push(x1, y);
-  return cells;
+  return { cells, complete };
+}
+
+/** True when every consecutive pair in stroke order shares an edge. */
+export function strokeConnected(grid: GridLike, cells: readonly number[]): boolean {
+  if (cells.length <= 1) return true;
+  for (let i = 1; i < cells.length; i += 1) {
+    const a = cellCoords(grid, cells[i - 1]);
+    const b = cellCoords(grid, cells[i]);
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) return false;
+  }
+  return true;
 }
 
 export function brushCells(grid: GridLike, x: number, y: number, radius: number): number[] {

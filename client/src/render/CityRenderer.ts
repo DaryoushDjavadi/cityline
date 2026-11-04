@@ -9,18 +9,23 @@ import {
   Zone,
   cellCoords,
   cellToWorld,
+  climateAt,
   inBounds,
   computeTraffic,
   helpBadges,
+  utilityOutageBadges,
   isBridge,
   isLine,
   isPipe,
   isRoad,
   isWater,
+  vegetationRoll,
+  type BiomeId,
   type CityState,
+  type Climate,
 } from "../../../shared/src/index.ts";
-import { streetCars, type StreetCar } from "../../../shared/src/people.ts";
-import { buildModels, buildPlaneGeometry, modelForService, modelForZone } from "./models.ts";
+import { streetCars, streetPedestrians, type StreetCar, type StreetPedestrian } from "../../../shared/src/people.ts";
+import { buildCarModels, buildModels, buildPlaneGeometry, modelForFarm, modelForService, modelForZone } from "./models.ts";
 
 const CORNER_ROT: Record<number, number> = {
   3: 0,
@@ -30,6 +35,8 @@ const CORNER_ROT: Record<number, number> = {
 };
 
 const CAP = GRID_SIZE * GRID_SIZE;
+const CAR_GAP = 5.2;
+const PED_GAP = 1.15;
 
 interface Walker {
   id: string;
@@ -38,11 +45,27 @@ interface Walker {
   driver: string;
   members: string;
   label: string;
+  kind: string;
   from: number;
   to: number;
   t: number;
   speed: number;
   color: number;
+  x: number;
+  z: number;
+}
+
+interface Pedestrian {
+  id: string;
+  home: number;
+  name: string;
+  child: boolean;
+  from: number;
+  to: number;
+  t: number;
+  speed: number;
+  color: number;
+  side: number;
   x: number;
   z: number;
 }
@@ -68,6 +91,20 @@ export class CityRenderer {
   private readonly dummy = new THREE.Object3D();
   private readonly tint = new THREE.Color();
   private readonly sun: THREE.DirectionalLight;
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly fog: THREE.Fog;
+  private readonly people: THREE.InstancedMesh;
+  private readonly headlights: THREE.InstancedMesh;
+  private readonly streetLamps: THREE.InstancedMesh;
+  private readonly lampPoles: THREE.InstancedMesh;
+  private readonly nightGlows: THREE.InstancedMesh;
+  private readonly rain: THREE.Points;
+  private readonly rainPositions: Float32Array;
+  private pedestrians: Pedestrian[] = [];
+  private climateStamp = "";
+  private streetActivity = 0.4;
+  private nightLit = false;
+  private rainyPace = 1;
   private readonly buildings: THREE.InstancedMesh;
   private readonly services: THREE.InstancedMesh;
   private readonly curbs: THREE.InstancedMesh;
@@ -77,8 +114,12 @@ export class CityRenderer {
   private readonly power: THREE.InstancedMesh;
   private readonly water: THREE.InstancedMesh;
   private readonly preview: THREE.InstancedMesh;
+  private readonly radiusRing: THREE.InstancedMesh;
+  private readonly births = new Map<number, number>();
+  private lastOverlays: Overlays = { zones: true, power: false, water: false };
   private readonly locks: THREE.InstancedMesh;
-  private readonly cars: THREE.InstancedMesh;
+  private readonly carMeshes = new Map<string, THREE.InstancedMesh>();
+  private readonly carSlots = new Map<string, number>();
   private readonly corners: THREE.InstancedMesh;
   private readonly cornerCurbs: THREE.InstancedMesh;
   private readonly cables: THREE.InstancedMesh;
@@ -97,8 +138,10 @@ export class CityRenderer {
   private seaTime = 0;
   private readonly idleBadges: THREE.Sprite[] = [];
   private readonly jobBadges: THREE.Sprite[] = [];
+  private readonly utilityBadges: THREE.Sprite[] = [];
   private readonly idleMaterial: THREE.SpriteMaterial;
   private readonly jobMaterial: THREE.SpriteMaterial;
+  private readonly utilityMaterial: THREE.SpriteMaterial;
   private badgeTime = 0;
   private readonly hover: THREE.LineLoop;
   private readonly peerMarks: THREE.Group[] = [];
@@ -116,12 +159,13 @@ export class CityRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene.background = new THREE.Color(0x9eb9c9);
-    this.scene.fog = new THREE.Fog(0x9eb9c9, 420, 1500);
+    this.fog = new THREE.Fog(0x9eb9c9, 420, 1500);
+    this.scene.fog = this.fog;
 
-    const hemi = new THREE.HemisphereLight(0xf4f7fb, 0x3d6470, 1.05);
+    this.hemi = new THREE.HemisphereLight(0xf4f7fb, 0x3d6470, 1.05);
     this.sun = new THREE.DirectionalLight(0xfff4df, 1.5);
     this.sun.target.position.set(0, 0, 0);
-    this.scene.add(hemi, this.sun, this.sun.target);
+    this.scene.add(this.hemi, this.sun, this.sun.target);
 
     const sea = new THREE.PlaneGeometry(5200, 5200, 90, 90);
     sea.rotateX(-Math.PI / 2);
@@ -164,9 +208,56 @@ export class CityRenderer {
     this.power = mesh(plane, flat(0x7ed0ff, 0.7));
     this.water = mesh(plane, flat(0x3d7ed6, 0.65));
     this.preview = mesh(plane, flat(0xffffff, 0.72));
+    this.radiusRing = mesh(plane, flat(0x7eb8e6, 0.18), 48);
     this.locks = mesh(plane, flat(0xff9a3c, 0.45));
-    this.cars = mesh(new THREE.BoxGeometry(1, 1, 1), lit);
+    const carMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.18 });
+    for (const model of buildCarModels()) {
+      const instances = new THREE.InstancedMesh(model.geometry, carMat, 80);
+      instances.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(80 * 3), 3);
+      instances.count = 0;
+      instances.frustumCulled = false;
+      this.carMeshes.set(model.key, instances);
+      this.carSlots.set(model.key, 0);
+      this.scene.add(instances);
+    }
+    this.people = mesh(new THREE.CapsuleGeometry(0.28, 0.85, 3, 6), lit, 80);
+    this.headlights = mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xfff2c4 }),
+      160,
+    );
+    this.lampPoles = mesh(new THREE.CylinderGeometry(0.12, 0.16, 1, 6), lit, 400);
+    this.streetLamps = mesh(
+      new THREE.SphereGeometry(0.45, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffe6b0 }),
+      400,
+    );
+    this.nightGlows = mesh(
+      new THREE.SphereGeometry(1, 10, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd89a,
+        transparent: true,
+        opacity: 0.2,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+      700,
+    );
     this.planes = mesh(buildPlaneGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.12 }), 24);
+    this.rainPositions = new Float32Array(900 * 3);
+    for (let i = 0; i < 900; i += 1) {
+      this.rainPositions[i * 3] = (Math.random() - 0.5) * 220;
+      this.rainPositions[i * 3 + 1] = Math.random() * 80;
+      this.rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 220;
+    }
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute("position", new THREE.BufferAttribute(this.rainPositions, 3));
+    this.rain = new THREE.Points(
+      rainGeo,
+      new THREE.PointsMaterial({ color: 0xb7c9d8, size: 0.55, transparent: true, opacity: 0.55 }),
+    );
+    this.rain.visible = false;
+    this.rain.frustumCulled = false;
     this.cornerCurbs = mesh(cornerGeometry(0.04, 0.96, 0.02, 0.1), lit);
     this.corners = mesh(cornerGeometry(0.11, 0.89, 0.1, 0.18), lit);
     this.cables = mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.45 }), CAP * 6);
@@ -188,6 +279,7 @@ export class CityRenderer {
     }
     this.idleMaterial = new THREE.SpriteMaterial({ map: personBadge(), transparent: true, depthWrite: false });
     this.jobMaterial = new THREE.SpriteMaterial({ map: jobBadge(), transparent: true, depthWrite: false });
+    this.utilityMaterial = new THREE.SpriteMaterial({ map: utilityBadge(), transparent: true, depthWrite: false });
     this.scene.add(
       this.curbs,
       this.cornerCurbs,
@@ -207,9 +299,15 @@ export class CityRenderer {
       this.poles,
       this.cables,
       this.preview,
+      this.radiusRing,
       this.locks,
-      this.cars,
+      this.people,
+      this.headlights,
+      this.lampPoles,
+      this.streetLamps,
+      this.nightGlows,
       this.planes,
+      this.rain,
     );
 
     const loop = new THREE.BufferGeometry().setFromPoints([
@@ -245,11 +343,19 @@ export class CityRenderer {
     this.renderer.setSize(width, height, false);
   }
 
+  /** Fresh builds pop in for a short beat. */
+  noteBuilt(cells: readonly number[]): void {
+    const now = performance.now();
+    for (const cell of cells) this.births.set(cell, now);
+  }
+
   sync(city: CityState, overlays: Overlays): void {
     this.shown = city;
+    this.lastOverlays = overlays;
     this.traffic = computeTraffic(city).load;
     if (this.roadsChanged(city)) this.rebuildGraph(city);
     this.syncCars(city);
+    this.syncPedestrians(city);
     this.syncFlights(city);
     this.rebuildGround(city);
 
@@ -331,39 +437,54 @@ export class CityRenderer {
         const color =
           city.zones[index] === Zone.Residential ? 0x3f9d55
           : city.zones[index] === Zone.Commercial ? 0x2f86c6
-          : city.zones[index] === Zone.Farm ? 0xc4b44a
+          : city.zones[index] === Zone.Farm
+            ? ((city.skills[index] & 0b1000) !== 0 ? 0x7a9a55 : 0xc4b44a)
           : 0xd0892b;
         this.put(this.zones, zoneCount, world.x, 0.08, world.z, CELL_SIZE * 0.92, 1, CELL_SIZE * 0.92, 0, color);
         zoneCount += 1;
       }
 
       if (city.levels[index] > 0) {
-        const shape = modelForZone(city.zones[index], city.levels[index]);
+        const shape =
+          city.zones[index] === Zone.Farm
+            ? modelForFarm(city.skills[index])
+            : modelForZone(city.zones[index], city.levels[index]);
         if (shape) {
           const powered = (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
-          this.placeModel(shape.key, world.x, world.z, powered ? 0xffffff : 0x8d847c);
+          const nightWarm = this.nightLit && (city.utility[index] & POWER_BIT) !== 0;
+          this.placeModel(shape.key, world.x, world.z, powered ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index);
         }
       }
 
       const service = city.services[index];
+      if (service === ServiceKind.Lamp) {
+        // Poles and night glow are drawn in paintLocalLights.
+      } else {
       const served = modelForService(service);
       if (served) {
         const airportLit =
           service !== ServiceKind.Airport || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
-        this.placeModel(served.key, world.x, world.z, airportLit ? 0xffffff : 0x8d847c);
+        const nightWarm = this.nightLit && airportLit && (city.utility[index] & POWER_BIT) !== 0;
+        this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index);
       } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index)) {
-        const roll = scatter(x, y) % 19;
+        const forest = city.gen?.forest ?? 50;
+        const seed = city.gen?.seed ?? 1;
+        const biome = city.gen?.biome ?? "temperate";
+        const canopy = vegetationRoll(x, y, seed);
         const jx = ((scatter(x + 3, y) % 7) - 3) * 0.7;
         const jz = ((scatter(x, y + 5) % 7) - 3) * 0.7;
-        if (roll === 0 || roll === 4 || roll === 11) {
-          const tall = 2.1 + (scatter(x, y) % 5) * 0.35;
-          this.put(this.trees, trees, world.x + jx, tall / 2, world.z + jz, 1.4 + (roll % 3) * 0.25, tall, 1.4, 0, roll === 4 ? 0x2f5a34 : 0x4e7d43);
+        const stoneChance = biome === "arid" ? 28 : biome === "alpine" ? 18 : 10;
+        if (canopy < forest * 0.72) {
+          const tall = (biome === "alpine" ? 2.6 : biome === "tropical" ? 2.8 : 2.1) + (scatter(x, y) % 5) * 0.35;
+          const tint = treeTint(biome, canopy);
+          this.put(this.trees, trees, world.x + jx, tall / 2, world.z + jz, 1.3 + (canopy % 3) * 0.22, tall, 1.3, 0, tint);
           trees += 1;
-        } else if (roll === 7 || roll === 15) {
+        } else if (vegetationRoll(x + 11, y + 5, seed) < stoneChance) {
           const size = 1.1 + (scatter(y, x) % 4) * 0.35;
-          this.put(this.stones, stones, world.x + jx, size * 0.35, world.z + jz, size, size * 0.7, size * 0.85, (scatter(x, y) % 5) * 0.4, 0x8d877c);
+          this.put(this.stones, stones, world.x + jx, size * 0.35, world.z + jz, size, size * 0.7, size * 0.85, (scatter(x, y) % 5) * 0.4, biome === "arid" ? 0xa89878 : 0x8d877c);
           stones += 1;
         }
+      }
       }
     }
 
@@ -388,17 +509,32 @@ export class CityRenderer {
     const badges = helpBadges(city);
     this.placeBadges(this.idleBadges, this.idleMaterial, badges.homes, city);
     this.placeBadges(this.jobBadges, this.jobMaterial, badges.workplaces, city);
+    this.placeBadges(this.utilityBadges, this.utilityMaterial, utilityOutageBadges(city), city);
     this.paintCars();
+    this.paintPedestrians();
     this.paintPlanes();
+    this.paintLocalLights();
   }
 
-  setPreview(city: CityState, cells: number[], legal: boolean[]): void {
+  setPreview(city: CityState, cells: number[], legal: boolean[], radius = 0): void {
     cells.forEach((index, slot) => {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
       this.put(this.preview, slot, world.x, 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, legal[slot] ? 0x8ee7a0 : 0xe36d62);
     });
     this.finish(this.preview, cells.length);
+    let rings = 0;
+    if (radius > 0 && cells.length > 0 && legal[0]) {
+      const { x, y } = cellCoords(city, cells[0]);
+      const world = cellToWorld(city, x, y);
+      const span = (radius * 2 + 1) * CELL_SIZE;
+      this.put(this.radiusRing, rings, world.x, 0.16, world.z, span, 1, span, 0, 0x7eb8e6);
+      rings += 1;
+      const inner = Math.max(CELL_SIZE * 1.2, span * 0.42);
+      this.put(this.radiusRing, rings, world.x, 0.18, world.z, inner, 1, inner, 0, 0xa8d4f0);
+      rings += 1;
+    }
+    this.finish(this.radiusRing, rings);
   }
 
   setLocks(city: CityState, cells: number[]): void {
@@ -422,25 +558,51 @@ export class CityRenderer {
   }
 
   update(dt: number, target: THREE.Vector3): void {
-    this.sun.position.set(target.x + 90, 170, target.z + 36);
-    this.sun.target.position.copy(target);
-    this.sun.target.updateMatrixWorld();
+    const climate = climateAt(this.shown?.tick ?? 0);
+    this.applyClimate(climate, target);
     this.seaTime += dt;
     this.seaMaterial.uniforms.uTime.value = this.seaTime;
     this.badgeTime += dt;
     const bob = Math.sin(this.badgeTime * 2.4) * 0.35;
-    for (const sprite of [...this.idleBadges, ...this.jobBadges]) {
+    const pulse = 1 + Math.sin(this.badgeTime * 4.2) * 0.12;
+    for (const sprite of this.idleBadges) {
       if (!sprite.visible) continue;
       sprite.position.y = Number(sprite.userData.baseY) + bob;
+      sprite.scale.setScalar(4.8);
     }
+    for (const sprite of this.jobBadges) {
+      if (!sprite.visible) continue;
+      sprite.position.y = Number(sprite.userData.baseY) + bob * 0.7;
+      sprite.scale.setScalar(4.6);
+    }
+    for (const sprite of this.utilityBadges) {
+      if (!sprite.visible) continue;
+      sprite.position.y = Number(sprite.userData.baseY) + bob;
+      sprite.scale.setScalar(4.8 * pulse);
+    }
+    if (this.shown && this.births.size > 0) this.sync(this.shown, this.lastOverlays);
     this.flightTime += dt;
     if (this.flights.length > 0) this.paintPlanes();
-    if (this.walkers.length === 0) return;
+    this.updateRain(dt, target, climate);
+    const jam = 0.45 + (1 - this.streetActivity) * 0.7;
+    const pace = jam * this.rainyPace;
+    // Refresh world positions before collision checks.
+    for (const walker of this.walkers) this.placeCar(walker);
+    for (const ped of this.pedestrians) this.placePed(ped);
     for (const walker of this.walkers) {
-      walker.t += dt * walker.speed;
+      if (this.carBlocked(walker)) continue;
+      walker.t += dt * walker.speed * pace;
       if (walker.t >= 1) this.advance(walker);
+      this.placeCar(walker);
+    }
+    for (const ped of this.pedestrians) {
+      if (this.pedBlocked(ped)) continue;
+      ped.t += dt * ped.speed * (0.7 + this.streetActivity * 0.5) * this.rainyPace;
+      if (ped.t >= 1) this.advancePed(ped);
+      this.placePed(ped);
     }
     this.paintCars();
+    this.paintPedestrians();
   }
 
   render(camera: THREE.Camera): void {
@@ -488,6 +650,8 @@ export class CityRenderer {
       walker.members = car.members;
       walker.label = car.label;
       walker.surname = car.surname;
+      walker.kind = car.kind;
+      walker.color = car.color;
     }
   }
 
@@ -495,6 +659,14 @@ export class CityRenderer {
     const roads = [...this.graph.keys()];
     const nearest = nearestRoad(city, car.home, roads);
     const links = this.graph.get(nearest) ?? [];
+    const to = links[0] ?? nearest;
+    let t = (hashCode(car.id) % 100) / 100;
+    // Spread out if someone already sits on this edge.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const hit = this.walkers.some((other) => other.from === nearest && other.to === to && Math.abs(other.t - t) < 0.22);
+      if (!hit) break;
+      t = (t + 0.17) % 1;
+    }
     return {
       id: car.id,
       home: car.home,
@@ -502,9 +674,10 @@ export class CityRenderer {
       driver: car.driver,
       members: car.members,
       label: car.label,
+      kind: car.kind,
       from: nearest,
-      to: links[0] ?? nearest,
-      t: (hashCode(car.id) % 100) / 100,
+      to,
+      t,
       speed: 0.8 + (hashCode(car.id) % 40) / 100,
       color: car.color,
       x: 0,
@@ -535,23 +708,310 @@ export class CityRenderer {
     }
     const forward = options.filter((index) => index !== walker.from);
     const pool = forward.length > 0 ? forward : options;
-    walker.from = walker.to;
-    walker.to = pool[Math.floor(Math.random() * pool.length)];
+    const from = walker.to;
+    const ranked = [...pool].sort((a, b) => this.edgeLoad(from, a) - this.edgeLoad(from, b));
+    walker.from = from;
+    walker.to = ranked[0] ?? from;
     walker.t = 0;
   }
 
+  private edgeLoad(from: number, to: number): number {
+    let load = 0;
+    for (const other of this.walkers) {
+      if (other.from === from && other.to === to) load += 2;
+      else if (other.from === to && other.to === from) load += 1;
+    }
+    return load;
+  }
+
+  private placeCar(walker: Walker): void {
+    const from = this.point(walker.from);
+    const to = this.point(walker.to);
+    walker.x = from.x + (to.x - from.x) * walker.t;
+    walker.z = from.z + (to.z - from.z) * walker.t;
+  }
+
+  /** Hold if another car is too close ahead (or overlapping). */
+  private carBlocked(walker: Walker): boolean {
+    const from = this.point(walker.from);
+    const to = this.point(walker.to);
+    const fx = to.x - from.x;
+    const fz = to.z - from.z;
+    const len = Math.hypot(fx, fz) || 1;
+    const nx = fx / len;
+    const nz = fz / len;
+    for (const other of this.walkers) {
+      if (other.id === walker.id) continue;
+      const dx = other.x - walker.x;
+      const dz = other.z - walker.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= CAR_GAP) continue;
+      const ahead = dx * nx + dz * nz;
+      if (ahead > 0.2) return true;
+      if (dist < CAR_GAP * 0.55) return true;
+    }
+    return false;
+  }
+
   private paintCars(): void {
-    this.walkers.forEach((walker, slot) => {
+    for (const key of this.carSlots.keys()) this.carSlots.set(key, 0);
+    let lights = 0;
+    for (const walker of this.walkers) {
+      this.placeCar(walker);
       const from = this.point(walker.from);
       const to = this.point(walker.to);
-      const x = from.x + (to.x - from.x) * walker.t;
-      const z = from.z + (to.z - from.z) * walker.t;
       const y = this.driveHeight(walker.from) + (this.driveHeight(walker.to) - this.driveHeight(walker.from)) * walker.t;
-      walker.x = x;
-      walker.z = z;
-      this.put(this.cars, slot, x, y, z, 2.1, 1.25, 4.3, Math.atan2(to.x - from.x, to.z - from.z), walker.color);
+      const rotY = Math.atan2(to.x - from.x, to.z - from.z);
+      const kind = this.carMeshes.has(walker.kind) ? walker.kind : "sedan";
+      const mesh = this.carMeshes.get(kind);
+      if (!mesh) continue;
+      const slot = this.carSlots.get(kind) ?? 0;
+      if (slot >= 80) continue;
+      this.put(mesh, slot, walker.x, y, walker.z, 1, 1, 1, rotY, walker.color);
+      this.carSlots.set(kind, slot + 1);
+      if (this.nightLit && lights + 1 < 160) {
+        const fx = Math.sin(rotY);
+        const fz = Math.cos(rotY);
+        const rx = Math.cos(rotY) * 0.52;
+        const rz = -Math.sin(rotY) * 0.52;
+        this.put(this.headlights, lights, walker.x + fx * 1.9 + rx, y + 0.55, walker.z + fz * 1.9 + rz, 0.3, 0.18, 0.14, rotY, 0xfff2c4);
+        lights += 1;
+        this.put(this.headlights, lights, walker.x + fx * 1.9 - rx, y + 0.55, walker.z + fz * 1.9 - rz, 0.3, 0.18, 0.14, rotY, 0xfff2c4);
+        lights += 1;
+      }
+    }
+    for (const [key, instances] of this.carMeshes) this.finish(instances, this.carSlots.get(key) ?? 0);
+    this.finish(this.headlights, this.nightLit ? lights : 0);
+  }
+
+  private syncPedestrians(city: CityState): void {
+    const roster = streetPedestrians(city);
+    const previous = new Map(this.pedestrians.map((ped) => [ped.id, ped]));
+    this.pedestrians = roster.map((entry) => previous.get(entry.id) ?? this.spawnPedestrian(city, entry));
+  }
+
+  private spawnPedestrian(city: CityState, entry: StreetPedestrian): Pedestrian {
+    const roads = [...this.graph.keys()];
+    const nearest = nearestRoad(city, entry.home, roads);
+    const links = this.graph.get(nearest) ?? [];
+    const to = links[0] ?? nearest;
+    const side = hashCode(entry.id) % 2 === 0 ? 1 : -1;
+    let t = (hashCode(entry.id) % 100) / 100;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const hit = this.pedestrians.some(
+        (other) => other.side === side && other.from === nearest && other.to === to && Math.abs(other.t - t) < 0.2,
+      );
+      if (!hit) break;
+      t = (t + 0.19) % 1;
+    }
+    return {
+      id: entry.id,
+      home: entry.home,
+      name: entry.name,
+      child: entry.child,
+      from: nearest,
+      to,
+      t,
+      speed: entry.child ? 0.32 + (hashCode(entry.id) % 20) / 100 : 0.28 + (hashCode(entry.id) % 18) / 100,
+      color: entry.color,
+      side,
+      x: 0,
+      z: 0,
+    };
+  }
+
+  private advancePed(ped: Pedestrian): void {
+    const options = this.graph.get(ped.to) ?? [];
+    if (options.length === 0) {
+      ped.t = 0;
+      return;
+    }
+    const forward = options.filter((index) => index !== ped.from);
+    const pool = forward.length > 0 ? forward : options;
+    const from = ped.to;
+    const ranked = [...pool].sort((a, b) => this.pedEdgeLoad(from, a, ped.side) - this.pedEdgeLoad(from, b, ped.side));
+    ped.from = from;
+    ped.to = ranked[0] ?? from;
+    ped.t = 0;
+  }
+
+  private pedEdgeLoad(from: number, to: number, side: number): number {
+    let load = 0;
+    for (const other of this.pedestrians) {
+      if (other.side !== side) continue;
+      if (other.from === from && other.to === to) load += 2;
+      else if (other.from === to && other.to === from) load += 1;
+    }
+    return load;
+  }
+
+  private placePed(ped: Pedestrian): void {
+    const from = this.point(ped.from);
+    const to = this.point(ped.to);
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const curb = CELL_SIZE * 0.4;
+    const ox = (-dz / len) * curb * ped.side;
+    const oz = (dx / len) * curb * ped.side;
+    ped.x = from.x + dx * ped.t + ox;
+    ped.z = from.z + dz * ped.t + oz;
+  }
+
+  private pedBlocked(ped: Pedestrian): boolean {
+    const from = this.point(ped.from);
+    const to = this.point(ped.to);
+    const fx = to.x - from.x;
+    const fz = to.z - from.z;
+    const len = Math.hypot(fx, fz) || 1;
+    const nx = fx / len;
+    const nz = fz / len;
+    for (const other of this.pedestrians) {
+      if (other.id === ped.id) continue;
+      if (other.side !== ped.side) continue;
+      const dx = other.x - ped.x;
+      const dz = other.z - ped.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= PED_GAP) continue;
+      const ahead = dx * nx + dz * nz;
+      if (ahead > 0.15) return true;
+      if (dist < PED_GAP * 0.6) return true;
+    }
+    return false;
+  }
+
+  private paintPedestrians(): void {
+    this.pedestrians.forEach((ped, slot) => {
+      this.placePed(ped);
+      const from = this.point(ped.from);
+      const to = this.point(ped.to);
+      const y = this.driveHeight(ped.from) + (this.driveHeight(ped.to) - this.driveHeight(ped.from)) * ped.t;
+      const scale = ped.child ? 0.72 : 1;
+      this.put(
+        this.people,
+        slot,
+        ped.x,
+        y + 0.85 * scale,
+        ped.z,
+        scale,
+        scale,
+        scale,
+        Math.atan2(to.x - from.x, to.z - from.z),
+        ped.color,
+      );
     });
-    this.finish(this.cars, this.walkers.length);
+    this.finish(this.people, this.pedestrians.length);
+  }
+
+  private applyClimate(climate: Climate, target: THREE.Vector3): void {
+    this.streetActivity = climate.streetActivity;
+    this.nightLit = climate.isNight || climate.daylight < 0.28;
+    this.rainyPace = climate.weather === "rain" ? 0.72 : 1;
+    const stamp = `${climate.clock}:${climate.weather}:${climate.daylight.toFixed(2)}:${climate.streetActivity.toFixed(2)}`;
+    const sunHeight = 40 + climate.daylight * 140;
+    const ring = 50 + (1 - climate.daylight) * 40;
+    const az = climate.phase * Math.PI * 2;
+    this.sun.position.set(
+      target.x + Math.cos(az) * ring,
+      sunHeight,
+      target.z + Math.sin(az) * ring,
+    );
+    this.sun.target.position.copy(target);
+    this.sun.target.updateMatrixWorld();
+
+    if (stamp === this.climateStamp) return;
+    this.climateStamp = stamp;
+
+    const day = climate.daylight;
+    const rainy = climate.weather === "rain";
+    const cloudy = climate.weather === "cloud" || rainy;
+    const night = climate.isNight;
+    const golden = (climate.hour > 5.5 && climate.hour < 7.5) || (climate.hour > 17.5 && climate.hour < 19.5);
+    const sky = new THREE.Color().setHSL(
+      rainy ? 0.58 : golden ? 0.08 : night ? 0.62 : 0.57,
+      cloudy ? 0.12 : golden ? 0.45 : night ? 0.16 : 0.22 + day * 0.15,
+      night ? 0.24 + day * 0.1 : 0.1 + day * (cloudy ? 0.4 : 0.55),
+    );
+    this.scene.background = sky;
+    this.fog.color.copy(sky);
+    this.fog.near = rainy ? 160 : night ? 220 : 320 + day * 100;
+    this.fog.far = rainy ? 850 : night ? 1100 : 1200 + day * 400;
+    this.hemi.intensity = night ? 0.34 + day * 0.16 : 0.28 + day * 0.85;
+    this.hemi.color.set(night ? 0x9aa6c0 : day > 0.35 ? 0xf4f7fb : 0x8fa0c0);
+    this.hemi.groundColor.set(night ? 0x2a3842 : day > 0.35 ? 0x3d6470 : 0x1a2430);
+    this.sun.intensity = (night ? 0.28 + day * 0.12 : 0.15 + day * 1.45) * (rainy ? 0.55 : cloudy ? 0.75 : 1);
+    this.sun.color.set(golden ? 0xffb078 : day > 0.25 ? 0xfff4df : night ? 0x8ea0bc : 0x9bb0d8);
+    this.seaMaterial.uniforms.uShade.value = night ? 0.58 + day * 0.12 : rainy ? 0.78 : 1;
+    this.rain.visible = rainy;
+    this.paintLocalLights();
+  }
+
+  /** Built lamps + powered buildings add a warm night glow; the map itself stays readable. */
+  private paintLocalLights(): void {
+    if (!this.shown) {
+      this.finish(this.lampPoles, 0);
+      this.finish(this.streetLamps, 0);
+      this.finish(this.nightGlows, 0);
+      return;
+    }
+    const city = this.shown;
+    const count = city.width * city.height;
+    let poles = 0;
+    let bulbs = 0;
+    let glows = 0;
+    for (let index = 0; index < count; index += 1) {
+      const { x, y } = cellCoords(city, index);
+      const world = cellToWorld(city, x, y);
+      if (city.services[index] === ServiceKind.Lamp) {
+        const crest = isRoad(city, index) ? this.driveHeight(index) : 0.02;
+        const powered = (city.utility[index] & POWER_BIT) !== 0;
+        const ox = isRoad(city, index) ? 2.4 : 0;
+        const oz = isRoad(city, index) ? 2.4 : 0;
+        const px = world.x + ox;
+        const pz = world.z + oz;
+        if (poles < 400) {
+          this.put(this.lampPoles, poles, px, crest + 2.1, pz, 1, 4.2, 1, 0, 0x3a3f46);
+          poles += 1;
+        }
+        if (bulbs < 400) {
+          this.put(this.streetLamps, bulbs, px, crest + 4.35, pz, powered && this.nightLit ? 1.15 : 0.7, powered && this.nightLit ? 1.15 : 0.7, powered && this.nightLit ? 1.15 : 0.7, 0, powered ? 0xffe6b0 : 0x6a655c);
+          bulbs += 1;
+        }
+        if (this.nightLit && powered && glows + 1 < 700) {
+          this.put(this.nightGlows, glows, px, crest + 2.2, pz, 14, 7, 14, 0, 0xffd089);
+          glows += 1;
+        }
+      }
+      if (!this.nightLit) continue;
+      const building = city.levels[index] > 0 || (city.services[index] !== ServiceKind.None && city.services[index] !== ServiceKind.Lamp);
+      if (!building) continue;
+      if ((city.utility[index] & POWER_BIT) === 0) continue;
+      if (glows >= 700) continue;
+      const height = city.levels[index] > 0 ? 1.2 + city.levels[index] * 0.55 : 2.4;
+      const radius = city.services[index] === ServiceKind.Airport ? 18 : city.levels[index] >= 5 ? 11 : 8;
+      this.put(this.nightGlows, glows, world.x, height, world.z, radius, radius * 0.55, radius, 0, 0xffe2b0);
+      glows += 1;
+    }
+    this.finish(this.lampPoles, poles);
+    this.finish(this.streetLamps, bulbs);
+    this.finish(this.nightGlows, glows);
+  }
+
+  private updateRain(dt: number, target: THREE.Vector3, _climate: Climate): void {
+    if (!this.rain.visible) return;
+    this.rain.position.set(target.x, 0, target.z);
+    const speed = 38 * dt;
+    for (let i = 0; i < 900; i += 1) {
+      let y = this.rainPositions[i * 3 + 1] - speed * (0.7 + (i % 5) * 0.12);
+      if (y < 0) {
+        y = 55 + Math.random() * 30;
+        this.rainPositions[i * 3] = (Math.random() - 0.5) * 220;
+        this.rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 220;
+      }
+      this.rainPositions[i * 3 + 1] = y;
+    }
+    const attr = this.rain.geometry.getAttribute("position") as THREE.BufferAttribute;
+    attr.needsUpdate = true;
   }
 
   private syncFlights(city: CityState): void {
@@ -604,7 +1064,11 @@ export class CityRenderer {
     cells.forEach((cell, slot) => {
       const coords = cellCoords(city, cell);
       const spot = cellToWorld(city, coords.x, coords.y);
-      const shape = modelForZone(city.zones[cell], city.levels[cell]);
+      const shape =
+        (city.zones[cell] === Zone.Farm
+          ? modelForFarm(city.skills[cell])
+          : modelForZone(city.zones[cell], city.levels[cell]))
+        ?? modelForService(city.services[cell]);
       const top = (shape?.height ?? 4) + 2.4;
       const sprite = pool[slot];
       sprite.visible = true;
@@ -695,8 +1159,8 @@ export class CityRenderer {
   }
 
   private asphaltColor(load: number): number {
-    const heat = load / 255;
-    this.tint.setRGB(0.2 + heat * 0.4, 0.22 - heat * 0.05, 0.24 - heat * 0.06);
+    const heat = Math.min(1, (load / 255) * (0.35 + this.streetActivity * 1.15));
+    this.tint.setRGB(0.2 + heat * 0.45, 0.22 - heat * 0.08, 0.24 - heat * 0.1);
     return this.tint.getHex();
   }
 
@@ -780,13 +1244,26 @@ export class CityRenderer {
     return { curbs, roads };
   }
 
-  private placeModel(key: string, x: number, z: number, color: number): void {
+  private placeModel(key: string, x: number, z: number, color: number, cell = -1): void {
     const instances = this.models.get(key);
     if (!instances) return;
     const slot = this.modelSlot.get(key) ?? 0;
     if (slot >= 700) return;
-    this.put(instances, slot, x, 0, z, 1, 1, 1, 0, color);
+    const scale = cell >= 0 ? this.birthScale(cell) : 1;
+    this.put(instances, slot, x, 0, z, scale, scale, scale, 0, color);
     this.modelSlot.set(key, slot + 1);
+  }
+
+  private birthScale(index: number): number {
+    const born = this.births.get(index);
+    if (born === undefined) return 1;
+    const t = (performance.now() - born) / 420;
+    if (t >= 1) {
+      this.births.delete(index);
+      return 1;
+    }
+    const u = 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
+    return 0.2 + u * 0.8;
   }
 
   private rebuildGround(city: CityState): void {
@@ -795,7 +1272,7 @@ export class CityRenderer {
       hash ^= city.terrain[index];
       hash = Math.imul(hash, 16777619);
     }
-    const stamp = `${hash}`;
+    const stamp = `${hash}:${city.gen?.biome ?? "temperate"}`;
     if (stamp === this.groundStamp) return;
     this.groundStamp = stamp;
     const built = islandSurface(city);
@@ -839,7 +1316,7 @@ function neighborIndex(city: CityState, x: number, y: number, dx: number, dy: nu
 
 function seaMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uShade: { value: 1 } },
     vertexShader: `
       uniform float uTime;
       varying float vWave;
@@ -854,6 +1331,7 @@ function seaMaterial(): THREE.ShaderMaterial {
       }
     `,
     fragmentShader: `
+      uniform float uShade;
       varying float vWave;
       void main() {
         vec3 deep = vec3(0.10, 0.34, 0.55);
@@ -862,6 +1340,7 @@ function seaMaterial(): THREE.ShaderMaterial {
         float crest = smoothstep(0.02, 0.07, vWave);
         vec3 color = mix(deep, mid, clamp(vWave * 6.0 + 0.45, 0.0, 1.0));
         color = mix(color, foam, crest * 0.55);
+        color *= uShade;
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -905,6 +1384,42 @@ function jobBadge(): THREE.CanvasTexture {
   ctx.fillStyle = "#2a2116";
   ctx.fillRect(18, 28, 28, 18);
   ctx.fillRect(26, 22, 12, 8);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Amber badge: lightning + water drop for missing utilities. */
+function utilityBadge(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = "#1f2420";
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#e2b15a";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = "#e2b15a";
+  ctx.beginPath();
+  ctx.moveTo(28, 12);
+  ctx.lineTo(18, 32);
+  ctx.lineTo(28, 32);
+  ctx.lineTo(24, 52);
+  ctx.lineTo(42, 28);
+  ctx.lineTo(32, 28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#5eb0e0";
+  ctx.beginPath();
+  ctx.moveTo(46, 18);
+  ctx.bezierCurveTo(52, 28, 52, 36, 46, 42);
+  ctx.bezierCurveTo(40, 36, 40, 28, 46, 18);
+  ctx.fill();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -1051,12 +1566,30 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
 const GROUND_Y = 0.02;
 const SKIRT_Y = -1.8;
 
+function treeTint(biome: BiomeId, roll: number): number {
+  if (biome === "arid") return roll % 2 === 0 ? 0x8a9460 : 0x6f7a48;
+  if (biome === "alpine") return roll % 2 === 0 ? 0x1f4a38 : 0x2d5e44;
+  if (biome === "tropical") return roll % 2 === 0 ? 0x1f6e36 : 0x2f8a42;
+  if (biome === "archipelago") return roll % 2 === 0 ? 0x356f3c : 0x4a8a4e;
+  return roll % 2 === 0 ? 0x2f5a34 : 0x4e7d43;
+}
+
+function groundPalette(biome: BiomeId): [number, number, number] {
+  if (biome === "arid") return [0xb6a678, 0xc4b486, 0xa89468];
+  if (biome === "alpine") return [0x5d7a58, 0x6a8a64, 0x516e4c];
+  if (biome === "tropical") return [0x3f8a48, 0x4c9a52, 0x357a3e];
+  if (biome === "archipelago") return [0x6d9258, 0x7aa264, 0x5f8450];
+  return [0x6d8f55, 0x78985c, 0x61824c];
+}
+
 function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: THREE.LineSegments["geometry"] } {
   const cols = city.width + 1;
   const rows = city.height + 1;
   const pointX = new Float32Array(cols * rows);
   const pointZ = new Float32Array(cols * rows);
   const half = (city.width * CELL_SIZE) / 2;
+  const biome = city.gen?.biome ?? "temperate";
+  const palette = groundPalette(biome);
   const landHere = (x: number, y: number) => inBounds(city, x, y) && !isWater(city, y * city.width + x);
   for (let y = 0; y < rows; y += 1) {
     for (let x = 0; x < cols; x += 1) {
@@ -1095,10 +1628,10 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const positions: number[] = [];
   const colors: number[] = [];
   const grass = new THREE.Color();
-  const earth = new THREE.Color(0x3d4a32);
+  const earth = new THREE.Color(biome === "arid" ? 0x6a5a3c : 0x3d4a32);
   const paint = (x: number, y: number) => {
     const roll = scatter(x, y) % 3;
-    grass.set(roll === 0 ? 0x6d8f55 : roll === 1 ? 0x78985c : 0x61824c);
+    grass.set(palette[roll] ?? palette[0]);
   };
   const top = (x: number, z: number, cellX: number, cellY: number) => {
     paint(cellX, cellY);

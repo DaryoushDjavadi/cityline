@@ -1,4 +1,5 @@
 import { buildingInfo, FOOD_STOCK_MAX, readBudget, refundForLevel, serviceInfo, tradeDeal } from "./catalog.ts";
+import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
 import {
@@ -12,6 +13,8 @@ import {
   inBounds,
   uniqueCells,
 } from "./grid.ts";
+import { NEW_CITY_TICK } from "./climate.ts";
+import { pourTerrain as generateTerrain, type MapGenOptions } from "./terrain.ts";
 import {
   ServiceKind,
   POST_SLOTS,
@@ -24,16 +27,17 @@ import {
 } from "./types.ts";
 
 const STARTING_FUNDS = 100_000;
-const ZONE_REACH = 3;
+/** Buildings must sit on a cell next to a road (Chebyshev distance 1). */
+const ZONE_REACH = 1;
 
-export function createCity(width = GRID_SIZE, height = GRID_SIZE): CityState {
+export function createCity(width = GRID_SIZE, height = GRID_SIZE, opts: MapGenOptions = {}): CityState {
   const count = width * height;
   const city: CityState = {
     width,
     height,
-    tick: 0,
+    tick: NEW_CITY_TICK,
     revision: 0,
-    rng: (Math.random() * 0x100000000) >>> 0 || 1,
+    rng: 1,
     funds: STARTING_FUNDS,
     roads: new Uint8Array(count),
     zones: new Uint8Array(count),
@@ -50,7 +54,7 @@ export function createCity(width = GRID_SIZE, height = GRID_SIZE): CityState {
     goals: 0,
     food: 0,
   };
-  pourTerrain(city);
+  generateTerrain(city, opts);
   return city;
 }
 
@@ -58,106 +62,26 @@ export function isWater(city: CityState, index: number): boolean {
   return index >= 0 && index < city.terrain.length && city.terrain[index] === 1;
 }
 
-export function pourTerrain(city: CityState): void {
-  const seed = city.rng || 1;
-  const random = mulberry(seed);
-  carveIsland(city, seed);
-  carveRiver(city, random);
-  if (random() < 0.7) carveLake(city, random);
-  city.rng = seed >>> 0;
-}
+export { generateTerrain as pourTerrain };
 
-function mulberry(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (Math.imul(state ^ (state >>> 15), 0x2c1b3c6d) + 0x165667b1) >>> 0;
-    return state / 4294967296;
-  };
-}
-
-function carveIsland(city: CityState, seed: number): void {
-  const cx = (city.width - 1) / 2;
-  const cy = (city.height - 1) / 2;
-  for (let y = 0; y < city.height; y += 1) {
+/** Guaranteed bank-to-bank river for levels that need a real crossing. */
+export function carveCrossingRiver(city: CityState, horizontal = true): void {
+  if (horizontal) {
+    const y = Math.floor(city.height * 0.48);
     for (let x = 0; x < city.width; x += 1) {
-      const nx = (x - cx) / (city.width * 0.5);
-      const ny = (y - cy) / (city.height * 0.5);
-      const noise = field(x, y, seed);
-      const shore = 0.58 + (noise - 0.5) * 0.42;
-      if (nx * nx + ny * ny > shore * shore) city.terrain[cellIndex(city, x, y)] = 1;
-    }
-  }
-}
-
-function field(x: number, y: number, seed: number): number {
-  const coarse = valueNoise(x * 0.085, y * 0.085, seed);
-  const fine = valueNoise(x * 0.17, y * 0.17, seed + 23);
-  return coarse * 0.72 + fine * 0.28;
-}
-
-function valueNoise(x: number, y: number, seed: number): number {
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const tx = fade(x - x0);
-  const ty = fade(y - y0);
-  const a = hash2(x0, y0, seed);
-  const b = hash2(x0 + 1, y0, seed);
-  const c = hash2(x0, y0 + 1, seed);
-  const d = hash2(x0 + 1, y0 + 1, seed);
-  return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
-}
-
-function fade(t: number): number {
-  return t * t * (3 - 2 * t);
-}
-
-function hash2(x: number, y: number, seed: number): number {
-  let hash = Math.imul(x + seed * 13, 374761393) ^ Math.imul(y + seed * 7, 668265263);
-  hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
-  return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
-}
-
-function carveRiver(city: CityState, random: () => number): void {
-  let x = city.width * 0.5;
-  let y = city.height * 0.5;
-  const angle = random() * Math.PI * 2;
-  let dx = Math.cos(angle);
-  let dy = Math.sin(angle);
-  for (let step = 0; step < city.width; step += 1) {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (!inBounds(city, ix, iy) || isWater(city, cellIndex(city, ix, iy))) break;
-    stampWater(city, ix, iy, step % 6 === 0 ? 1 : 0);
-    if (random() < 0.4) {
-      const turn = (random() - 0.5) * 0.9;
-      const cos = Math.cos(turn);
-      const sin = Math.sin(turn);
-      const nextX = dx * cos - dy * sin;
-      const nextY = dx * sin + dy * cos;
-      dx = nextX;
-      dy = nextY;
-    }
-    x += dx;
-    y += dy;
-  }
-}
-
-function carveLake(city: CityState, random: () => number): void {
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const cx = 10 + Math.floor(random() * (city.width - 20));
-    const cy = 10 + Math.floor(random() * (city.height - 20));
-    if (isWater(city, cellIndex(city, cx, cy))) continue;
-    const radius = 3 + Math.floor(random() * 3);
-    for (let dy = -radius; dy <= radius; dy += 1) {
-      for (let dx = -radius; dx <= radius; dx += 1) {
-        if (dx * dx + dy * dy <= radius * radius) stampWater(city, cx + dx, cy + dy, 0);
-      }
+      stampLevelWater(city, x, y, x % 5 === 0 ? 1 : 0);
+      stampLevelWater(city, x, y + 1, 0);
     }
     return;
   }
+  const x = Math.floor(city.width * 0.52);
+  for (let y = 0; y < city.height; y += 1) {
+    stampLevelWater(city, x, y, y % 5 === 0 ? 1 : 0);
+    stampLevelWater(city, x + 1, y, 0);
+  }
 }
 
-function stampWater(city: CityState, x: number, y: number, extra: number): void {
+function stampLevelWater(city: CityState, x: number, y: number, extra: number): void {
   for (let dy = -extra; dy <= extra; dy += 1) {
     for (let dx = -extra; dx <= extra; dx += 1) {
       if (!inBounds(city, x + dx, y + dy)) continue;
@@ -194,6 +118,7 @@ export function nearRoad(city: CityState, index: number): boolean {
   const { x, y } = cellCoords(city, index);
   for (let dy = -ZONE_REACH; dy <= ZONE_REACH; dy += 1) {
     for (let dx = -ZONE_REACH; dx <= ZONE_REACH; dx += 1) {
+      if (dx === 0 && dy === 0) continue;
       if (Math.max(Math.abs(dx), Math.abs(dy)) > ZONE_REACH) continue;
       const nx = x + dx;
       const ny = y + dy;
@@ -202,6 +127,67 @@ export function nearRoad(city: CityState, index: number): boolean {
     }
   }
   return false;
+}
+
+/** Human-readable reason why a placement is illegal, or null if it is allowed. */
+export function placeBlockReason(
+  city: CityState,
+  index: number,
+  action: PlaceAction,
+  extra?: { zone?: ZoneId; kind?: ServiceId },
+): string | null {
+  if (canPlace(city, index, action, extra)) return null;
+  if (index < 0 || index >= city.roads.length) return "Außerhalb der Karte.";
+  if (action === "bridge") {
+    if (!isWater(city, index)) return "Brücken nur über Wasser.";
+    if (isRoad(city, index)) return "Hier liegt schon eine Straße oder Brücke.";
+    if (city.services[index] !== ServiceKind.None) return "Hier steht schon ein Gebäude.";
+    return "Hier geht die Brücke nicht.";
+  }
+  if (action === "fill") {
+    if (!isWater(city, index)) return "Aufschütten nur auf Wasserfeldern.";
+    if (isRoad(city, index)) return "Unter einer Brücke geht Aufschütten nicht.";
+    return "Dieses Wasserfeld ist belegt.";
+  }
+  if (action === "road") {
+    if (isWater(city, index)) return "Über Wasser brauchst du eine Brücke.";
+    if (isRoad(city, index)) return "Hier liegt schon eine Straße.";
+    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return "Hier steht schon ein Gebäude.";
+    if (city.services[index] !== ServiceKind.None && city.services[index] !== ServiceKind.Lamp) {
+      return "Hier steht schon ein Gebäude.";
+    }
+    return "Hier geht die Straße nicht.";
+  }
+  if (action === "build" || action === "zone") {
+    if (isWater(city, index)) return "Auf Wasser kann man nicht bauen.";
+    if (isRoad(city, index)) return "Auf Straßen kann man nicht bauen.";
+    if (isLine(city, index) || isPipe(city, index)) return "Leitungen blockieren den Bau.";
+    if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
+    if (action === "zone" && city.levels[index] > 0) return "Gebäude zuerst abreißen.";
+    if (action === "build" && (city.zones[index] !== Zone.None || city.levels[index] > 0)) return "Feld ist belegt.";
+    if (!nearRoad(city, index)) return "Braucht ein Feld direkt an einer Straße.";
+    return "Hier geht das Gebäude nicht.";
+  }
+  if (action === "line" || action === "pipe") {
+    const lampOnly = city.services[index] === ServiceKind.Lamp;
+    if ((!lampOnly && city.services[index] !== ServiceKind.None) || city.levels[index] > 0 || city.zones[index] !== Zone.None) {
+      return "Feld ist belegt.";
+    }
+    if (action === "line" && isLine(city, index)) return "Hier liegt schon eine Stromleitung.";
+    if (action === "pipe" && isPipe(city, index)) return "Hier liegt schon ein Wasserrohr.";
+    return "Leitung geht hier nicht.";
+  }
+  if (action === "bulldoze") return "Hier gibt es nichts abzureißen.";
+  if (extra?.kind === ServiceKind.Lamp) {
+    if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
+    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return "Auf Gebäuden keine Laterne.";
+    if (isPipe(city, index) && !isRoad(city, index) && !isLine(city, index)) return "Nicht auf reine Wasserrohre.";
+    return "Laterne braucht Straße, Stromleitung oder ein Feld direkt an der Straße.";
+  }
+  if (isRoad(city, index) || isLine(city, index) || isPipe(city, index)) return "Feld ist belegt.";
+  if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
+  if (!orthogonalRoad(city, index)) return "Öffentliche Gebäude brauchen eine Straße direkt daneben (orthogonal).";
+  return "Hier geht das Gebäude nicht.";
 }
 
 function zonePresent(city: CityState, zone: number): boolean {
@@ -239,22 +225,28 @@ export function canPlace(
     return action === "line" ? !isLine(city, index) : !isPipe(city, index);
   }
   if (action !== "bulldoze" && isWater(city, index)) return false;
-  if (action === "road") return city.services[index] === ServiceKind.None && !isRoad(city, index);
+  if (action === "road") {
+    const free = city.services[index] === ServiceKind.None || city.services[index] === ServiceKind.Lamp;
+    return free && !isRoad(city, index) && city.levels[index] === 0 && city.zones[index] === Zone.None;
+  }
   if (action === "build") {
     if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
     if (city.zones[index] !== Zone.None || city.levels[index] > 0) return false;
     return nearRoad(city, index);
   }
   if (action === "line") {
-    return city.services[index] === ServiceKind.None && city.levels[index] === 0 && city.zones[index] === Zone.None && !isLine(city, index);
+    const free = city.services[index] === ServiceKind.None || city.services[index] === ServiceKind.Lamp;
+    return free && city.levels[index] === 0 && city.zones[index] === Zone.None && !isLine(city, index);
   }
   if (action === "pipe") {
-    return city.services[index] === ServiceKind.None && city.levels[index] === 0 && city.zones[index] === Zone.None && !isPipe(city, index);
+    const free = city.services[index] === ServiceKind.None || city.services[index] === ServiceKind.Lamp;
+    return free && city.levels[index] === 0 && city.zones[index] === Zone.None && !isPipe(city, index);
   }
   if (action === "zone") {
     const zone = extra?.zone ?? Zone.None;
     if (zone !== Zone.Residential && zone !== Zone.Commercial && zone !== Zone.Industrial) return false;
     if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
+    if (city.levels[index] > 0) return false;
     if (city.zones[index] === zone) return false;
     return nearRoad(city, index);
   }
@@ -270,6 +262,13 @@ export function canPlace(
   }
   const info = serviceInfo(extra?.kind ?? ServiceKind.None);
   if (!info) return false;
+  if (extra?.kind === ServiceKind.Lamp) {
+    if (city.services[index] !== ServiceKind.None) return false;
+    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return false;
+    if (isWater(city, index) && !isRoad(city, index)) return false;
+    if (isPipe(city, index) && !isRoad(city, index) && !isLine(city, index)) return false;
+    return isRoad(city, index) || isLine(city, index) || orthogonalRoad(city, index);
+  }
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
   return orthogonalRoad(city, index);
 }
@@ -349,6 +348,24 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     return { ok: true, spent: 0, applied: [command.index], rejected };
   }
 
+  if (command.type === "farm") {
+    const index = command.index;
+    if (city.zones[index] !== Zone.Farm || city.levels[index] <= 0 || !isFarmAction(command.action)) {
+      return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
+    }
+    const check = farmActionAvailable(city, index, command.action);
+    if (!check.ok) return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
+    const upgrade = FARM_UPGRADES[command.action];
+    if (!pay(upgrade.cost)) return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };
+    if (command.action === "livestock") city.skills[index] |= FARM_LIVESTOCK;
+    else if (command.action === "wheat") city.skills[index] &= ~FARM_LIVESTOCK;
+    else if (command.action === "irrigation") city.skills[index] |= FARM_IRRIGATION;
+    else if (command.action === "silo") city.skills[index] |= FARM_SILO;
+    city.funds -= spent;
+    city.revision += 1;
+    return { ok: true, spent, applied: [index], rejected };
+  }
+
   if (command.type === "gift") {
     const index = command.index;
     const level = city.levels[index];
@@ -379,6 +396,9 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     const deal = tradeDeal(command.deal);
     if (!deal) return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
     if (deal.side === "import") {
+      if (deal.food && city.food + deal.food > FOOD_STOCK_MAX) {
+        return { ok: false, reason: "stock_full", spent: 0, applied, rejected: [index] };
+      }
       if (!pay(deal.price)) return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };
       if (deal.food) city.food = Math.min(FOOD_STOCK_MAX, city.food + deal.food);
       city.funds -= spent;
@@ -419,20 +439,26 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     if (!pay(costOf("service", command.kind))) {
       return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };
     }
+    const keepLinks = command.kind === ServiceKind.Lamp;
     city.services[index] = command.kind;
-    city.zones[index] = Zone.None;
-    city.levels[index] = 0;
-    city.roads[index] = 0;
-    city.lines[index] = 0;
-    city.pipes[index] = 0;
-    releaseWork(city, index);
+    if (!keepLinks) {
+      city.zones[index] = Zone.None;
+      city.levels[index] = 0;
+      city.roads[index] = 0;
+      city.lines[index] = 0;
+      city.pipes[index] = 0;
+      releaseWork(city, index);
+      recomputeAround(city, city.roads, [index]);
+      recomputeAround(city, city.lines, [index]);
+      recomputeAround(city, city.pipes, [index]);
+    } else {
+      city.zones[index] = Zone.None;
+      city.levels[index] = 0;
+    }
     city.budget[index] = 100;
     city.skills[index] = 0;
     city.funds -= spent;
     city.revision += 1;
-    recomputeAround(city, city.roads, [index]);
-    recomputeAround(city, city.lines, [index]);
-    recomputeAround(city, city.pipes, [index]);
     return { ok: true, spent, applied: [index], rejected };
   }
 
@@ -488,20 +514,32 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
       city.skills[index] = 0;
     } else {
       releaseWork(city, index);
-      if (isBridge(city, index)) city.funds += Math.floor(COST.bridge / 3);
-      else if (isRoad(city, index)) city.funds += Math.floor(COST.road / 3);
-      else if (isLine(city, index)) city.funds += 5;
-      else if (isPipe(city, index)) city.funds += 5;
-      else if (city.services[index] !== ServiceKind.None) city.funds += Math.floor((serviceInfo(city.services[index])?.cost ?? 0) / 5);
-      else if (city.levels[index] > 0) city.funds += refundForLevel(city.zones[index], city.levels[index]);
-      city.roads[index] = 0;
-      city.lines[index] = 0;
-      city.pipes[index] = 0;
-      city.zones[index] = Zone.None;
-      city.levels[index] = 0;
-      city.services[index] = ServiceKind.None;
-      city.budget[index] = 100;
-      city.skills[index] = 0;
+      const lampOnly =
+        city.services[index] === ServiceKind.Lamp &&
+        city.levels[index] === 0 &&
+        city.zones[index] === Zone.None;
+      if (lampOnly) {
+        // Peel the lamp first; keep the road/line/pipe under it for a second click.
+        city.funds += Math.floor((serviceInfo(ServiceKind.Lamp)?.cost ?? 0) / 5);
+        city.services[index] = ServiceKind.None;
+        city.budget[index] = 100;
+        city.skills[index] = 0;
+      } else {
+        if (isBridge(city, index)) city.funds += Math.floor(COST.bridge / 3);
+        else if (isRoad(city, index)) city.funds += Math.floor(COST.road / 3);
+        else if (isLine(city, index)) city.funds += 5;
+        else if (isPipe(city, index)) city.funds += 5;
+        else if (city.services[index] !== ServiceKind.None) city.funds += Math.floor((serviceInfo(city.services[index])?.cost ?? 0) / 5);
+        else if (city.levels[index] > 0) city.funds += refundForLevel(city.zones[index], city.levels[index]);
+        city.roads[index] = 0;
+        city.lines[index] = 0;
+        city.pipes[index] = 0;
+        city.zones[index] = Zone.None;
+        city.levels[index] = 0;
+        city.services[index] = ServiceKind.None;
+        city.budget[index] = 100;
+        city.skills[index] = 0;
+      }
     }
     applied.push(index);
   }

@@ -1,6 +1,6 @@
 import { BUILDINGS, type BuildingId } from "./catalog.ts";
-import { createCity } from "./city.ts";
-import { BRIDGE_FLAG, ROAD_FLAG } from "./grid.ts";
+import { carveCrossingRiver, createCity, isBridge, isRoad } from "./city.ts";
+import { BRIDGE_FLAG } from "./grid.ts";
 import { cityLedger } from "./sim.ts";
 import { POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
 
@@ -233,7 +233,8 @@ export function tallyCity(city: CityState): CityTally {
   let industrial = 0;
   let bridges = 0;
   for (let index = 0; index < city.zones.length; index += 1) {
-    if ((city.roads[index] & ROAD_FLAG) !== 0) roads += 1;
+    // Count only real road tiles (bridges counted separately for bridge goals).
+    if (isRoad(city, index) && !isBridge(city, index)) roads += 1;
     if ((city.roads[index] & BRIDGE_FLAG) !== 0) bridges += 1;
     const service = city.services[index];
     if (service !== ServiceKind.None) services[service] = (services[service] ?? 0) + 1;
@@ -346,6 +347,7 @@ export function createLevelCity(level: LevelDef): CityState {
   const city = createCity();
   city.funds = level.funds;
   city.goals = LEVEL_GOALS_MASK;
+  if (level.id === 7) carveCrossingRiver(city, true);
   return city;
 }
 

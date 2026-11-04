@@ -22,6 +22,7 @@ export const ServiceKind = {
   Park: 7,
   University: 8,
   Airport: 9,
+  Lamp: 10,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];
@@ -46,6 +47,17 @@ export interface CityStats {
   foodStock: number;
 }
 
+export type BiomeId = "temperate" | "arid" | "alpine" | "tropical" | "archipelago";
+
+export interface MapGen {
+  seed: number;
+  biome: BiomeId;
+  water: number;
+  lakes: number;
+  forest: number;
+  rivers: number;
+}
+
 export interface CityState {
   width: number;
   height: number;
@@ -53,6 +65,8 @@ export interface CityState {
   revision: number;
   rng: number;
   funds: number;
+  /** Map creation settings (seed/biome); optional on older saves. */
+  gen?: MapGen;
   /** Low nibble: N=1 E=2 S=4 W=8. Bit 4 marks a road cell. */
   roads: Uint8Array;
   zones: Uint8Array;
@@ -92,7 +106,8 @@ export type Command =
   | { type: "budget"; index: number; value: number }
   | { type: "gift"; index: number }
   | { type: "hire"; workplace: number; home: number; slot: number }
-  | { type: "trade"; index: number; deal: string };
+  | { type: "trade"; index: number; deal: string }
+  | { type: "farm"; index: number; action: "livestock" | "wheat" | "irrigation" | "silo" };
 
 export interface ApplyResult {
   ok: boolean;
@@ -113,6 +128,8 @@ export interface SimMeta {
   ledger: { income: number; upkeep: number };
   goals: number;
   food: number;
+  /** Present on newer rooms so Koop clients keep biome/forest/seed. */
+  gen?: MapGen;
 }
 
 export interface PublicPlayer {
@@ -183,7 +200,23 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
   state.demand.commercial = meta.demand.commercial;
   state.demand.industrial = meta.demand.industrial;
   if (typeof meta.goals === "number") state.goals = meta.goals >>> 0;
-  state.food = typeof meta.food === "number" && Number.isFinite(meta.food) ? Math.max(0, Math.min(200, Math.floor(meta.food))) : 0;
+  state.food = typeof meta.food === "number" && Number.isFinite(meta.food)
+    ? Math.max(0, Math.min(120, Math.floor(meta.food)))
+    : 0;
+  if (meta.gen && typeof meta.gen === "object") {
+    const seed = Number((meta.gen as MapGen).seed);
+    const biome = (meta.gen as MapGen).biome;
+    if (Number.isFinite(seed) && typeof biome === "string") {
+      state.gen = {
+        seed: seed >>> 0,
+        biome: biome as MapGen["biome"],
+        water: Number((meta.gen as MapGen).water) || 0,
+        lakes: Number((meta.gen as MapGen).lakes) || 0,
+        forest: Number((meta.gen as MapGen).forest) || 0,
+        rivers: Number((meta.gen as MapGen).rivers) || 0,
+      };
+    }
+  }
 }
 
 export function asUint8Array(data: unknown): Uint8Array | null {

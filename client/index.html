@@ -6,33 +6,100 @@
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-demand="closed" data-stats="closed">
+  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-orbit="off" data-demand="closed" data-stats="open">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
         <strong>Cityline</strong>
-        <span id="mode">Singleplayer</span>
-        <span id="rank">Außenposten</span>
-        <span id="players"></span>
+        <div class="brand-meta">
+          <span id="mode">Singleplayer</span>
+          <span id="rank">Außenposten</span>
+          <span id="players"></span>
+        </div>
       </div>
       <div class="stats" id="city-stats">
-        <div><em>Kasse</em><b id="funds">0</b><i id="cashflow">0</i></div>
-        <div><em>Einwohner</em><b id="pop">0</b></div>
-        <div><em>Jobs</em><b id="jobs">0</b></div>
-        <div><em>Strom</em><b id="power">0/0</b></div>
-        <div><em>Wasser</em><b id="water">0/0</b></div>
-        <div><em>Nahrung</em><b id="food">0</b><i id="food-stock">Bedarf 0 · Erzeugung 0</i></div>
-        <div><em>Verkehr</em><b id="traffic">0</b></div>
+        <div class="stat climate-stat" data-stat="time" tabindex="0" role="button" aria-describedby="stat-tip">
+          <i id="weather" class="stat-glyph" data-weather="clear" aria-hidden="true">
+            <svg class="weather-icon weather-clear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg>
+            <svg class="weather-icon weather-cloud" viewBox="0 0 24 24"><path d="M7 17h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.5 1.6A3.5 3.5 0 0 0 7 17Z"/></svg>
+            <svg class="weather-icon weather-rain" viewBox="0 0 24 24"><path d="M7 15h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.5 1.6A3.5 3.5 0 0 0 7 15Z"/><path d="M9 17v3M12 16.5v3M15 17v3"/></svg>
+          </i>
+          <span class="stat-copy">
+            <em>Zeit</em>
+            <b id="clock">12:00</b>
+            <span class="stat-meta">
+              <span id="weather-label">Klar</span>
+              <span id="vibe-label">Tagesverkehr</span>
+            </span>
+          </span>
+        </div>
+        <div class="stat" data-stat="funds" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7.5v9M9.6 9.4c.7-1 2.6-1.2 3.4 0 .7 1-.3 1.7-1.7 2.1-1.6.5-2.6 1.2-1.8 2.4.7 1.1 2.7 1 3.6-.2"/></svg>
+          <span class="stat-copy">
+            <em>Kasse</em>
+            <b id="funds">0</b>
+            <i id="cashflow" class="stat-meta">0</i>
+          </span>
+        </div>
+        <div class="stat" data-stat="pop" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9" r="2"/><path d="M4 19c.8-2.6 2.4-4 5-4s4.2 1.4 5 4"/><path d="M13 19c.6-2 1.8-3.2 3.8-3.2 1.6 0 2.8.8 3.4 2.2"/></svg>
+          <span class="stat-copy">
+            <em>Einwohner</em>
+            <b id="pop">0</b>
+          </span>
+        </div>
+        <div class="stat" data-stat="jobs" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="8" width="16" height="11" rx="2"/><path d="M9 8V6.5A2.5 2.5 0 0 1 11.5 4h1A2.5 2.5 0 0 1 15 6.5V8"/><path d="M4 13h16"/></svg>
+          <span class="stat-copy">
+            <em>Jobs</em>
+            <b id="jobs">0</b>
+          </span>
+        </div>
+        <div class="stat" data-stat="power" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 7 13h6l-2 8 8-12h-6Z"/></svg>
+          <span class="stat-copy">
+            <em>Strom</em>
+            <b id="power">0/0</b>
+          </span>
+        </div>
+        <div class="stat" data-stat="water" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11Z"/></svg>
+          <span class="stat-copy">
+            <em>Wasser</em>
+            <b id="water">0/0</b>
+          </span>
+        </div>
+        <div class="stat" data-stat="food" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c8-2 12-8 14-14-8 2-12 8-14 14Z"/><path d="M5 19c3-3 6-6 8-10"/></svg>
+          <span class="stat-copy">
+            <em>Nahrung</em>
+            <b id="food">0</b>
+            <i id="food-stock" class="stat-meta">Bedarf 0 · Erzeugung 0</i>
+          </span>
+        </div>
+        <div class="stat" data-stat="traffic" tabindex="0" role="button" aria-describedby="stat-tip">
+          <svg class="stat-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13h14l-1.6-5.2A2 2 0 0 0 15.5 6h-7a2 2 0 0 0-1.9 1.8L5 13Z"/><path d="M5 13v3.5h2.4M16.6 16.5H19V13"/><circle cx="8.2" cy="17.2" r="1.5"/><circle cx="15.8" cy="17.2" r="1.5"/></svg>
+          <span class="stat-copy">
+            <em>Verkehr</em>
+            <b id="traffic">0</b>
+          </span>
+        </div>
+      </div>
+      <div id="stat-tip" class="stat-tip" hidden role="tooltip">
+        <strong id="stat-tip-title"></strong>
+        <p id="stat-tip-text"></p>
       </div>
       <div class="top-actions">
-        <button id="toggle-stats" class="hud-btn compact-only" type="button" aria-expanded="false" aria-controls="city-stats" aria-label="Kasse" title="Kasse">
+        <button id="toggle-stats" class="hud-btn" type="button" aria-expanded="true" aria-controls="city-stats" aria-label="Werte ausblenden" title="Werte ausblenden">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="12" r="3"/><path d="M5 12h3M16 12h3"/></svg>
-          <span class="hud-text">Kasse</span>
+          <span class="hud-text">Werte</span>
         </button>
         <button id="open-brief" type="button" aria-label="Aufgabe">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l1.5 2H20v14H5Z"/><path d="M5 4v16"/></svg>
-          <em>Aufgabe</em>
-          <span id="mission-summary">1/10</span>
+          <span class="brief-copy">
+            <em>Aufgabe</em>
+            <span id="mission-summary">1/10</span>
+          </span>
         </button>
         <button id="open-players" class="hud-btn" type="button" aria-label="Spieler">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9" r="2"/><path d="M4 19c.8-2.6 2.4-4 5-4s4.2 1.4 5 4"/><path d="M13 19c.6-2 1.8-3.2 3.8-3.2 1.6 0 2.8.8 3.4 2.2"/></svg>
@@ -60,18 +127,32 @@
             <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7Z"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
             <span class="hud-text">Neuigkeiten</span>
           </button>
+          <button id="tool-inspect-hud" class="hud-btn compact-only" type="button" data-tool="inspect" aria-pressed="true" aria-label="Lupe" title="Lupe">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
+            <span class="hud-text">Lupe</span>
+          </button>
           <button id="toggle-pan-hud" class="hud-btn compact-only" type="button" aria-pressed="false" aria-label="Verschieben" title="Verschieben">
             <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
             <span class="hud-text">Verschieben</span>
+          </button>
+          <button id="toggle-orbit-hud" class="hud-btn compact-only" type="button" aria-pressed="false" aria-label="Drehen" title="Drehen">
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.3 4"/><path d="M5.5 5.5v3.8h3.8"/></svg>
+            <span class="hud-text">Drehen</span>
           </button>
           <button id="toggle-demand" class="hud-btn compact-only" type="button" aria-expanded="false" aria-label="Nachfrage" title="Nachfrage">
             <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18V10M10 18V6M15 18v-7M20 18V8"/></svg>
             <span class="hud-text">Nachfrage</span>
           </button>
         </div>
-        <button id="toggle-rail" class="menu-toggle" type="button" aria-expanded="true">
+        <button id="toggle-rail" class="menu-toggle" type="button" aria-expanded="true" aria-pressed="true" aria-controls="rail" title="Baumenü">
           <span class="chevron" aria-hidden="true"></span>
-          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+          <svg class="hud-icon hammer-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14.2 2.8 21.2 9.8"/>
+            <path d="M13.2 4.6 19.4 10.8"/>
+            <path d="M12.4 3.6c1.1-1.1 2.9-1.1 4 0l4 4c1.1 1.1 1.1 2.9 0 4l-1.3 1.3-8-8Z"/>
+            <path d="M12.8 11.2 5.2 21"/>
+            <path d="M4.2 20.2h3.6"/>
+          </svg>
           <span id="toggle-label">Menü zuklappen</span>
         </button>
       </div>
@@ -79,10 +160,26 @@
         <section>
           <p>Schauen</p>
           <div class="tools">
-            <button type="button" data-tool="inspect" class="active">Lupe</button>
+            <button type="button" data-tool="inspect" class="active">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
+              Lupe
+            </button>
             <button id="toggle-pan" type="button" aria-pressed="false">
               <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
               Verschieben
+            </button>
+            <button id="toggle-orbit" type="button" aria-pressed="false">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.3 4"/><path d="M5.5 5.5v3.8h3.8"/></svg>
+              Drehen
+            </button>
+          </div>
+        </section>
+        <section data-build-inspect>
+          <p>Bauen</p>
+          <div class="tools">
+            <button type="button" data-tool="inspect" class="active">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
+              Lupe
             </button>
           </div>
         </section>
@@ -91,6 +188,10 @@
           <div class="tools">
             <button type="button" data-tool="road">Straße</button>
             <button type="button" data-tool="bridge">Brücke</button>
+            <button type="button" data-tool="lamp">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 1.4-.8 2.2-1.5 3.2-.5.7-.8 1.3-.9 2.3h-1.2c-.1-1-.4-1.6-.9-2.3-.7-1-1.5-1.8-1.5-3.2Z"/><path d="M11 14h2v7h-2z"/><path d="M9 21h6"/></svg>
+              Laterne
+            </button>
           </div>
         </section>
         <section>
@@ -191,6 +292,7 @@
       <div class="insp-actions">
         <label id="insp-budget-wrap">
           Budget <b id="insp-budget-label">100%</b>
+          <span class="budget-range">50 % – 150 %</span>
           <input id="insp-budget" type="range" min="50" max="150" value="100" />
         </label>
         <button id="insp-gift" type="button" hidden>Studium finanzieren</button>
@@ -237,6 +339,13 @@
       </form>
     </aside>
     <div id="peer-cursors" aria-hidden="true"></div>
+    <div id="build-cursor" hidden aria-hidden="true" data-kind="build">
+      <i class="build-cursor-icon" aria-hidden="true"></i>
+      <span>
+        <b id="build-cursor-tool">Bauen</b>
+        <em id="build-cursor-hint">Doppelklick beendet</em>
+      </span>
+    </div>
     <div id="toast" hidden></div>
     <div id="save-toast" hidden>Stadt gespeichert</div>
     <footer>
@@ -247,7 +356,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.26</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.33</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>
@@ -271,20 +380,61 @@
         </div>
         <label class="field name-field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" autocomplete="nickname" /></label>
         <div class="lobby-actions">
-          <section class="lobby-block lobby-create">
-            <p class="lobby-kicker">Freies Spiel</p>
-            <h2>Neue Stadt</h2>
-            <p class="note">Eigene Stadt, frei bauen — allein oder zu zweit. Das ist der normale Start.</p>
-            <label class="field">Stadtname <input id="room" value="hauptstadt" maxlength="24" autocomplete="off" spellcheck="false" /></label>
-            <div class="row lobby-create-actions">
-              <button id="solo-new" type="button">Stadt erstellen</button>
-              <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
+          <details class="lobby-block lobby-create" id="lobby-create">
+            <summary class="lobby-create-toggle">
+              <span class="lobby-create-copy">
+                <p class="lobby-kicker">Freies Spiel</p>
+                <h2>Neue Stadt</h2>
+              </span>
+              <span class="lobby-create-state"></span>
+            </summary>
+            <div class="lobby-create-body">
+              <p class="note">Biom und Landschaft wählen — die Vorschau zeigt die Karte vor dem Start.</p>
+              <label class="field">Stadtname <input id="room" value="" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Zufälliger Name" /></label>
+              <div class="row lobby-create-actions">
+                <button id="solo-new" type="button">Solo starten</button>
+                <button id="coop-new" type="button" class="coop">Koop starten</button>
+                <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
+              </div>
+              <div class="map-gen">
+                <canvas id="map-preview" width="256" height="256" aria-label="Kartenvorschau"></canvas>
+                <div class="map-gen-controls">
+                  <label class="field">Biom
+                    <select id="map-biome">
+                      <option value="temperate">Gemäßigt</option>
+                      <option value="arid">Trocken</option>
+                      <option value="alpine">Alpin</option>
+                      <option value="tropical">Tropisch</option>
+                      <option value="archipelago">Archipel</option>
+                    </select>
+                  </label>
+                  <p id="map-biome-blurb" class="map-gen-blurb">Klassische Insel mit Fluss und Wald.</p>
+                  <label class="field seed-field">Seed
+                    <span class="seed-row">
+                      <input id="map-seed" type="text" inputmode="numeric" maxlength="12" autocomplete="off" spellcheck="false" />
+                      <button id="map-seed-roll" type="button" title="Zufalls-Seed">Zufall</button>
+                    </span>
+                  </label>
+                  <label class="field map-slider"><span>Meer</span><b id="map-water-label">42</b>
+                    <input id="map-water" type="range" min="0" max="100" value="42" />
+                  </label>
+                  <label class="field map-slider"><span>Seen</span><b id="map-lakes-label">48</b>
+                    <input id="map-lakes" type="range" min="0" max="100" value="48" />
+                  </label>
+                  <label class="field map-slider"><span>Flüsse</span><b id="map-rivers-label">55</b>
+                    <input id="map-rivers" type="range" min="0" max="100" value="55" />
+                  </label>
+                  <label class="field map-slider"><span>Wald</span><b id="map-forest-label">50</b>
+                    <input id="map-forest" type="range" min="0" max="100" value="50" />
+                  </label>
+                </div>
+              </div>
             </div>
-          </section>
+          </details>
           <section class="lobby-block lobby-levels">
             <p class="lobby-kicker">Kampagne</p>
             <h2>Levels</h2>
-            <p class="note">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop-Raum: <code>l3-stadtname</code>.</p>
+            <p class="note" id="level-coop-hint">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop-Raum: <code>l3-stadtname</code>.</p>
             <div id="level-grid" class="level-grid"></div>
           </section>
         </div>
@@ -297,19 +447,11 @@
             <button id="save-city" type="button">Diese Stadt speichern</button>
           </header>
           <p id="save-note" class="note"></p>
+          <p id="host-note" class="note"></p>
           <h3 id="live-heading" hidden>Jetzt online</h3>
-          <p id="live-note" class="note" hidden>Städte, in denen gerade jemand spielt. Du kannst beitreten, solange ein Platz frei ist.</p>
+          <p id="live-note" class="note" hidden>Städte, in denen gerade jemand spielt — mit Beitreten einsteigen, solange ein Platz frei ist.</p>
           <div id="live-rooms" class="rooms" hidden></div>
           <div id="room-list" class="rooms"></div>
-        </section>
-        <section class="lobby-block lobby-coop">
-          <p class="lobby-kicker">Zusammen</p>
-          <h2>Online-Koop</h2>
-          <p id="host-note" class="note"></p>
-          <p class="note">Öffnet die Stadt aus dem Namensfeld oben. Beitreten geht über die grünen Karten in der Liste.</p>
-          <div class="row">
-            <button id="connect" type="button">Im Koop öffnen</button>
-          </div>
         </section>
       </section>
     </div>
