@@ -1,4 +1,4 @@
-import { cityTitle, currentGoal, formatClock, GOALS, LEVELS, type LevelStatus, type SimMeta } from "../../../shared/src/index.ts";
+import { cityTitle, currentGoal, formatClock, GOALS, LEVELS, type ChatMessage, type LevelStatus, type SimMeta } from "../../../shared/src/index.ts";
 import { CHANGELOG, type PatchNote } from "./changelog.ts";
 
 export type ToolId =
@@ -107,6 +107,8 @@ export interface HudControls {
   onToggleBrief: () => void;
   onCloseBrief: () => void;
   onToggleRoster: () => void;
+  onToggleChat: () => void;
+  onSendChat: (text: string) => void;
   onFocusPlayer: (id: string) => void;
   onNameReady: (name: string) => void;
 }
@@ -134,6 +136,10 @@ export interface Hud {
   setBriefOpen: (open: boolean) => void;
   setRoster: (players: RosterPlayer[], note: string) => void;
   setRosterOpen: (open: boolean) => void;
+  setChatOpen: (open: boolean) => void;
+  setChatMessages: (messages: ChatMessage[], selfId: string) => void;
+  setChatUnread: (count: number) => void;
+  setChatEnabled: (enabled: boolean, note: string) => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
   setGateError: (text: string) => void;
@@ -164,6 +170,9 @@ export function createHud(events: HudControls): Hud {
   const lobby = required("#lobby");
   const host = required("#host-note");
   const list = required("#room-list");
+  const liveList = required("#live-rooms");
+  const liveHeading = required("#live-heading");
+  const liveNote = required("#live-note");
   const inspector = required("#inspector");
   const budgetWrap = required("#insp-budget-wrap");
   const budget = requiredInput("#insp-budget");
@@ -190,6 +199,13 @@ export function createHud(events: HudControls): Hud {
   const roster = required("#roster");
   const rosterList = required("#roster-list");
   const rosterNote = required("#roster-note");
+  const chat = required("#chat");
+  const chatLog = required("#chat-log");
+  const chatNote = required("#chat-note");
+  const chatInput = requiredInput("#chat-input");
+  const chatSend = requiredButton("#chat-send");
+  const chatBadge = required("#chat-badge");
+  const openChat = requiredButton("#open-chat");
   const nameGate = required("#name-gate");
   const gateName = requiredInput("#gate-name");
   const gateError = required("#gate-error");
@@ -258,11 +274,20 @@ export function createHud(events: HudControls): Hud {
   requiredButton("#solo-new").addEventListener("click", () => events.onNewSolo());
   requiredButton("#solo-continue").addEventListener("click", () => events.onContinue());
   requiredButton("#lobby-back").addEventListener("click", () => events.onLobbyBack());
+  requiredButton("#lobby-close").addEventListener("click", () => events.onLobbyBack());
   requiredButton("#open-lobby").addEventListener("click", () => events.onOpenLobby());
   requiredButton("#open-brief").addEventListener("click", () => events.onToggleBrief());
   requiredButton("#brief-close").addEventListener("click", () => events.onCloseBrief());
   requiredButton("#open-players").addEventListener("click", () => events.onToggleRoster());
   requiredButton("#roster-close").addEventListener("click", () => events.onToggleRoster());
+  openChat.addEventListener("click", () => events.onToggleChat());
+  requiredButton("#chat-close").addEventListener("click", () => events.onToggleChat());
+  required("#chat-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    events.onSendChat(chatInput.value);
+    chatInput.value = "";
+    chatInput.focus();
+  });
   requiredButton("#gate-enter").addEventListener("click", () => events.onNameReady(gateName.value));
   gateName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") events.onNameReady(gateName.value);
@@ -436,6 +461,38 @@ export function createHud(events: HudControls): Hud {
       roster.hidden = !open;
       document.body.dataset.roster = open ? "on" : "off";
     },
+    setChatOpen(open) {
+      chat.hidden = !open;
+      document.body.dataset.chat = open ? "on" : "off";
+      if (open) {
+        chatLog.scrollTop = chatLog.scrollHeight;
+        chatInput.focus();
+      }
+    },
+    setChatMessages(messages, selfId) {
+      chatLog.replaceChildren(...messages.map((message) => {
+        const row = document.createElement("div");
+        row.className = message.playerId === selfId ? "chat-row self" : "chat-row";
+        const who = document.createElement("b");
+        who.textContent = message.playerId === selfId ? `${message.name} (du)` : message.name;
+        const body = document.createElement("p");
+        body.textContent = message.text;
+        row.append(who, body);
+        return row;
+      }));
+      chatLog.scrollTop = chatLog.scrollHeight;
+    },
+    setChatUnread(count) {
+      const unread = count > 0;
+      chatBadge.hidden = !unread;
+      chatBadge.textContent = unread ? String(count) : "";
+      openChat.classList.toggle("unread", unread);
+    },
+    setChatEnabled(enabled, note) {
+      chatNote.textContent = note;
+      chatInput.disabled = !enabled;
+      chatSend.disabled = !enabled;
+    },
     setInspecting(open) { document.body.dataset.inspect = open ? "on" : "off"; },
     showNameGate(open, preset = "") {
       nameGate.hidden = !open;
@@ -462,35 +519,34 @@ export function createHud(events: HudControls): Hud {
     },
     hideLevelEnd() { levelEnd.hidden = true; },
     setRooms(entries) {
+      const live = entries.filter((entry) => entry.players > 0);
+      const saved = entries.filter((entry) => entry.players === 0);
+      liveHeading.hidden = live.length === 0;
+      liveNote.hidden = live.length === 0;
+      liveList.hidden = live.length === 0;
+      liveList.replaceChildren(...live.map((entry) => roomRow(entry, {
+        onJoin: () => {
+          room.value = entry.code;
+          events.onJoin(entry.code, name.value);
+        },
+        onDelete: () => events.onDelete(entry.code),
+        live: true,
+      })));
       list.replaceChildren();
-      if (entries.length === 0) {
+      if (saved.length === 0) {
         const empty = document.createElement("p");
-        empty.textContent = "Noch keine gespeicherte Stadt.";
+        empty.textContent = live.length > 0 ? "Keine weiteren gespeicherten Städte." : "Noch keine gespeicherte Stadt.";
         list.append(empty);
         return;
       }
-      for (const entry of entries) {
-        const row = document.createElement("div");
-        row.className = "room-row";
-        const button = document.createElement("button");
-        button.type = "button";
-        const kind = entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`;
-        button.innerHTML = `<span>${entry.code}</span><em>${entry.players}/2 · ${kind}</em>`;
-        button.addEventListener("click", () => {
+      for (const entry of saved) list.append(roomRow(entry, {
+        onJoin: () => {
           room.value = entry.code;
           events.onJoin(entry.code, name.value);
-        });
-        if (entry.level) {
-          row.append(button);
-        } else {
-          const remove = document.createElement("button");
-          remove.type = "button";
-          remove.textContent = "Löschen";
-          remove.addEventListener("click", () => events.onDelete(entry.code));
-          row.append(button, remove);
-        }
-        list.append(row);
-      }
+        },
+        onDelete: () => events.onDelete(entry.code),
+        live: false,
+      }));
     },
     showInspect(view) {
       inspector.hidden = false;
@@ -577,6 +633,40 @@ function hireRow(hire: InspectHire, onHire: () => void): HTMLElement {
   button.textContent = "Anstellen";
   button.addEventListener("click", onHire);
   row.append(copy, button);
+  return row;
+}
+
+function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () => void; live: boolean }): HTMLElement {
+  const joinable = entry.players > 0 && entry.players < 2;
+  const full = entry.players >= 2;
+  const row = document.createElement("div");
+  row.className = joinable ? "room-row live" : full ? "room-row full" : "room-row";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.disabled = full;
+  const title = document.createElement("span");
+  title.textContent = entry.code;
+  button.append(title);
+  if (joinable) {
+    const badge = document.createElement("em");
+    badge.className = "live-tag";
+    badge.textContent = "Online-Koop-Stadt — bereit zum Beitreten";
+    button.append(badge);
+  }
+  const meta = document.createElement("em");
+  const kind = entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`;
+  meta.textContent = full ? `2/2 · gerade voll · ${kind}` : `${entry.players}/2 · ${kind}`;
+  button.append(meta);
+  if (!full) button.addEventListener("click", options.onJoin);
+  if (options.live || entry.level) {
+    row.append(button);
+    return row;
+  }
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "Löschen";
+  remove.addEventListener("click", options.onDelete);
+  row.append(button, remove);
   return row;
 }
 

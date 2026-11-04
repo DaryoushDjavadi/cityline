@@ -38,6 +38,7 @@ app.get("/health", (request, response) => {
 });
 
 app.get("/api/rooms", (_request, response) => {
+  response.setHeader("Cache-Control", "no-store");
   response.json(city.listRooms());
 });
 

@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.19",
+    at: "4. Nov 2026",
+    title: "Chat, Städtemenü, Baumenü",
+    items: [
+      "Rechts oben gibt es Chat. Zugeklappt zeigt eine Zahl, wenn etwas Neues da ist.",
+      "Im Koop schreibt ihr euch über denselben Raum, frei oder im Level.",
+      "Das Städtemenü hat oben ein X. So kommst du zurück, ohne neu zu laden.",
+      "Abriss und Aufschütten stehen unter Gelände, Leitungen bei der Versorgung.",
+      "Im Städtemenü stehen laufende Koop-Räume grün als Online-Koop-Stadt, bereit zum Beitreten.",
+    ],
+  },
+  {
     version: "0.18",
     at: "4. Nov 2026",
     title: "HUD ohne Überlappung",
