@@ -8,6 +8,8 @@ import {
   BUILDINGS,
   CELL_SIZE,
   COST,
+  LEVEL_COUNT,
+  LEVEL_GOALS_MASK,
   POWER_BIT,
   ServiceKind,
   WATER_BIT,
@@ -23,11 +25,13 @@ import {
   cityToSave,
   createCity,
   employeesAt,
+  evaluateLevel,
   houseReport,
   isLine,
   jobOpenings,
   isPipe,
   isRoad,
+  levelById,
   lineCells,
   packCells,
   refreshUtilities,
@@ -48,6 +52,7 @@ import {
   type StatePayload,
   type WelcomePayload,
 } from "../../../shared/src/index.ts";
+import { isLevelOpen, loadUnlockedLevel, unlockAfterWin } from "../ui/levelProgress.ts";
 
 const SOLO_KEY = "cityline-solo";
 
@@ -125,10 +130,16 @@ export class Game {
     onLeave: () => this.leave(),
     onNewSolo: () => this.startSolo(false),
     onContinue: () => this.startSolo(true),
-    onOpenLobby: () => {
-      this.hud.setLobby(true);
-      void this.refreshLobby();
+    onOpenLobby: () => this.openLobby(),
+    onLobbyBack: () => this.closeLobby(),
+    onStartLevel: (id) => this.startLevel(id),
+    onRetryLevel: () => {
+      if (this.levelId > 0) this.startLevel(this.levelId);
     },
+    onNextLevel: () => {
+      if (this.levelId > 0 && this.levelId < LEVEL_COUNT) this.startLevel(this.levelId + 1);
+    },
+    onOpenLevelSelect: () => this.openLobby(true),
     onSave: () => {
       void this.saveCurrentCity();
     },
@@ -146,6 +157,10 @@ export class Game {
 
   private socket: Socket | null = null;
   private mode: "single" | "multi" = "single";
+  private playKind: "free" | "level" = "free";
+  private levelId = 0;
+  private levelStartedTick = 0;
+  private levelSettled = false;
   private generation = 1;
   private tool: ToolId = "inspect";
   private focus: "cell" | null = null;
@@ -173,6 +188,7 @@ export class Game {
     this.resize();
     window.addEventListener("resize", () => this.resize());
     this.hud.setContinueVisible(localStorage.getItem(SOLO_KEY) !== null);
+    this.hud.setLevelUnlock(loadUnlockedLevel());
     this.setTool("inspect");
     this.rememberWorker(false);
     void this.refreshLobby();
@@ -427,12 +443,14 @@ export class Game {
       this.leaveSocket();
     });
     socket.on("welcome", (payload: WelcomePayload) => {
+      this.clearLevel();
       this.mode = "multi";
       this.playerId = payload.playerId;
       this.room = payload.room;
       this.hud.setJoined(true);
       this.hud.setMode(`Koop · ${payload.room}`);
       this.hud.setLobby(false);
+      this.hud.setLobbyBackVisible(true);
       this.playing = true;
       this.renderPlayers(payload.players);
       this.rememberWorker(false);
@@ -472,6 +490,7 @@ export class Game {
     this.hud.setJoined(false);
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
+    this.hud.setLobbyBackVisible(this.playing);
     if (wasMulti) {
       this.rememberWorker(true);
       this.flash("Getrennt. Diese Stadt läuft jetzt lokal weiter.");
@@ -519,7 +538,8 @@ export class Game {
   private publish(meta: SimMeta = buildMeta(this.city)): void {
     this.hud.setStats(meta);
     this.view.sync(this.city, this.overlays);
-    if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
+    if (this.playKind === "level") this.syncLevel();
+    else if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
       localStorage.setItem(SOLO_KEY, JSON.stringify(cityToSave(this.city, "lokal")));
       this.lastSave = performance.now();
       this.hud.setContinueVisible(true);
@@ -588,12 +608,14 @@ export class Game {
 
   private startSolo(load: boolean): void {
     this.leaveSocket();
+    this.clearLevel();
     this.mode = "single";
     this.playing = true;
     this.hud.setJoined(false);
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
     this.hud.setLobby(false);
+    this.hud.setLobbyBackVisible(true);
     if (load) {
       const raw = localStorage.getItem(SOLO_KEY);
       const loaded = raw ? saveToCity(JSON.parse(raw) as unknown) : null;
@@ -606,6 +628,100 @@ export class Game {
     this.rememberWorker(true);
     this.setTool("inspect");
     this.publish();
+  }
+
+  private startLevel(id: number): void {
+    const level = levelById(id);
+    if (!level) return;
+    if (!isLevelOpen(id, loadUnlockedLevel())) {
+      this.flash("Dieses Level ist noch gesperrt.");
+      return;
+    }
+    this.leaveSocket();
+    this.mode = "single";
+    this.playKind = "level";
+    this.levelId = id;
+    this.levelSettled = false;
+    this.playing = true;
+    const fresh = createCity();
+    fresh.funds = level.funds;
+    fresh.goals = LEVEL_GOALS_MASK;
+    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    this.levelStartedTick = this.city.tick;
+    refreshUtilities(this.city);
+    this.hud.hideLevelEnd();
+    this.hud.setJoined(false);
+    this.hud.setMode(`Level ${id} · ${level.title}`);
+    this.hud.setPlayers("");
+    this.hud.setLobby(false);
+    this.hud.setLobbyBackVisible(true);
+    this.hud.setPlayKind("level");
+    this.hud.setLevelUnlock(loadUnlockedLevel(), id);
+    this.rememberWorker(true);
+    this.setTool("inspect");
+    this.publish();
+    this.flash(`Aufgabe: ${level.blurb}`);
+  }
+
+  private syncLevel(): void {
+    const level = levelById(this.levelId);
+    if (!level) return;
+    const status = evaluateLevel(level, this.city, this.levelStartedTick);
+    this.hud.setLevelBrief(status);
+    if (this.levelSettled) return;
+    if (status.won) this.finishLevel(true);
+    else if (status.failed) this.finishLevel(false);
+  }
+
+  private finishLevel(won: boolean): void {
+    this.levelSettled = true;
+    this.rememberWorker(false);
+    const level = levelById(this.levelId);
+    if (!level) return;
+    if (won) {
+      const unlocked = unlockAfterWin(level.id);
+      this.hud.setLevelUnlock(unlocked, level.id);
+      this.hud.showLevelEnd({
+        won: true,
+        title: "Level geschafft",
+        text: level.id >= LEVEL_COUNT
+          ? "Alle zehn Level sind geschafft. Du kannst sie jederzeit nochmal spielen."
+          : `${level.title} ist geschafft. Das nächste Level ist frei.`,
+        next: level.id < LEVEL_COUNT,
+      });
+      this.flash("Level geschafft.");
+      return;
+    }
+    this.hud.showLevelEnd({
+      won: false,
+      title: "Zeit abgelaufen",
+      text: "Die Aufgabe ist in der Zeit nicht fertig geworden. Nochmal versuchen oder zurück zur Levelwahl.",
+      next: false,
+    });
+    this.flash("Zeit abgelaufen.");
+  }
+
+  private clearLevel(): void {
+    this.playKind = "free";
+    this.levelId = 0;
+    this.levelStartedTick = 0;
+    this.levelSettled = false;
+    this.hud.setPlayKind("free");
+    this.hud.hideLevelEnd();
+  }
+
+  private openLobby(fromLevelEnd = false): void {
+    this.hud.setLobby(true);
+    this.hud.setLobbyBackVisible(this.playing && (!fromLevelEnd || !this.levelSettled));
+    this.hud.setLevelUnlock(loadUnlockedLevel(), this.levelId || null);
+    if (fromLevelEnd) this.hud.hideLevelEnd();
+    if (this.playKind === "level" && !this.levelSettled) this.rememberWorker(false);
+    void this.refreshLobby();
+  }
+
+  private closeLobby(): void {
+    this.hud.setLobby(false);
+    if (this.playKind === "level" && !this.levelSettled) this.rememberWorker(true);
   }
 
   private async refreshLobby(): Promise<void> {
@@ -644,8 +760,10 @@ export class Game {
 
   private async saveCurrentCity(): Promise<void> {
     const save = cityToSave(this.city, this.hud.roomName());
-    localStorage.setItem(SOLO_KEY, JSON.stringify(save));
-    this.hud.setContinueVisible(true);
+    if (this.playKind !== "level") {
+      localStorage.setItem(SOLO_KEY, JSON.stringify(save));
+      this.hud.setContinueVisible(true);
+    }
     try {
       const response = await fetch(apiUrl("/api/cities"), {
         method: "POST",

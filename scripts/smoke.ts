@@ -1,4 +1,4 @@
-import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, createCity, isBridge, isRoad, lineCells, listAdults, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
+import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, createCity, evaluateLevel, formatClock, isBridge, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, lineCells, listAdults, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -144,4 +144,53 @@ if (!hired.ok || listAdults(jobs, home).find((adult) => adult.slot === idle[0].s
 const kept = saveToCity(cityToSave(jobs, "jobs"));
 if (!kept || kept.posts[home * 8 + idle[0].slot] !== factory + 1) throw new Error("hire did not save");
 
-console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic}`);
+if (LEVELS.length !== LEVEL_COUNT || LEVELS.some((level, index) => level.id !== index + 1)) {
+  throw new Error("levels must be 1–10 in order");
+}
+const blank = createCity();
+blank.terrain.fill(0);
+const blankStatus = evaluateLevel(LEVELS[0], blank);
+if (blankStatus.won || blankStatus.failed || blankStatus.objectives.some((entry) => entry.done)) {
+  throw new Error("empty city should not complete level 1");
+}
+
+const tutorial = createCity();
+tutorial.terrain.fill(0);
+const spineRoad = [20, 21, 22, 23, 24, 25].map((x) => cellIndex(tutorial, x, 20));
+if (!applyCommand(tutorial, { type: "road", cells: spineRoad }).ok) throw new Error("level1 road");
+if (!applyCommand(tutorial, { type: "build", kind: "cottage", cells: [cellIndex(tutorial, 20, 21)] }).ok) throw new Error("level1 house a");
+if (!applyCommand(tutorial, { type: "build", kind: "cottage", cells: [cellIndex(tutorial, 21, 21)] }).ok) throw new Error("level1 house b");
+if (!applyCommand(tutorial, { type: "build", kind: "shop", cells: [cellIndex(tutorial, 22, 21)] }).ok) throw new Error("level1 shop");
+const shop = cellIndex(tutorial, 22, 21);
+const seekers = [...listAdults(tutorial, cellIndex(tutorial, 20, 21)), ...listAdults(tutorial, cellIndex(tutorial, 21, 21))];
+if (seekers.length < 2) throw new Error("level1 needs two adults");
+if (!applyCommand(tutorial, { type: "hire", workplace: shop, home: seekers[0].home, slot: seekers[0].slot }).ok) throw new Error("level1 hire a");
+if (!applyCommand(tutorial, { type: "hire", workplace: shop, home: seekers[1].home, slot: seekers[1].slot }).ok) throw new Error("level1 hire b");
+const tutorialStatus = evaluateLevel(LEVELS[0], tutorial);
+if (!tutorialStatus.won || tutorialStatus.failed || tutorialStatus.objectives.some((entry) => !entry.done)) {
+  throw new Error(`level1 should be completable ${JSON.stringify(tutorialStatus.objectives)}`);
+}
+
+const timed = { ...LEVELS[6], timeLimitSeconds: 10 };
+const late = createCity();
+late.tick = 40;
+const lateStatus = evaluateLevel(timed, late, 0);
+if (!lateStatus.failed || lateStatus.won || lateStatus.remainingSeconds !== 0) {
+  throw new Error(`time-out should fail a level ${lateStatus.remainingSeconds}`);
+}
+const lastSecond = { ...LEVELS[0], timeLimitSeconds: 1 };
+tutorial.tick = 40;
+const lastSecondStatus = evaluateLevel(lastSecond, tutorial, 0);
+if (!lastSecondStatus.won || lastSecondStatus.failed) throw new Error("a finished city still wins after the clock");
+if (formatClock(125) !== "2:05") throw new Error(`clock ${formatClock(125)}`);
+
+const muted = createCity();
+muted.terrain.fill(0);
+muted.goals = LEVEL_GOALS_MASK;
+muted.funds = 50_000;
+if (!applyCommand(muted, { type: "road", cells: spineRoad }).ok) throw new Error("muted road");
+const beforeGoals = muted.funds;
+claimGoals(muted);
+if (muted.funds !== beforeGoals) throw new Error("level mask must block freeplay payouts");
+
+console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

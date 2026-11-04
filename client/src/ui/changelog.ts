@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.16",
+    at: "4. Nov 2026",
+    title: "Level-Modus",
+    items: [
+      "Im Menü Städte gibt es zehn Level. Level 1 ist frei, der Rest geht nacheinander auf.",
+      "Jedes Level hat eine klare Aufgabe. Geschafft schaltet das nächste frei.",
+      "Freies Bauen und Koop bleiben wie sie sind.",
+    ],
+  },
+  {
     version: "0.15",
     at: "3. Nov 2026, 18:10",
     title: "Aufträge und Nachfrage",

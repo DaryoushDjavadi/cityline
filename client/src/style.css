@@ -23,7 +23,7 @@ html, body {
 
 body[data-tool="inspect"] #view { cursor: zoom-in; }
 
-#topbar, #dock, #demand, #inspector, #brief, #toast, footer, #lobby, #notes {
+#topbar, #dock, #demand, #inspector, #brief, #toast, footer, #lobby, #notes, #level-end {
   position: fixed;
   z-index: 2;
 }
@@ -33,7 +33,7 @@ body[data-tool="inspect"] #view { cursor: zoom-in; }
 
 #topbar, #dock, #demand, #brief, #toast, footer { pointer-events: none; }
 
-#topbar button, #dock .dock-bar button, #toggle-rail, #rail button, #demand label, #inspector, #inspector button, #inspector input, footer, #lobby, #notes {
+#topbar button, #dock .dock-bar button, #toggle-rail, #rail button, #demand label, #inspector, #inspector button, #inspector input, footer, #lobby, #notes, #brief button, #level-end {
   pointer-events: auto;
 }
 
@@ -82,7 +82,7 @@ button, input {
 
 button { padding: 8px 12px; cursor: pointer; }
 button:hover { border-color: #e2b15a; }
-#open-lobby, #open-notes, #connect, #solo-new, #solo-continue {
+#open-lobby, #open-notes, #connect, #solo-new, #solo-continue, #lobby-back, #level-end-next, #brief-retry {
   background: #e2b15a;
   color: #241b10;
   border-color: transparent;
@@ -216,6 +216,47 @@ body[data-menu="closed"] #rail { display: none; }
 #brief h2 { margin: 2px 0 6px; font-family: Palatino, "Palatino Linotype", serif; font-size: 22px; }
 #brief-text { margin: 0; color: #f6f1e6; font-size: 14px; line-height: 1.35; }
 #brief-pay { display: inline-block; margin-top: 8px; color: #e2b15a; font-size: 16px; }
+#brief-pay[hidden], #brief-goals[hidden], #brief-time[hidden], #brief-retry[hidden] { display: none; }
+#brief-goals {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#brief-goals li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 248, 230, 0.05);
+  border: 1px solid rgba(232, 205, 150, 0.12);
+  font-size: 13px;
+}
+#brief-goals li.done {
+  border-color: rgba(157, 202, 134, 0.55);
+  color: #b7d7a4;
+}
+#brief-goals li span { color: #cbbfa6; font-variant-numeric: tabular-nums; }
+#brief-goals li.done span { color: #9dca86; }
+#brief-time {
+  margin: 10px 0 0;
+  color: #e2b15a;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+#brief-time.late { color: #e07a6a; }
+#brief-retry {
+  margin-top: 10px;
+  width: 100%;
+}
+body[data-play="level"] #brief {
+  border-color: rgba(226, 177, 90, 0.55);
+}
 #toast {
   left: 50%;
   top: 92px;
@@ -393,7 +434,48 @@ footer p { margin: 0; }
   pointer-events: auto;
 }
 #lobby[hidden] { display: none; }
-.sheet { width: min(640px, calc(100% - 28px)); padding: 28px; }
+#level-end:not([hidden]) {
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  background: rgba(16, 20, 14, 0.78);
+  pointer-events: auto;
+}
+#level-end[hidden] { display: none; }
+.level-sheet { border-color: rgba(226, 177, 90, 0.7); background: rgba(32, 28, 18, 0.96); }
+.level-sheet.fail { border-color: rgba(224, 122, 106, 0.7); }
+.level-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 18px;
+}
+.level-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 72px;
+  text-align: left;
+  padding: 10px;
+  white-space: normal;
+  line-height: 1.2;
+}
+.level-grid button b {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbbfa6;
+}
+.level-grid button span { font-size: 13px; }
+.level-grid button.cleared { border-color: rgba(157, 202, 134, 0.7); }
+.level-grid button.current { border-color: #e2b15a; background: rgba(226, 177, 90, 0.16); }
+.level-grid button.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sheet { width: min(640px, calc(100% - 28px)); max-height: min(90vh, 920px); overflow: auto; padding: 28px; }
 .sheet h1, .sheet h2 { font-family: Palatino, "Palatino Linotype", serif; margin: 0 0 10px; }
 .note { color: #ddd4c2; line-height: 1.5; }
 .field, .row { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
@@ -412,4 +494,9 @@ input { padding: 10px 12px; }
   body[data-menu="open"] footer,
   footer { left: 14px; right: 14px; }
   #inspector { top: auto; bottom: 110px; width: min(340px, calc(100% - 28px)); }
+}
+
+@media (max-width: 720px) {
+  .level-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row { flex-wrap: wrap; }
 }
