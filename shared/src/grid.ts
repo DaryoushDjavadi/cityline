@@ -18,6 +18,7 @@ export const COST = {
   fire: 9500,
   park: 2000,
   university: 18000,
+  airport: 48000,
 } as const;
 
 export const DIRS = [

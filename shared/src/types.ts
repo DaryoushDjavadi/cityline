@@ -6,6 +6,7 @@ export const Zone = {
   Residential: 1,
   Commercial: 2,
   Industrial: 3,
+  Farm: 4,
 } as const;
 
 export type ZoneId = (typeof Zone)[keyof typeof Zone];
@@ -20,6 +21,7 @@ export const ServiceKind = {
   Fire: 6,
   Park: 7,
   University: 8,
+  Airport: 9,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];
@@ -39,6 +41,9 @@ export interface CityStats {
   waterUsed: number;
   traffic: number;
   funds: number;
+  foodCapacity: number;
+  foodUsed: number;
+  foodStock: number;
 }
 
 export interface CityState {
@@ -70,6 +75,8 @@ export interface CityState {
   demand: Demand;
   /** Bits of city contracts already paid. */
   goals: number;
+  /** Stadtweiter Nahrungsspeicher aus Bauernhöfen und Import. */
+  food: number;
 }
 
 export type Command =
@@ -84,7 +91,8 @@ export type Command =
   | { type: "service"; index: number; kind: ServiceId }
   | { type: "budget"; index: number; value: number }
   | { type: "gift"; index: number }
-  | { type: "hire"; workplace: number; home: number; slot: number };
+  | { type: "hire"; workplace: number; home: number; slot: number }
+  | { type: "trade"; index: number; deal: string };
 
 export interface ApplyResult {
   ok: boolean;
@@ -104,6 +112,7 @@ export interface SimMeta {
   stats: CityStats;
   ledger: { income: number; upkeep: number };
   goals: number;
+  food: number;
 }
 
 export interface PublicPlayer {
@@ -174,6 +183,7 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
   state.demand.commercial = meta.demand.commercial;
   state.demand.industrial = meta.demand.industrial;
   if (typeof meta.goals === "number") state.goals = meta.goals >>> 0;
+  state.food = typeof meta.food === "number" && Number.isFinite(meta.food) ? Math.max(0, Math.min(200, Math.floor(meta.food))) : 0;
 }
 
 export function asUint8Array(data: unknown): Uint8Array | null {

@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.24",
+    at: "4. Nov 2026",
+    title: "Leitungen, Flughafen, Nahrung",
+    items: [
+      "Strom und Wasser folgen dem Raster: Ecken und T-Stücke ohne schräge Geisterstücke.",
+      "Ein Haus direkt neben Kraftwerk oder Wasserwerk gilt als versorgt, auch ohne Leitung auf der Kante.",
+      "Neuer Flughafen: 48.000 €, danach etwa 260 € alle 2 s. Kleiner Privatflugplatz mit an- und abfliegenden Flugzeugen. An der Lupe Import und Export.",
+      "Nahrung kommt vom Bauernhof. Ohne Arbeiter wächst fast nichts. Neue Städte brauchen kaum Nahrung; ein Hof mit wenigen Arbeitern reicht am Anfang, später steigt der Bedarf mit der Einwohnerzahl.",
+      "Getreide ist günstig im Import. Waren und Maschinen lassen sich teurer verkaufen, wenn Gewerbe oder Industrie stehen.",
+    ],
+  },
+  {
     version: "0.23",
     at: "4. Nov 2026",
     title: "Handy und Tablet",

@@ -16,6 +16,7 @@ export type ToolId =
   | "workshop"
   | "factory"
   | "plant"
+  | "farm"
   | "line"
   | "pipe"
   | "power"
@@ -26,6 +27,7 @@ export type ToolId =
   | "fire"
   | "park"
   | "university"
+  | "airport"
   | "bulldoze";
 
 export interface RoomCard {
@@ -44,10 +46,10 @@ export interface RosterPlayer {
   present: boolean;
 }
 
-export type InspectKind = "field" | "home" | "work" | "car" | "power" | "water";
+export type InspectKind = "field" | "home" | "work" | "car" | "power" | "water" | "airport" | "farm";
 
 export interface InspectStat {
-  icon: "people" | "family" | "car" | "bolt" | "drop" | "book" | "home" | "work";
+  icon: "people" | "family" | "car" | "bolt" | "drop" | "book" | "home" | "work" | "food" | "plane";
   label: string;
   value: string;
   tone?: "good" | "bad";
@@ -74,6 +76,15 @@ export interface InspectHire {
   slot: number;
 }
 
+export interface InspectTrade {
+  id: string;
+  name: string;
+  side: "import" | "export";
+  detail: string;
+  price: string;
+  enabled: boolean;
+}
+
 export interface InspectView {
   kind: InspectKind;
   kicker: string;
@@ -81,6 +92,7 @@ export interface InspectView {
   stats: InspectStat[];
   families: InspectFamily[];
   hires: InspectHire[];
+  trade?: InspectTrade[];
   note: string | null;
   budget: number | null;
   gift: string | null;
@@ -101,6 +113,7 @@ export interface HudControls {
   onBudget: (value: number) => void;
   onGift: () => void;
   onHire: (home: number, slot: number) => void;
+  onTrade: (deal: string) => void;
   onCloseInspect: () => void;
   onStartLevel: (id: number) => void;
   onStartLevelCoop: (id: number) => void;
@@ -176,6 +189,8 @@ export function createHud(events: HudControls): Hud {
   const jobs = required("#jobs");
   const power = required("#power");
   const water = required("#water");
+  const food = required("#food");
+  const foodStock = required("#food-stock");
   const traffic = required("#traffic");
   const status = required("#status");
   const hint = required("#hint");
@@ -198,6 +213,7 @@ export function createHud(events: HudControls): Hud {
   const stats = required("#insp-stats");
   const families = required("#insp-families");
   const hires = required("#insp-hires");
+  const trade = required("#insp-trade");
   const note = required("#insp-note");
   const toggleRail = requiredButton("#toggle-rail");
   const toggleLabel = required("#toggle-label");
@@ -402,6 +418,9 @@ export function createHud(events: HudControls): Hud {
       jobs.textContent = money.format(meta.stats.jobs);
       power.textContent = `${meta.stats.powerUsed}/${meta.stats.powerCapacity}`;
       water.textContent = `${meta.stats.waterUsed}/${meta.stats.waterCapacity}`;
+      food.textContent = `${meta.stats.foodUsed}/${meta.stats.foodCapacity}`;
+      foodStock.textContent = `Lager ${money.format(meta.stats.foodStock)}`;
+      foodStock.style.color = meta.stats.foodUsed > meta.stats.foodCapacity && meta.stats.foodUsed > 0 ? "#e07a6a" : "#9dca86";
       traffic.textContent = `${meta.stats.traffic}`;
       paintDemand("r", meta.demand.residential);
       paintDemand("c", meta.demand.commercial);
@@ -691,6 +710,9 @@ export function createHud(events: HudControls): Hud {
       stats.replaceChildren(...view.stats.map(statCard));
       families.replaceChildren(...view.families.map(familyCard));
       hires.replaceChildren(...view.hires.map((hire) => hireRow(hire, () => events.onHire(hire.home, hire.slot))));
+      const deals = view.trade ?? [];
+      trade.hidden = deals.length === 0;
+      trade.replaceChildren(...(deals.length === 0 ? [] : tradePanel(deals, (id) => events.onTrade(id))));
       note.hidden = view.note === null;
       note.textContent = view.note ?? "";
       budgetWrap.hidden = view.budget === null;
@@ -750,6 +772,35 @@ function familyCard(family: InspectFamily): HTMLElement {
     card.append(row);
   }
   return card;
+}
+
+function tradePanel(deals: InspectTrade[], onTrade: (id: string) => void): HTMLElement[] {
+  const nodes: HTMLElement[] = [];
+  for (const side of ["import", "export"] as const) {
+    const rows = deals.filter((deal) => deal.side === side);
+    if (rows.length === 0) continue;
+    const heading = document.createElement("h3");
+    heading.textContent = side === "import" ? "Import" : "Export";
+    nodes.push(heading);
+    for (const deal of rows) {
+      const row = document.createElement("div");
+      row.className = "insp-trade-row";
+      const copy = document.createElement("div");
+      const name = document.createElement("b");
+      name.textContent = deal.name;
+      const detail = document.createElement("span");
+      detail.textContent = `${deal.detail} · ${deal.price}`;
+      copy.append(name, detail);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = side === "import" ? "Kaufen" : "Verkaufen";
+      button.disabled = !deal.enabled;
+      if (deal.enabled) button.addEventListener("click", () => onTrade(deal.id));
+      row.append(copy, button);
+      nodes.push(row);
+    }
+  }
+  return nodes;
 }
 
 function hireRow(hire: InspectHire, onHire: () => void): HTMLElement {
@@ -835,6 +886,8 @@ function mark(kind: InspectKind): string {
   if (kind === "power") return glyph("bolt");
   if (kind === "water") return glyph("drop");
   if (kind === "work") return glyph("work");
+  if (kind === "farm") return glyph("food");
+  if (kind === "airport") return glyph("plane");
   return glyph("book");
 }
 
@@ -848,6 +901,8 @@ function glyph(icon: InspectStat["icon"] | "people"): string {
     book: `<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 0 5 21.5Z"/><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3"/>`,
     home: `<path d="M4 11.5 12 4l8 7.5"/><path d="M7 10.5V20h10v-9.5"/>`,
     work: `<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2"/>`,
+    food: `<path d="M12 3c2.4 3.2 4 6 4 8.4A4 4 0 0 1 8 11.4C8 9 9.6 6.2 12 3Z"/><path d="M12 21V12"/>`,
+    plane: `<path d="M3 13.5 12 11l9 2.5-9 2.5Z"/><path d="M12 4v16"/><path d="M8 18h8"/>`,
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[icon] ?? paths.book}</svg>`;
 }
