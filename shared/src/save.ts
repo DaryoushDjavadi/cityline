@@ -11,6 +11,7 @@ export interface CitySave {
   id?: string;
   meta: SimMeta;
   cells: string;
+  gen?: CityState["gen"];
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -38,6 +39,7 @@ export function cityToSave(city: CityState, name: string, id?: string): CitySave
     cells: bytesToBase64(packCells(city)),
   };
   if (id) save.id = id;
+  if (city.gen) save.gen = { ...city.gen };
   return save;
 }
 
@@ -50,5 +52,6 @@ export function saveToCity(raw: unknown): CityState | null {
   if (!cells) return null;
   writeCity(city, cells, save.meta);
   if (typeof save.meta.goals !== "number") city.goals = goalMask(city);
+  if (save.gen && typeof save.gen === "object") city.gen = save.gen as CityState["gen"];
   return city;
 }

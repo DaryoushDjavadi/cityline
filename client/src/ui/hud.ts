@@ -1,4 +1,23 @@
-import { cityTitle, currentGoal, formatClock, GOALS, LEVELS, type ChatMessage, type LevelStatus, type SimMeta } from "../../../shared/src/index.ts";
+import {
+  BIOMES,
+  biomePreset,
+  cityTitle,
+  climateAt,
+  createCity,
+  currentGoal,
+  formatClock,
+  GOALS,
+  LEVELS,
+  normalizeSeed,
+  randomSeed,
+  type BiomeId,
+  type ChatMessage,
+  type LevelStatus,
+  type MapGenOptions,
+  type SimMeta,
+} from "../../../shared/src/index.ts";
+import { playSfx } from "../audio/sfx.ts";
+import { paintMapPreview } from "../render/mapPreview.ts";
 import { CHANGELOG, type PatchNote } from "./changelog.ts";
 import { isCompactHud, onCompactHudChange } from "./layout.ts";
 
@@ -28,6 +47,7 @@ export type ToolId =
   | "park"
   | "university"
   | "airport"
+  | "lamp"
   | "bulldoze";
 
 export interface RoomCard {
@@ -81,9 +101,12 @@ export interface InspectTrade {
   id: string;
   name: string;
   side: "import" | "export";
+  /** Short effect, e.g. "+2 Nahrung". */
   detail: string;
   price: string;
   enabled: boolean;
+  /** Why the deal is locked, if any. */
+  hint?: string | null;
 }
 
 export interface InspectView {
@@ -102,11 +125,12 @@ export interface InspectView {
 export interface HudControls {
   onTool: (tool: ToolId) => void;
   onOverlay: (overlay: "zones" | "power" | "water", enabled: boolean) => void;
-  onJoin: (room: string, name: string) => void;
   onLeave: () => void;
   onNewSolo: () => void;
+  onNewCoop: () => void;
   onContinue: () => void;
-  onOpenSaved: (code: string) => void;
+  onOpenSolo: (code: string) => void;
+  onOpenCoop: (code: string) => void;
   onOpenLobby: () => void;
   onLobbyBack: () => void;
   onSave: () => void;
@@ -129,10 +153,19 @@ export interface HudControls {
   onFocusPlayer: (id: string) => void;
   onNameReady: (name: string) => void;
   onTogglePan: () => void;
+  onToggleOrbit: () => void;
   onCompactPanel: (panel: "menu" | "demand" | "stats") => void;
+  onRoomNameChange?: (name: string) => void;
 }
 
 const money = new Intl.NumberFormat("de-DE");
+
+function compactMoney(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1).replace(".", ",")} Mio`;
+  if (abs >= 10_000) return `${Math.round(value / 1000)} k`;
+  return money.format(value);
+}
 
 export interface Hud {
   setTool: (tool: ToolId) => void;
@@ -161,10 +194,13 @@ export interface Hud {
   setChatUnread: (count: number) => void;
   setChatEnabled: (enabled: boolean, note: string) => void;
   setPanMode: (on: boolean) => void;
+  setOrbitMode: (on: boolean) => void;
   setMenuOpen: (open: boolean) => void;
   setDemandOpen: (open: boolean) => void;
   setStatsOpen: (open: boolean) => void;
   setPeerCursors: (cursors: { id: string; name: string; x: number; y: number }[]) => void;
+  setBuildCursor: (view: { x: number; y: number; label: string; hint?: string; kind?: "build" | "orbit" } | null) => void;
+  pulseFunds: (tone?: "good" | "bad") => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
   setGateError: (text: string) => void;
@@ -174,18 +210,33 @@ export interface Hud {
   hideInspect: () => void;
   setPlayerName: (name: string) => void;
   setRoomName: (name: string) => void;
+  setOverlays: (overlays: { zones: boolean; power: boolean; water: boolean }) => void;
+  closeOverlays: () => boolean;
+  clearToast: () => void;
   playerName: () => string;
   roomName: () => string;
+  mapGenOptions: () => MapGenOptions;
 }
 
 export function createHud(events: HudControls): Hud {
-  const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool]")];
+  const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool], #tool-inspect-hud")];
   const togglePan = requiredButton("#toggle-pan");
   const togglePanHud = requiredButton("#toggle-pan-hud");
+  const toggleOrbit = requiredButton("#toggle-orbit");
+  const toggleOrbitHud = requiredButton("#toggle-orbit-hud");
+  const inspectHud = requiredButton("#tool-inspect-hud");
+  const buildCursorHint = required("#build-cursor-hint");
   const toggleDemand = requiredButton("#toggle-demand");
   const toggleStats = requiredButton("#toggle-stats");
   const peerCursors = required("#peer-cursors");
-  const funds = required("#funds");
+  const buildCursor = required("#build-cursor");
+  const buildCursorTool = required("#build-cursor-tool");
+  const funds = required<HTMLElement>("#funds");
+  let fundsPulseTimer = 0;
+  const clock = required("#clock");
+  const weather = required<HTMLElement>("#weather");
+  const weatherLabel = required("#weather-label");
+  const vibeLabel = required("#vibe-label");
   const pop = required("#pop");
   const jobs = required("#jobs");
   const power = required("#power");
@@ -289,7 +340,7 @@ export function createHud(events: HudControls): Hud {
   requiredButton("#notes-close").addEventListener("click", () => paintNotes(false));
   let menuOpen = !isCompactHud();
   let demandOpen = false;
-  let statsOpen = false;
+  let statsOpen = true;
   const paintMenu = () => {
     document.body.dataset.menu = menuOpen ? "open" : "closed";
     toggleLabel.textContent = isCompactHud() ? "Bauen" : menuOpen ? "Menü zuklappen" : "Menü aufklappen";
@@ -304,7 +355,10 @@ export function createHud(events: HudControls): Hud {
   const paintStatsOpen = () => {
     document.body.dataset.stats = statsOpen ? "open" : "closed";
     toggleStats.setAttribute("aria-expanded", String(statsOpen));
-    toggleStats.classList.toggle("active", statsOpen);
+    toggleStats.classList.toggle("active", !statsOpen);
+    const label = statsOpen ? "Werte ausblenden" : "Werte einblenden";
+    toggleStats.setAttribute("aria-label", label);
+    toggleStats.title = label;
   };
   toggleRail.addEventListener("click", () => {
     menuOpen = !menuOpen;
@@ -320,20 +374,20 @@ export function createHud(events: HudControls): Hud {
     demandOpen = false;
     paintDemandOpen();
   });
+  const statTips = wireStatTips();
   toggleStats.addEventListener("click", () => {
     statsOpen = !statsOpen;
     paintStatsOpen();
+    statTips.hide(true);
     if (statsOpen) events.onCompactPanel("stats");
   });
   onCompactHudChange((compact) => {
     if (compact) {
       menuOpen = false;
       demandOpen = false;
-      statsOpen = false;
     } else {
       menuOpen = true;
       demandOpen = false;
-      statsOpen = false;
     }
     paintMenu();
     paintDemandOpen();
@@ -360,12 +414,104 @@ export function createHud(events: HudControls): Hud {
     }
   });
   togglePanHud.addEventListener("click", () => events.onTogglePan());
+  toggleOrbit.addEventListener("click", () => {
+    events.onToggleOrbit();
+    if (isCompactHud()) {
+      menuOpen = false;
+      paintMenu();
+    }
+  });
+  toggleOrbitHud.addEventListener("click", () => events.onToggleOrbit());
   for (const overlay of ["zones", "power", "water"] as const) {
     const input = document.querySelector<HTMLInputElement>(`#ov-${overlay}`);
     input?.addEventListener("change", () => events.onOverlay(overlay, input.checked));
   }
-  requiredButton("#connect").addEventListener("click", () => events.onJoin(room.value, name.value));
+  const mapPreview = required<HTMLCanvasElement>("#map-preview");
+  const mapBiome = required<HTMLSelectElement>("#map-biome");
+  const mapBiomeBlurb = required("#map-biome-blurb");
+  const mapSeed = requiredInput("#map-seed");
+  const mapSeedRoll = requiredButton("#map-seed-roll");
+  const mapWater = requiredInput("#map-water");
+  const mapLakes = requiredInput("#map-lakes");
+  const mapRivers = requiredInput("#map-rivers");
+  const mapForest = requiredInput("#map-forest");
+  const mapWaterLabel = required("#map-water-label");
+  const mapLakesLabel = required("#map-lakes-label");
+  const mapRiversLabel = required("#map-rivers-label");
+  const mapForestLabel = required("#map-forest-label");
+  let previewTimer = 0;
+
+  const readMapGen = (): MapGenOptions => {
+    // Pin seed into the field immediately so Solo/Koop can't race the preview timer.
+    if (!mapSeed.value.trim()) mapSeed.value = String(randomSeed());
+    return {
+      seed: normalizeSeed(mapSeed.value.trim()),
+      biome: (BIOMES.some((entry) => entry.id === mapBiome.value) ? mapBiome.value : "temperate") as BiomeId,
+      water: Number(mapWater.value),
+      lakes: Number(mapLakes.value),
+      rivers: Number(mapRivers.value),
+      forest: Number(mapForest.value),
+    };
+  };
+
+  const applyBiomeDefaults = (id: BiomeId, keepSeed: boolean) => {
+    const preset = biomePreset(id);
+    mapBiomeBlurb.textContent = preset.blurb;
+    mapWater.value = String(preset.water);
+    mapLakes.value = String(preset.lakes);
+    mapRivers.value = String(preset.rivers);
+    mapForest.value = String(preset.forest);
+    mapWaterLabel.textContent = String(preset.water);
+    mapLakesLabel.textContent = String(preset.lakes);
+    mapRiversLabel.textContent = String(preset.rivers);
+    mapForestLabel.textContent = String(preset.forest);
+    if (!keepSeed || !mapSeed.value.trim()) mapSeed.value = String(randomSeed());
+  };
+
+  const refreshMapPreview = () => {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      const opts = readMapGen();
+      if (!mapSeed.value.trim()) mapSeed.value = String(opts.seed);
+      else opts.seed = normalizeSeed(mapSeed.value.trim());
+      paintMapPreview(mapPreview, createCity(undefined, undefined, opts));
+      mapPreview.dataset.ready = "1";
+    }, 60);
+  };
+
+  const syncSliderLabel = (input: HTMLInputElement, label: HTMLElement) => {
+    label.textContent = input.value;
+  };
+
+  mapBiome.addEventListener("change", () => {
+    applyBiomeDefaults(mapBiome.value as BiomeId, true);
+    refreshMapPreview();
+  });
+  mapSeedRoll.addEventListener("click", () => {
+    mapSeed.value = String(randomSeed());
+    refreshMapPreview();
+  });
+  mapSeed.addEventListener("change", () => refreshMapPreview());
+  mapSeed.addEventListener("input", () => {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(refreshMapPreview, 220);
+  });
+  for (const [input, label] of [
+    [mapWater, mapWaterLabel],
+    [mapLakes, mapLakesLabel],
+    [mapRivers, mapRiversLabel],
+    [mapForest, mapForestLabel],
+  ] as const) {
+    input.addEventListener("input", () => {
+      syncSliderLabel(input, label);
+      refreshMapPreview();
+    });
+  }
+  applyBiomeDefaults("temperate", false);
+  refreshMapPreview();
+
   requiredButton("#solo-new").addEventListener("click", () => events.onNewSolo());
+  requiredButton("#coop-new").addEventListener("click", () => events.onNewCoop());
   requiredButton("#solo-continue").addEventListener("click", () => events.onContinue());
   requiredButton("#lobby-back").addEventListener("click", () => events.onLobbyBack());
   requiredButton("#lobby-close").addEventListener("click", () => events.onLobbyBack());
@@ -382,15 +528,27 @@ export function createHud(events: HudControls): Hud {
     chatInput.value = "";
     chatInput.focus();
   });
-  const stopChatWheel = (event: WheelEvent) => event.stopPropagation();
-  chat.addEventListener("wheel", stopChatWheel, { passive: true });
-  chatLog.addEventListener("wheel", stopChatWheel, { passive: true });
+  const stopPanelWheel = (event: WheelEvent) => event.stopPropagation();
+  chat.addEventListener("wheel", stopPanelWheel, { passive: true });
+  chatLog.addEventListener("wheel", stopPanelWheel, { passive: true });
   chatLog.addEventListener("touchmove", (event) => event.stopPropagation(), { passive: true });
+  inspector.addEventListener("wheel", stopPanelWheel, { passive: true });
+  required("#rail").addEventListener("wheel", stopPanelWheel, { passive: true });
+  required("#rail").addEventListener("touchmove", (event) => event.stopPropagation(), { passive: true });
   requiredButton("#gate-enter").addEventListener("click", () => events.onNameReady(gateName.value));
   gateName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") events.onNameReady(gateName.value);
   });
   name.addEventListener("change", () => events.onNameReady(name.value));
+  const paintRoomHint = () => {
+    const tag = room.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 18) || "stadtname";
+    const hintNode = document.querySelector("#level-coop-hint");
+    if (hintNode) hintNode.innerHTML = `Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop-Raum: <code>l3-${tag}</code>.`;
+    events.onRoomNameChange?.(room.value);
+  };
+  room.addEventListener("input", paintRoomHint);
+  room.addEventListener("change", paintRoomHint);
+  paintRoomHint();
   briefRetry.addEventListener("click", () => events.onRetryLevel());
   requiredButton("#level-end-next").addEventListener("click", () => events.onNextLevel());
   requiredButton("#level-end-retry").addEventListener("click", () => events.onRetryLevel());
@@ -407,20 +565,31 @@ export function createHud(events: HudControls): Hud {
   return {
     setTool(tool) {
       document.body.dataset.tool = tool;
-      toolButtons.forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
+      toolButtons.forEach((button) => {
+        const on = button.dataset.tool === tool;
+        button.classList.toggle("active", on);
+        if (button === inspectHud) button.setAttribute("aria-pressed", String(on));
+      });
     },
     setStats(meta) {
-      funds.textContent = `${money.format(meta.stats.funds)} €`;
+      const climate = climateAt(meta.tick);
+      clock.textContent = climate.clock;
+      weather.dataset.weather = climate.weather;
+      weather.title = climate.weatherLabel;
+      weatherLabel.textContent = climate.weatherLabel;
+      vibeLabel.textContent = climate.vibeLabel;
+      vibeLabel.dataset.rush = climate.rushHour ? "on" : "off";
+      funds.textContent = `${compactMoney(meta.stats.funds)} €`;
       const flow = required<HTMLElement>("#cashflow");
       const net = meta.ledger.income - meta.ledger.upkeep;
-      flow.textContent = `${net >= 0 ? "+" : "−"}${money.format(Math.abs(net))} alle 2 s`;
+      flow.textContent = `${net >= 0 ? "+" : "−"}${compactMoney(Math.abs(net))} / 2 s`;
       flow.style.color = net >= 0 ? "#9dca86" : "#e07a6a";
-      pop.textContent = money.format(meta.stats.population);
-      jobs.textContent = money.format(meta.stats.jobs);
+      pop.textContent = compactMoney(meta.stats.population);
+      jobs.textContent = compactMoney(meta.stats.jobs);
       power.textContent = `${meta.stats.powerUsed}/${meta.stats.powerCapacity}`;
       water.textContent = `${meta.stats.waterUsed}/${meta.stats.waterCapacity}`;
-      food.textContent = money.format(meta.stats.foodStock);
-      foodStock.textContent = `Bedarf ${money.format(meta.stats.foodUsed)} · Erzeugung ${money.format(meta.stats.foodCapacity)}`;
+      food.textContent = compactMoney(meta.stats.foodStock);
+      foodStock.textContent = `Bedarf ${compactMoney(meta.stats.foodUsed)} · Erzeugung ${compactMoney(meta.stats.foodCapacity)}`;
       const hungry = meta.stats.foodUsed > 0 && meta.stats.foodUsed > meta.stats.foodCapacity + meta.stats.foodStock;
       foodStock.style.color = hungry ? "#e07a6a" : "#9dca86";
       traffic.textContent = `${meta.stats.traffic}`;
@@ -457,11 +626,30 @@ export function createHud(events: HudControls): Hud {
           const pay = fresh.reduce((sum, entry) => sum + entry.reward, 0);
           toast.textContent = fresh.length === 1 ? `${fresh[0].title} erledigt, +${money.format(pay)} €` : `${fresh.length} Aufträge erledigt, +${money.format(pay)} €`;
           toast.hidden = false;
+          toast.classList.remove("pop");
+          void toast.offsetWidth;
+          toast.classList.add("pop");
+          playSfx("goal");
+          funds.classList.remove("pulse-good", "pulse-bad");
+          void funds.offsetWidth;
+          funds.classList.add("pulse-good");
+          window.clearTimeout(fundsPulseTimer);
+          fundsPulseTimer = window.setTimeout(() => funds.classList.remove("pulse-good", "pulse-bad"), 700);
           window.clearTimeout(toastTimer);
-          toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3200);
+          toastTimer = window.setTimeout(() => {
+            toast.hidden = true;
+            toast.classList.remove("pop");
+          }, 3400);
         }
       }
       seenGoals = goals;
+    },
+    pulseFunds(tone = "good") {
+      funds.classList.remove("pulse-good", "pulse-bad");
+      void funds.offsetWidth;
+      funds.classList.add(tone === "bad" ? "pulse-bad" : "pulse-good");
+      window.clearTimeout(fundsPulseTimer);
+      fundsPulseTimer = window.setTimeout(() => funds.classList.remove("pulse-good", "pulse-bad"), 700);
     },
     setStatus(text) { status.textContent = text; },
     setHint(text) { hint.textContent = text; },
@@ -474,8 +662,14 @@ export function createHud(events: HudControls): Hud {
     showSaveToast(text = "Stadt gespeichert") {
       saveToast.textContent = text;
       saveToast.hidden = false;
+      saveToast.classList.remove("pop");
+      void saveToast.offsetWidth;
+      saveToast.classList.add("pop");
       window.clearTimeout(saveToastTimer);
-      saveToastTimer = window.setTimeout(() => { saveToast.hidden = true; }, 2800);
+      saveToastTimer = window.setTimeout(() => {
+        saveToast.hidden = true;
+        saveToast.classList.remove("pop");
+      }, 2800);
     },
     setContinueVisible(visible) { requiredButton("#solo-continue").hidden = !visible; },
     setLobbyBackVisible(visible) { requiredButton("#lobby-back").hidden = !visible; },
@@ -612,8 +806,34 @@ export function createHud(events: HudControls): Hud {
     },
     setChatEnabled(enabled, note) {
       chatNote.textContent = note;
+      chatNote.hidden = false;
       chatInput.disabled = !enabled;
       chatSend.disabled = !enabled;
+      chatInput.placeholder = enabled ? "Nachricht" : "Nur im Koop";
+    },
+    setOverlays(overlays) {
+      const zones = document.querySelector<HTMLInputElement>("#ov-zones");
+      const power = document.querySelector<HTMLInputElement>("#ov-power");
+      const water = document.querySelector<HTMLInputElement>("#ov-water");
+      if (zones) zones.checked = overlays.zones;
+      if (power) power.checked = overlays.power;
+      if (water) water.checked = overlays.water;
+    },
+    closeOverlays() {
+      let closed = false;
+      if (!notes.hidden) {
+        paintNotes(false);
+        closed = true;
+      }
+      if (!lobby.hidden) {
+        lobby.hidden = true;
+        closed = true;
+      }
+      return closed;
+    },
+    clearToast() {
+      toast.hidden = true;
+      window.clearTimeout(toastTimer);
     },
     setPanMode(on) {
       togglePan.classList.toggle("active", on);
@@ -621,6 +841,27 @@ export function createHud(events: HudControls): Hud {
       togglePanHud.classList.toggle("active", on);
       togglePanHud.setAttribute("aria-pressed", String(on));
       document.body.dataset.pan = on ? "on" : "off";
+    },
+    setOrbitMode(on) {
+      toggleOrbit.classList.toggle("active", on);
+      toggleOrbit.setAttribute("aria-pressed", String(on));
+      toggleOrbitHud.classList.toggle("active", on);
+      toggleOrbitHud.setAttribute("aria-pressed", String(on));
+      document.body.dataset.orbit = on ? "on" : "off";
+    },
+    setBuildCursor(view) {
+      if (!view) {
+        buildCursor.hidden = true;
+        document.body.dataset.build = "off";
+        return;
+      }
+      document.body.dataset.build = "on";
+      buildCursor.hidden = false;
+      buildCursor.dataset.kind = view.kind ?? "build";
+      buildCursorTool.textContent = view.label;
+      buildCursorHint.textContent = view.hint ?? "Doppelklick beendet";
+      buildCursor.style.left = `${Math.round(view.x)}px`;
+      buildCursor.style.top = `${Math.round(view.y)}px`;
     },
     setPeerCursors(cursors) {
       const existing = new Map(
@@ -662,16 +903,25 @@ export function createHud(events: HudControls): Hud {
       name.value = value;
       gateName.value = value;
     },
-    setRoomName(value) { room.value = value; },
+    setRoomName(value) {
+      room.value = value;
+      paintRoomHint();
+    },
     showLevelEnd(view) {
       levelEnd.hidden = false;
       levelEndSheet.classList.toggle("fail", !view.won);
+      levelEndSheet.classList.remove("enter");
+      void levelEndSheet.offsetWidth;
+      levelEndSheet.classList.add("enter");
       required("#level-end-kicker").textContent = view.won ? "Level-Modus" : "Nicht geschafft";
       required("#level-end-title").textContent = view.won ? "Level geschafft" : view.title;
       required("#level-end-text").textContent = view.text;
       requiredButton("#level-end-next").hidden = !view.won || !view.next;
     },
-    hideLevelEnd() { levelEnd.hidden = true; },
+    hideLevelEnd() {
+      levelEnd.hidden = true;
+      levelEndSheet.classList.remove("enter");
+    },
     setRooms(entries) {
       const live = entries.filter((entry) => entry.players > 0);
       const saved = entries.filter((entry) => entry.players === 0);
@@ -679,9 +929,13 @@ export function createHud(events: HudControls): Hud {
       liveNote.hidden = live.length === 0;
       liveList.hidden = live.length === 0;
       liveList.replaceChildren(...live.map((entry) => roomRow(entry, {
-        onJoin: () => {
+        onSolo: () => {
           room.value = entry.code;
-          events.onOpenSaved(entry.code);
+          events.onOpenSolo(entry.code);
+        },
+        onCoop: () => {
+          room.value = entry.code;
+          events.onOpenCoop(entry.code);
         },
         onDelete: () => events.onDelete(entry.code),
         live: true,
@@ -692,14 +946,18 @@ export function createHud(events: HudControls): Hud {
           live.length > 0 ? "Keine weiteren gespeicherten Städte" : "Noch keine gespeicherte Stadt",
           live.length > 0
             ? "Oben in der Liste sind die Räume, in denen gerade jemand spielt."
-            : "Lege oben eine neue Stadt an. Sie erscheint danach hier.",
+            : "Lege oben eine neue Stadt an und starte Solo oder Koop.",
         ));
         return;
       }
       for (const entry of saved) list.append(roomRow(entry, {
-        onJoin: () => {
+        onSolo: () => {
           room.value = entry.code;
-          events.onOpenSaved(entry.code);
+          events.onOpenSolo(entry.code);
+        },
+        onCoop: () => {
+          room.value = entry.code;
+          events.onOpenCoop(entry.code);
         },
         onDelete: () => events.onDelete(entry.code),
         live: false,
@@ -734,6 +992,7 @@ export function createHud(events: HudControls): Hud {
     },
     playerName: () => name.value,
     roomName: () => room.value,
+    mapGenOptions: () => readMapGen(),
   };
 }
 
@@ -781,29 +1040,44 @@ function familyCard(family: InspectFamily): HTMLElement {
 
 function tradePanel(deals: InspectTrade[], onTrade: (id: string) => void): HTMLElement[] {
   const nodes: HTMLElement[] = [];
+  const intro = document.createElement("p");
+  intro.className = "insp-trade-intro";
+  const farmPanel = deals.every((deal) => deal.id.startsWith("farm:"));
+  intro.textContent = farmPanel ? "Hof ausbauen" : "Handel";
+  nodes.push(intro);
   for (const side of ["import", "export"] as const) {
     const rows = deals.filter((deal) => deal.side === side);
     if (rows.length === 0) continue;
+    const block = document.createElement("section");
+    block.className = `insp-trade-block ${side}`;
     const heading = document.createElement("h3");
-    heading.textContent = side === "import" ? "Import" : "Export";
-    nodes.push(heading);
+    heading.textContent = farmPanel
+      ? (side === "import" ? "Kaufen & ausbauen" : "Umrüsten")
+      : (side === "import" ? "Einkaufen" : "Verkaufen");
+    block.append(heading);
+    const list = document.createElement("div");
+    list.className = "insp-trade-list";
     for (const deal of rows) {
       const row = document.createElement("div");
-      row.className = "insp-trade-row";
+      row.className = deal.enabled ? "insp-trade-row" : "insp-trade-row locked";
       const copy = document.createElement("div");
+      copy.className = "insp-trade-copy";
       const name = document.createElement("b");
       name.textContent = deal.name;
       const detail = document.createElement("span");
-      detail.textContent = `${deal.detail} · ${deal.price}`;
+      detail.textContent = deal.enabled ? deal.detail : (deal.hint || deal.detail);
       copy.append(name, detail);
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = side === "import" ? "Kaufen" : "Verkaufen";
+      button.textContent = deal.price;
       button.disabled = !deal.enabled;
+      button.setAttribute("aria-label", `${side === "import" ? "Kaufen" : "Verkaufen"}: ${deal.name} für ${deal.price}`);
       if (deal.enabled) button.addEventListener("click", () => onTrade(deal.id));
       row.append(copy, button);
-      nodes.push(row);
+      list.append(row);
     }
+    block.append(list);
+    nodes.push(block);
   }
   return nodes;
 }
@@ -825,6 +1099,119 @@ function hireRow(hire: InspectHire, onHire: () => void): HTMLElement {
   return row;
 }
 
+const STAT_TIPS: Record<string, { title: string; text: string }> = {
+  time: {
+    title: "Zeit & Stadtpuls",
+    text: "Die Uhr zeigt den Tag-Nacht-Zyklus. Wetter und Puls (Rushhour, Nacht) steuern, wie voll die Straßen sind und wie hell die Stadt wirkt.",
+  },
+  funds: {
+    title: "Kasse",
+    text: "Dein Geld zum Bauen und Handeln. Die kleine Zahl darunter ist der aktuelle Saldo aus Steuern und laufenden Kosten.",
+  },
+  pop: {
+    title: "Einwohner",
+    text: "Menschen in bebauten Wohnungen. Mehr Wohnraum und gute Versorgung lassen die Stadt wachsen.",
+  },
+  jobs: {
+    title: "Jobs",
+    text: "Arbeitsplätze in Gewerbe, Industrie und Betrieben. Ohne Jobs bleiben Erwachsene arbeitslos und verdienen weniger.",
+  },
+  power: {
+    title: "Strom",
+    text: "Verbrauch / Kapazität. Kraftwerke speisen Leitungen; ohne Strom bleiben Gebäude unversorgt und entwickeln sich nicht.",
+  },
+  water: {
+    title: "Wasser",
+    text: "Verbrauch / Kapazität. Wasserwerke speisen Rohre; ohne Wasser stockt Wachstum und Versorgung.",
+  },
+  food: {
+    title: "Nahrung",
+    text: "Vorrat in der Stadt. Darunter siehst du Bedarf und Erzeugung (Höfe). Reicht die Versorgung nicht, hungert die Stadt.",
+  },
+  traffic: {
+    title: "Verkehr",
+    text: "Auslastung der Straßen. Hohe Werte bedeuten Stau — mehr Straßen und kürzere Wege entlasten.",
+  },
+};
+
+function wireStatTips(): { hide: (clearPin?: boolean) => void } {
+  const tip = required("#stat-tip");
+  const tipTitle = required("#stat-tip-title");
+  const tipText = required("#stat-tip-text");
+  const stats = required("#city-stats");
+  let pinned: HTMLElement | null = null;
+  let hoverTimer = 0;
+
+  const place = (node: HTMLElement) => {
+    const box = node.getBoundingClientRect();
+    const tipBox = tip.getBoundingClientRect();
+    const width = tipBox.width || 240;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left + box.width / 2 - width / 2));
+    const top = Math.min(window.innerHeight - 12, box.bottom + 8);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+
+  const show = (node: HTMLElement) => {
+    const key = node.dataset.stat ?? "";
+    const entry = STAT_TIPS[key];
+    if (!entry) return;
+    tipTitle.textContent = entry.title;
+    tipText.textContent = entry.text;
+    tip.hidden = false;
+    for (const stat of stats.querySelectorAll<HTMLElement>(".stat")) {
+      stat.dataset.open = stat === node ? "on" : "";
+    }
+    requestAnimationFrame(() => place(node));
+  };
+
+  const hide = (clearPin = false) => {
+    if (clearPin) pinned = null;
+    if (pinned) return;
+    tip.hidden = true;
+    for (const stat of stats.querySelectorAll<HTMLElement>(".stat")) delete stat.dataset.open;
+  };
+
+  for (const node of stats.querySelectorAll<HTMLElement>(".stat")) {
+    node.addEventListener("mouseenter", () => {
+      window.clearTimeout(hoverTimer);
+      if (pinned && pinned !== node) return;
+      show(node);
+    });
+    node.addEventListener("mouseleave", () => {
+      window.clearTimeout(hoverTimer);
+      hoverTimer = window.setTimeout(() => hide(false), 120);
+    });
+    node.addEventListener("focus", () => show(node));
+    node.addEventListener("blur", () => hide(false));
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (pinned === node) {
+        pinned = null;
+        hide(true);
+        return;
+      }
+      pinned = node;
+      show(node);
+    });
+    node.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      node.click();
+    });
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (stats.contains(target) || tip.contains(target)) return;
+    hide(true);
+  });
+
+  tip.style.position = "fixed";
+  return { hide };
+}
+
 function roomsEmpty(title: string, hint: string): HTMLElement {
   const empty = document.createElement("div");
   empty.className = "rooms-empty";
@@ -836,17 +1223,19 @@ function roomsEmpty(title: string, hint: string): HTMLElement {
   return empty;
 }
 
-function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () => void; live: boolean }): HTMLElement {
+function roomRow(entry: RoomCard, options: {
+  onSolo: () => void;
+  onCoop: () => void;
+  onDelete: () => void;
+  live: boolean;
+}): HTMLElement {
   const joinable = entry.players > 0 && entry.players < 2;
   const full = entry.players >= 2;
   const label = entry.name || entry.code;
   const row = document.createElement("div");
   row.className = joinable ? "room-row live" : full ? "room-row full" : "room-row";
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "room-card";
-  button.disabled = full;
-  button.setAttribute("aria-label", joinable ? `${label} beitreten` : `${label} öffnen`);
+  const card = document.createElement("div");
+  card.className = "room-card";
   const mark = document.createElement("span");
   mark.className = "room-mark";
   mark.setAttribute("aria-hidden", "true");
@@ -866,25 +1255,47 @@ function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () =>
   if (entry.name && entry.name.toLowerCase() !== entry.code.toLowerCase()) bits.push(entry.code);
   meta.textContent = bits.join(" · ");
   copy.append(title, meta);
-  button.append(mark, copy);
+  card.append(mark, copy);
   if (joinable) {
     const badge = document.createElement("em");
     badge.className = "live-tag";
     badge.textContent = "Online";
-    button.append(badge);
+    card.append(badge);
   }
-  if (!full) button.addEventListener("click", options.onJoin);
+  const actions = document.createElement("div");
+  actions.className = "room-actions";
   if (options.live || entry.level) {
-    row.append(button);
+    const join = document.createElement("button");
+    join.type = "button";
+    join.className = "room-coop";
+    join.textContent = full ? "Voll" : "Beitreten";
+    join.disabled = full;
+    join.setAttribute("aria-label", full ? `${label} ist voll` : `${label} beitreten`);
+    if (!full) join.addEventListener("click", options.onCoop);
+    actions.append(join);
+    row.append(card, actions);
     return row;
   }
+  const solo = document.createElement("button");
+  solo.type = "button";
+  solo.className = "room-solo";
+  solo.textContent = "Solo";
+  solo.setAttribute("aria-label", `${label} solo öffnen`);
+  solo.addEventListener("click", options.onSolo);
+  const coop = document.createElement("button");
+  coop.type = "button";
+  coop.className = "room-coop";
+  coop.textContent = "Koop";
+  coop.setAttribute("aria-label", `${label} im Koop öffnen`);
+  coop.addEventListener("click", options.onCoop);
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "room-delete";
   remove.textContent = "Löschen";
   remove.setAttribute("aria-label", `${label} löschen`);
   remove.addEventListener("click", options.onDelete);
-  row.append(button, remove);
+  actions.append(solo, coop, remove);
+  row.append(card, actions);
   return row;
 }
 

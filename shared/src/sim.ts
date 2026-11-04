@@ -1,6 +1,7 @@
 import { AIRPORT_INCOME, FOOD_PER_WORKER, FOOD_STOCK_MAX, foodNeed, serviceInfo } from "./catalog.ts";
 import { claimGoals } from "./goals.ts";
 import { cellBudget, isLink, isRoad } from "./city.ts";
+import { farmStatus } from "./farm.ts";
 import { DIRS, ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
 import { isWorkplace } from "./people.ts";
 import { computeTraffic } from "./traffic.ts";
@@ -92,6 +93,7 @@ export function buildMeta(city: CityState): SimMeta {
     ledger: cityLedger(city),
     goals: city.goals >>> 0,
     food: city.food,
+    ...(city.gen ? { gen: { ...city.gen } } : {}),
   };
 }
 
@@ -99,6 +101,12 @@ export function refreshUtilities(city: CityState): void {
   city.utility.fill(0);
   supplyNetwork(city, ServiceKind.Power, POWER_BIT, POWER_CAPACITY, city.lines);
   supplyNetwork(city, ServiceKind.Water, WATER_BIT, WATER_CAPACITY, city.pipes);
+}
+
+function conducts(city: CityState, layer: Uint8Array, index: number, bit: number): boolean {
+  if (isLink(layer, index)) return true;
+  // Street lamps bridge power gaps and keep lines conducting through their cell.
+  return bit === POWER_BIT && city.services[index] === ServiceKind.Lamp;
 }
 
 function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach: number, layer: Uint8Array): void {
@@ -113,13 +121,15 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
   distance.fill(-1);
   const queue: number[] = [];
   for (const source of sources) {
+    // Sources themselves count as supplied (inspect/night light).
+    city.utility[source] |= bit;
     const { x, y } = cellCoords(city, source);
     for (const dir of DIRS) {
       const nx = x + dir.dx;
       const ny = y + dir.dy;
       if (!inBounds(city, nx, ny)) continue;
       const next = cellIndex(city, nx, ny);
-      if (isLink(layer, next) && distance[next] < 0) {
+      if (conducts(city, layer, next, bit) && distance[next] < 0) {
         distance[next] = 0;
         queue.push(next);
       }
@@ -135,7 +145,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
       const ny = y + dir.dy;
       if (!inBounds(city, nx, ny)) continue;
       const next = cellIndex(city, nx, ny);
-      if (isLink(layer, next) && distance[next] < 0) {
+      if (conducts(city, layer, next, bit) && distance[next] < 0) {
         distance[next] = distance[current] + 1;
         queue.push(next);
       }
@@ -183,6 +193,8 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
 
   groups.sort((a, b) => a.distance - b.distance || a.cells[0] - b.cells[0]);
   for (const group of groups) {
+    // Free consumers (airport) still need leftover capacity; don't light them at 0.
+    if (remaining <= 0) continue;
     if (group.use > remaining) continue;
     for (const cell of group.cells) city.utility[cell] |= bit;
     remaining -= group.use;
@@ -191,6 +203,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
 
 function carrierDistance(city: CityState, index: number, layer: Uint8Array, distance: Int16Array, kind: number): number {
   const { x, y } = cellCoords(city, index);
+  const power = kind === ServiceKind.Power;
   let best = 9999;
   for (let dy = -1; dy <= 1; dy += 1) {
     for (let dx = -1; dx <= 1; dx += 1) {
@@ -199,7 +212,8 @@ function carrierDistance(city: CityState, index: number, layer: Uint8Array, dist
       if (!inBounds(city, nx, ny)) continue;
       const carrier = cellIndex(city, nx, ny);
       if (city.services[carrier] === kind) best = Math.min(best, 0);
-      if ((layer[carrier] & ROAD_FLAG) !== 0 && distance[carrier] >= 0) {
+      const linked = (layer[carrier] & ROAD_FLAG) !== 0 || (power && city.services[carrier] === ServiceKind.Lamp);
+      if (linked && distance[carrier] >= 0) {
         best = Math.min(best, distance[carrier] + Math.max(Math.abs(dx), Math.abs(dy)));
       }
     }
@@ -220,7 +234,9 @@ export function farmYield(city: CityState, index: number, workers: number): numb
   if (city.zones[index] !== Zone.Farm || city.levels[index] <= 0 || workers <= 0) return 0;
   const bits = city.utility[index] & (POWER_BIT | WATER_BIT);
   const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : bits === 0 ? 0.4 : 0.7;
-  return Math.max(0, Math.round(workers * FOOD_PER_WORKER * utility * (cellBudget(city, index) / 100)));
+  const farm = farmStatus(city, index);
+  const mult = farm?.yieldMult ?? 1;
+  return Math.max(0, Math.round(workers * FOOD_PER_WORKER * utility * (cellBudget(city, index) / 100) * mult));
 }
 
 export function foodProduction(city: CityState): number {
@@ -347,7 +363,9 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
     const skill = zone === Zone.Commercial ? 1 + education * 0.45 : 1 + education * 0.12;
     if (zone === Zone.Farm) {
       const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : bits === 0 ? 0.5 : 0.75;
-      income += 9 * skill * utility * (cellBudget(city, workplace) / 100);
+      const farm = farmStatus(city, workplace);
+      const herd = farm?.livestock ? 1.25 : 1;
+      income += 9 * skill * utility * herd * (cellBudget(city, workplace) / 100);
       continue;
     }
     if (bits === 0) continue;

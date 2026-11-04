@@ -81,7 +81,15 @@ export const SERVICES: Record<number, ServiceInfo> = {
     cost: COST.airport,
     upkeep: 48,
     radius: 0,
-    blurb: "Kleiner Privatflugplatz. 48.000 € Bau, danach etwa 260 € alle 2 s. An der Lupe Import und Export.",
+    blurb: "Privatflugplatz mit Import und Export.",
+  },
+  [ServiceKind.Lamp]: {
+    kind: ServiceKind.Lamp,
+    name: "Laterne",
+    cost: COST.lamp,
+    upkeep: 1,
+    radius: 2,
+    blurb: "Beleuchtet nachts die Umgebung. Geht auf Straßen und Stromleitungen; leitet Strom weiter.",
   },
 };
 

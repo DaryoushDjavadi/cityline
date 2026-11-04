@@ -1,3 +1,4 @@
+import { climateAt, streetActivityAt } from "./climate.ts";
 import { isRoad } from "./city.ts";
 import { cellCoords } from "./grid.ts";
 import { Quadtree } from "./quadtree.ts";
@@ -10,6 +11,7 @@ export function computeTraffic(city: CityState): { load: Uint8Array; score: numb
   const count = city.width * city.height;
   const load = new Uint8Array(count);
   const tree = new Quadtree({ x: 0, y: 0, w: city.width, h: city.height });
+  const activity = streetActivityAt(climateAt(city.tick).hour);
 
   for (let index = 0; index < count; index += 1) {
     if (city.levels[index] <= 0) continue;
@@ -27,7 +29,7 @@ export function computeTraffic(city: CityState): { load: Uint8Array; score: numb
     tree.query({ x: x - QUERY_RADIUS, y: y - QUERY_RADIUS, w: QUERY_RADIUS * 2, h: QUERY_RADIUS * 2 }, nearby);
     let weight = 0;
     for (const building of nearby) weight += building.weight;
-    const value = Math.min(255, weight);
+    const value = Math.min(255, Math.round(weight * (0.28 + activity * 1.05)));
     load[index] = value;
     total += value;
     roads += 1;

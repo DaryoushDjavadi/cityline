@@ -7,6 +7,123 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.38",
+    at: "4. Nov 2026",
+    title: "Stabiler Bau & Handy",
+    items: [
+      "Straßen und Zonen überschreiben keine Gebäude mehr. Laternen abreißen lässt Straße und Leitung stehen.",
+      "Abriss von Gebäuden fragt nach. Voller Nahrungsspeicher blockiert Import. Kraftwerk und Wasserwerk gelten als versorgt.",
+      "Koop übernimmt Biom und Wald. Seed und Kartenvorschau bleiben beim Start gleich. Handy Hoch/Quer ohne verdeckte Buttons.",
+    ],
+  },
+  {
+    version: "0.37",
+    at: "4. Nov 2026",
+    title: "Nachtlicht & Laternen",
+    items: [
+      "Nachts ist die Stadt dunkel — Häuser und Betriebe mit Strom leuchten selbst und ein Stück weit um sich herum.",
+      "Laternen baust du unter Versorgung (auch auf Straßen und Stromleitungen). Die Leitung leitet Strom durch die Laterne weiter.",
+    ],
+  },
+  {
+    version: "0.36",
+    at: "4. Nov 2026",
+    title: "Werte immer im Blick",
+    items: [
+      "Die Statusleiste (Kasse, Einwohner, Strom …) ist standardmäßig sichtbar und lässt sich über „Werte“ ausblenden.",
+      "Hover oder Klick auf einen Wert erklärt, was er bedeutet.",
+    ],
+  },
+  {
+    version: "0.35",
+    at: "4. Nov 2026",
+    title: "Solo oder Koop wählen",
+    items: [
+      "Neue Stadt: Solo starten oder Koop starten.",
+      "Gespeicherte Städte haben Solo- und Koop-Buttons. Online-Räume zeigen Beitreten.",
+    ],
+  },
+  {
+    version: "0.34",
+    at: "4. Nov 2026",
+    title: "Karten & Biome",
+    items: [
+      "Beim Anlegen: Biom wählen (gemäßigt, trocken, alpin, tropisch, Archipel), Seed und Slider für Meer, Seen, Flüsse und Wald.",
+      "Kartenvorschau zeigt die Landschaft vor dem Start. Zufalls-Seed per Knopf.",
+      "Terrain-Generation mit Fjorden, Inselketten und biomtypischer Vegetation.",
+    ],
+  },
+  {
+    version: "0.33",
+    at: "4. Nov 2026",
+    title: "Stadt im Rhythmus",
+    items: [
+      "Rushhour morgens und abends: mehr Autos und Fußgänger, vollere Straßen, langsameres Tempo.",
+      "Nachts ruhiger, mit Scheinwerfern und Straßenlaternen. Oben steht der aktuelle Stadtpuls.",
+    ],
+  },
+  {
+    version: "0.32",
+    at: "4. Nov 2026",
+    title: "Bauernhof ausbauen",
+    items: [
+      "Höfe starten mit Getreide. Im Infofenster: Tiere kaufen, zurück zu Getreide, Bewässerung und Silo.",
+      "Anbau ist von außen sichtbar (goldener Acker vs. Weide mit Tieren). Ausbauten ändern das Modell.",
+      "Tiere und Verbesserungen erhöhen die Nahrung; der Stand speichert sich und gilt auch im Koop.",
+    ],
+  },
+  {
+    version: "0.31",
+    at: "4. Nov 2026",
+    title: "Bessere Autos",
+    items: [
+      "Limousine, Kleinwagen, Kombi und Transporter haben eigene Modelle mit Fenstern, Rädern und Lichtern statt einfacher Kisten.",
+    ],
+  },
+  {
+    version: "0.30",
+    at: "4. Nov 2026",
+    title: "Tag, Nacht und Fußgänger",
+    items: [
+      "Gemeinsamer Tag-Nacht-Zyklus (etwa 5 Minuten pro Tag) für Solo und Koop, mit Uhr und Wetter oben.",
+      "Hell und dunkel wechseln; manchmal regnet es. Tag- und Nachtschichten beleben die Straßen unterschiedlich.",
+      "Bewohner laufen auf dem Gehweg. Wer gerade arbeitet, ist nicht unterwegs.",
+    ],
+  },
+  {
+    version: "0.29",
+    at: "4. Nov 2026",
+    title: "Drehen und Nahzoom",
+    items: [
+      "Neuer Schauen-Modus Drehen neben Verschieben: Ziehen orbitiert die Kamera, mit Cursor-Hinweis.",
+      "Doppelklick oder Doppeltipp auf ein Gebäude (Lupe oder Verschieben) zoomt nah heran.",
+    ],
+  },
+  {
+    version: "0.28",
+    at: "4. Nov 2026",
+    title: "Feedback und Atmosphäre",
+    items: [
+      "Kurze Sounds beim Bauen, Ablehnen, Auftrag und Level-Ende.",
+      "Neue Gebäude poppen kurz auf. Versorgungs-Icons pulsieren.",
+      "Schule, Klinik und Co. zeigen beim Platzieren den Wirkungsradius.",
+      "Auftrags-Toasts und die Kasse reagieren sichtbarer. Level-Ende fährt weicher ein.",
+      "Im Baumodus hängt ein Hinweis am Zeiger; Doppelklick beendet den Modus.",
+    ],
+  },
+  {
+    version: "0.27",
+    at: "4. Nov 2026",
+    title: "Testbericht-Fixes",
+    items: [
+      "Gebäude gehen vor Autos bei der Lupe; Infofenster springt nicht mehr von allein um. Bauwerkzeuge bleiben aktiv.",
+      "Verschieben endet beim Wechseln des Werkzeugs. Zoom folgt dem Mauszeiger, Level starten in der Übersicht.",
+      "Straßen mit Lücke (Wasser/Rand) werden verweigert. Level 7 hat wieder einen Fluss. Häuser nur direkt an der Straße.",
+      "Löschen fragt nach und räumt lokal plus Server gemeinsam ab (ohne Eigentümer-Sperre, Testphase).",
+      "Escape schließt Städte und Neuigkeiten. Mobile: Bau-Menü und Chat lassen sich scrollen.",
+    ],
+  },
+  {
     version: "0.26",
     at: "4. Nov 2026",
     title: "Flughafen: Strom, Wasser, Nahrung",

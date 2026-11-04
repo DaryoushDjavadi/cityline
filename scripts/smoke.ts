@@ -1,6 +1,23 @@
-import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, createCity, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, writeCitySlot } from "../shared/src/index.ts";
+import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
+{
+  const a = createCity(undefined, undefined, { seed: 42, biome: "alpine", water: 40, lakes: 45, forest: 68, rivers: 72 });
+  const b = createCity(undefined, undefined, { seed: 42, biome: "alpine", water: 40, lakes: 45, forest: 68, rivers: 72 });
+  if (!a.gen || a.gen.biome !== "alpine" || a.gen.seed !== 42) throw new Error("map gen missing");
+  for (let i = 0; i < a.terrain.length; i += 1) {
+    if (a.terrain[i] !== b.terrain[i]) throw new Error("map gen not deterministic");
+  }
+  const dry = createCity(undefined, undefined, { seed: 7, biome: "temperate", water: 10, lakes: 0, rivers: 0 });
+  const wet = createCity(undefined, undefined, { seed: 7, biome: "temperate", water: 90, lakes: 0, rivers: 0 });
+  let dryWater = 0;
+  let wetWater = 0;
+  for (let i = 0; i < dry.terrain.length; i += 1) {
+    if (dry.terrain[i] === 1) dryWater += 1;
+    if (wet.terrain[i] === 1) wetWater += 1;
+  }
+  if (wetWater <= dryWater) throw new Error("higher water slider should yield more sea");
+}
 let dryInterior = false;
 for (let y = 14; y < 50 && !dryInterior; y += 1) {
   for (let x = 14; x < 50; x += 1) {
@@ -137,7 +154,7 @@ if (canPlace(wet, shore, "fill") || !canPlace(wet, shore, "road")) throw new Err
 const jobs = createCity();
 jobs.terrain.fill(0);
 const home = cellIndex(jobs, 4, 5);
-const factory = cellIndex(jobs, 4, 6);
+const factory = cellIndex(jobs, 3, 4);
 if (!applyCommand(jobs, { type: "road", cells: [cellIndex(jobs, 4, 4)] }).ok) throw new Error("job road");
 const cottage = cellIndex(jobs, 5, 4);
 if (!applyCommand(jobs, { type: "build", kind: "cottage", cells: [cottage] }).ok || jobs.levels[cottage] !== 1) throw new Error("cottage");
@@ -264,7 +281,7 @@ if (foodNeed(84) !== 1 || foodNeed(120) !== 2) throw new Error("food demand shou
 
 const newTown = createCity();
 newTown.terrain.fill(0);
-if (!applyCommand(newTown, { type: "road", cells: [cellIndex(newTown, 8, 8), cellIndex(newTown, 12, 8)] }).ok) throw new Error("new town road");
+if (!applyCommand(newTown, { type: "road", cells: [8, 9, 10, 11, 12].map((x) => cellIndex(newTown, x, 8)) }).ok) throw new Error("new town road");
 for (const x of [8, 9, 10, 11]) {
   if (!applyCommand(newTown, { type: "build", kind: "cottage", cells: [cellIndex(newTown, x, 9)] }).ok) throw new Error("new town cottage");
 }
@@ -279,9 +296,33 @@ if (!applyCommand(nextDoor, { type: "service", index: cellIndex(nextDoor, 6, 3),
 if (!applyCommand(nextDoor, { type: "build", kind: "cottage", cells: [cellIndex(nextDoor, 5, 3)] }).ok) throw new Error("adj house");
 refreshUtilities(nextDoor);
 if ((nextDoor.utility[cellIndex(nextDoor, 5, 3)] & 3) !== 3) throw new Error("house next to plants should be supplied");
-if (!applyCommand(nextDoor, { type: "build", kind: "cottage", cells: [cellIndex(nextDoor, 4, 6)] }).ok) throw new Error("far house");
+if (!applyCommand(nextDoor, { type: "road", cells: [cellIndex(nextDoor, 4, 8)] }).ok) throw new Error("far road");
+if (!applyCommand(nextDoor, { type: "build", kind: "cottage", cells: [cellIndex(nextDoor, 4, 7)] }).ok) throw new Error("far house");
 refreshUtilities(nextDoor);
-if ((nextDoor.utility[cellIndex(nextDoor, 4, 6)] & 1) !== 0) throw new Error("distant house should stay unpowered without a line");
+if ((nextDoor.utility[cellIndex(nextDoor, 4, 7)] & 1) !== 0) throw new Error("distant house should stay unpowered without a line");
+
+{
+  const lit = createCity();
+  lit.terrain.fill(0);
+  const road = [cellIndex(lit, 3, 5), cellIndex(lit, 4, 5), cellIndex(lit, 5, 5), cellIndex(lit, 6, 5), cellIndex(lit, 7, 5)];
+  if (!applyCommand(lit, { type: "road", cells: road }).ok) throw new Error("lamp roads");
+  if (!applyCommand(lit, { type: "service", index: cellIndex(lit, 3, 4), kind: ServiceKind.Power }).ok) throw new Error("lamp plant");
+  const a = cellIndex(lit, 4, 4);
+  const lamp = cellIndex(lit, 5, 4);
+  const b = cellIndex(lit, 6, 4);
+  const house = cellIndex(lit, 7, 4);
+  if (!applyCommand(lit, { type: "line", cells: [a, lamp, b] }).ok) throw new Error("lamp lines");
+  if (!applyCommand(lit, { type: "service", index: lamp, kind: ServiceKind.Lamp }).ok) throw new Error("place lamp on line");
+  if (lit.services[lamp] !== ServiceKind.Lamp) throw new Error("lamp missing");
+  if (!isLine(lit, lamp)) throw new Error("lamp should keep the power line");
+  if (!applyCommand(lit, { type: "build", cells: [house], kind: "cottage" }).ok) throw new Error("lamp house");
+  refreshUtilities(lit);
+  if ((lit.utility[a] & 1) === 0 || (lit.utility[lamp] & 1) === 0 || (lit.utility[b] & 1) === 0) {
+    throw new Error("power should pass through lamp");
+  }
+  if ((lit.utility[house] & 1) === 0) throw new Error("house past lamp should be powered");
+}
+if (canPlace(nextDoor, cellIndex(nextDoor, 4, 10), "build")) throw new Error("house two cells from a road must be illegal");
 
 const farmTown = createCity();
 farmTown.terrain.fill(0);
@@ -296,6 +337,15 @@ if (!applyCommand(farmTown, { type: "hire", workplace: farmCell, home: grown[0].
 if (foodProduction(farmTown) <= 0) throw new Error("staffed farm should produce food");
 if (farmYield(farmTown, farmCell, 1) < foodNeed(96)) throw new Error("one farm worker should feed a small growing city");
 if (foodRatio(farmTown) < 1) throw new Error("starter farm town should stay fed");
+const wheatYield = farmYield(farmTown, farmCell, 2);
+if (!applyCommand(farmTown, { type: "farm", index: farmCell, action: "livestock" }).ok) throw new Error("buy livestock");
+if ((farmTown.skills[farmCell] & 8) === 0) throw new Error("livestock bit missing");
+const herdYield = farmYield(farmTown, farmCell, 2);
+if (herdYield <= wheatYield) throw new Error("livestock should produce more food than wheat");
+if (!applyCommand(farmTown, { type: "farm", index: farmCell, action: "irrigation" }).ok) throw new Error("irrigation");
+if (farmYield(farmTown, farmCell, 2) <= herdYield) throw new Error("irrigation should boost yield");
+if (!applyCommand(farmTown, { type: "farm", index: farmCell, action: "wheat" }).ok) throw new Error("back to wheat");
+if ((farmTown.skills[farmCell] & 8) !== 0) throw new Error("wheat mode should clear livestock bit");
 
 const air = createCity();
 air.terrain.fill(0);
@@ -395,5 +445,76 @@ if (grainFed.stats.foodUsed !== 1 || grainFed.stats.foodCapacity !== 0) {
 
 const restoredFood = saveToCity(cityToSave(farmTown, "food"));
 if (!restoredFood || restoredFood.food !== farmTown.food) throw new Error("food did not save");
+
+if (DAY_TICKS !== 600) throw new Error("day length should stay 5 minutes");
+const noon = climateAt(Math.floor(DAY_TICKS * 0.5));
+const midnight = climateAt(0);
+if (noon.daylight <= midnight.daylight) throw new Error("noon should be brighter than midnight");
+if (!/^\d{2}:\d{2}$/.test(noon.clock)) throw new Error(`bad clock ${noon.clock}`);
+const walkers = streetPedestrians(city);
+for (const ped of walkers) {
+  if (ped.child) continue;
+  const adult = listAdults(city, ped.home).find((entry) => entry.name === ped.name);
+  if (adult && isOnDuty(adult.home, adult.slot, adult.workplace, climateAt(city.tick))) {
+    throw new Error("on-duty adults must not walk the sidewalk");
+  }
+}
+
+{
+  const crush = createCity();
+  crush.terrain.fill(0);
+  const house = cellIndex(crush, 5, 4);
+  if (!applyCommand(crush, { type: "road", cells: [cellIndex(crush, 5, 5)] }).ok) throw new Error("crush road");
+  if (!applyCommand(crush, { type: "build", kind: "cottage", cells: [house] }).ok) throw new Error("crush cottage");
+  if (canPlace(crush, house, "road")) throw new Error("road must not overwrite a house");
+  if (applyCommand(crush, { type: "road", cells: [house] }).ok) throw new Error("road overwrote a house");
+  if (crush.levels[house] !== 1) throw new Error("house vanished under a road");
+}
+
+{
+  const peel = createCity();
+  peel.terrain.fill(0);
+  const cell = cellIndex(peel, 4, 4);
+  if (!applyCommand(peel, { type: "road", cells: [cell] }).ok) throw new Error("peel road");
+  if (!applyCommand(peel, { type: "line", cells: [cell] }).ok) throw new Error("peel line");
+  if (!applyCommand(peel, { type: "service", index: cell, kind: ServiceKind.Lamp }).ok) throw new Error("peel lamp");
+  if (!applyCommand(peel, { type: "bulldoze", cells: [cell] }).ok) throw new Error("peel bulldoze");
+  if (peel.services[cell] !== ServiceKind.None) throw new Error("lamp should be gone");
+  if (!isRoad(peel, cell) || !isLine(peel, cell)) throw new Error("road/line must survive lamp bulldoze");
+}
+
+{
+  const plant = createCity();
+  plant.terrain.fill(0);
+  if (!applyCommand(plant, { type: "road", cells: [cellIndex(plant, 3, 3)] }).ok) throw new Error("plant road");
+  const power = cellIndex(plant, 3, 2);
+  const water = cellIndex(plant, 4, 3);
+  if (!applyCommand(plant, { type: "service", index: power, kind: ServiceKind.Power }).ok) throw new Error("plant power");
+  if (!applyCommand(plant, { type: "service", index: water, kind: ServiceKind.Water }).ok) throw new Error("plant water");
+  refreshUtilities(plant);
+  if ((plant.utility[power] & 1) === 0) throw new Error("power plant should show as powered");
+  if ((plant.utility[water] & 2) === 0) throw new Error("water plant should show as watered");
+}
+
+{
+  const stock = createCity();
+  stock.terrain.fill(0);
+  stock.funds = 50_000;
+  stock.food = 119;
+  if (!applyCommand(stock, { type: "road", cells: [cellIndex(stock, 2, 2)] }).ok) throw new Error("stock road");
+  const pad = cellIndex(stock, 2, 1);
+  if (!applyCommand(stock, { type: "service", index: pad, kind: ServiceKind.Airport }).ok) throw new Error("stock airport");
+  if (applyCommand(stock, { type: "trade", index: pad, deal: "food_in" }).ok) throw new Error("full stock must reject food import");
+  if (stock.food !== 119) throw new Error("rejected import changed food");
+}
+
+{
+  const tagged = createCity(undefined, undefined, { seed: 42, biome: "alpine", forest: 70 });
+  const meta = buildMeta(tagged);
+  if (!meta.gen || meta.gen.biome !== "alpine" || meta.gen.seed !== 42) throw new Error("meta must carry map gen");
+  const copy = createCity();
+  writeCity(copy, packCells(tagged), meta);
+  if (copy.gen?.biome !== "alpine" || copy.gen?.forest !== 70) throw new Error("writeCity must restore gen");
+}
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

@@ -37,6 +37,53 @@ export interface RoomListEntry {
   savedAt?: string;
 }
 
+const CITY_NAME_POOL = [
+  "Silberbach",
+  "Nordhafen",
+  "Eichenruh",
+  "Steinbruch",
+  "Sonnenfeld",
+  "Mooswinkel",
+  "Hochufer",
+  "Kieferntal",
+  "Sanddorn",
+  "Waldheim",
+  "Birkenau",
+  "Klarwasser",
+  "Rotenberg",
+  "Seeblick",
+  "Falkenhorst",
+  "Lindenhof",
+  "Grauwald",
+  "Blumenfeld",
+  "Drosselheim",
+  "Muehlenbach",
+  "Sternhafen",
+  "Tannendorf",
+  "Weidenbruck",
+  "Goldacker",
+  "Nebelkamp",
+  "Ahornstein",
+  "Freihafen",
+  "Quellenau",
+  "Bergfried",
+  "Schilfbucht",
+];
+
+/** Random display name for the new-city field; avoids codes already taken when possible. */
+export function suggestCityName(taken: Iterable<string> = []): string {
+  const used = new Set([...taken].map((code) => code.toLowerCase()));
+  const pool = CITY_NAME_POOL.filter((name) => !used.has(name.toLowerCase()));
+  const choices = pool.length > 0 ? pool : CITY_NAME_POOL;
+  const pick = choices[Math.floor(Math.random() * choices.length)] ?? "Neustadt";
+  if (!used.has(pick.toLowerCase())) return pick;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate = `${pick}${n}`;
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${pick}${Math.floor(Math.random() * 900 + 100)}`;
+}
+
 /** Unique storage/room key. Display names may collide; keys must not. */
 export function allocateCityCode(name: string, taken: Iterable<string>): string | null {
   const cleaned = cleanRoom(name);

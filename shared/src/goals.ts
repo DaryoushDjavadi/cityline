@@ -1,4 +1,5 @@
-import { BRIDGE_FLAG, ROAD_FLAG } from "./grid.ts";
+import { isBridge, isRoad } from "./city.ts";
+import { BRIDGE_FLAG } from "./grid.ts";
 import { POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
 
 export interface CityGoal {
@@ -33,7 +34,7 @@ export function goalMask(city: CityState): number {
   let school = false;
   let bridge = false;
   for (let index = 0; index < city.zones.length; index += 1) {
-    if ((city.roads[index] & ROAD_FLAG) !== 0) roads += 1;
+    if (isRoad(city, index) && !isBridge(city, index)) roads += 1;
     if ((city.roads[index] & BRIDGE_FLAG) !== 0) bridge = true;
     if (city.services[index] === ServiceKind.Park) park = true;
     if (city.services[index] === ServiceKind.School) school = true;
