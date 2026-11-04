@@ -1,4 +1,4 @@
-import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
+import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseChatMessage, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -197,5 +197,10 @@ if (levelRoomCode(1, "Hauptstadt") !== "l1-hauptstadt") throw new Error("level r
 if (levelRoomCode(3, "l3-hauptstadt") !== "l3-hauptstadt") throw new Error("level room strips prefix");
 if (!isLevelRoom("l10-team") || isLevelRoom("hauptstadt")) throw new Error("level room detect");
 if (parseLevelRoom("l3-hauptstadt")?.level !== 3) throw new Error("parse level room");
+if (cleanChat("  hallo  ") !== "hallo") throw new Error("chat trim");
+if (cleanChat("   ") !== null) throw new Error("empty chat");
+if ((cleanChat("x".repeat(200)) ?? "").length !== 180) throw new Error("chat cap");
+if (!parseChatMessage({ id: "a", playerId: "p", name: "Anna", text: "hi", at: 1 })) throw new Error("chat parse");
+if (parseChatMessage({ id: "a", name: "Anna", text: "hi", at: 1 })) throw new Error("chat needs player");
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

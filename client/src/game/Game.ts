@@ -15,6 +15,7 @@ import {
   Zone,
   applyCommand,
   asUint8Array,
+  cleanChat,
   brushCells,
   buildMeta,
   canPlace,
@@ -35,6 +36,7 @@ import {
   levelRoomCode,
   lineCells,
   packCells,
+  parseChatMessage,
   parseLevelRoom,
   refreshUtilities,
   saveToCity,
@@ -44,6 +46,7 @@ import {
   unemployedAdults,
   worldToCell,
   writeCity,
+  type ChatMessage,
   type CityState,
   type Command,
   type CommandResult,
@@ -144,6 +147,8 @@ export class Game {
     onToggleBrief: () => this.setBriefOpen(!this.briefOpen),
     onCloseBrief: () => this.setBriefOpen(false),
     onToggleRoster: () => this.setRosterOpen(!this.rosterOpen),
+    onToggleChat: () => this.setChatOpen(!this.chatOpen),
+    onSendChat: (text) => this.sendChat(text),
     onFocusPlayer: (id) => this.focusPlayer(id),
     onNameReady: (value) => this.acceptName(value),
     onSave: () => {
@@ -187,9 +192,12 @@ export class Game {
   private lastLook = 0;
   private briefOpen = true;
   private rosterOpen = false;
+  private chatOpen = false;
   private named = false;
   private peers: PublicPlayer[] = [];
   private rosterSig = "";
+  private chatLog: ChatMessage[] = [];
+  private chatUnread = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.camera = new RtsCamera();
@@ -203,6 +211,9 @@ export class Game {
     this.hud.setLevelUnlock(loadUnlockedLevel());
     this.hud.setBriefOpen(true);
     this.hud.setRosterOpen(false);
+    this.hud.setChatOpen(false);
+    this.hud.setChatUnread(0);
+    this.hud.setChatEnabled(false, "Chat gibt es im Koop.");
     const storedName = loadPlayerName();
     if (storedName) {
       this.named = true;
@@ -216,7 +227,7 @@ export class Game {
     this.rememberWorker(false);
     void this.refreshLobby();
     window.setInterval(() => {
-      if (!this.playing) void this.refreshLobby();
+      if (!this.playing || !document.getElementById("lobby")?.hidden) void this.refreshLobby();
     }, 4000);
     this.publish();
     requestAnimationFrame((time) => this.frame(time));
@@ -484,6 +495,7 @@ export class Game {
         this.hud.setMode(`Koop · ${payload.room}`);
       }
       this.renderPlayers(payload.players);
+      this.loadChat(payload.chat);
       this.rememberWorker(false);
       this.setBriefOpen(true);
       this.flash(payload.level ? "Level-Koop verbunden. Ihr baut an derselben Aufgabe." : "Verbunden. Bauaktionen laufen über den Server.");
@@ -497,6 +509,10 @@ export class Game {
       this.publish(payload.meta);
     });
     socket.on("players", (payload: { players: PublicPlayer[] }) => this.renderPlayers(payload.players));
+    socket.on("chat", (payload: unknown) => {
+      const message = parseChatMessage(payload);
+      if (message) this.receiveChat(message, false);
+    });
     socket.on("locks", (payload: LockSnapshot) => {
       const foreign = payload.locks.filter((lock) => lock.playerId !== this.playerId).map((lock) => lock.cell);
       this.view.setLocks(this.city, foreign);
@@ -527,6 +543,7 @@ export class Game {
     this.rosterSig = "";
     this.view.setPeers([]);
     this.hud.setRoster([], "Du spielst allein.");
+    this.resetChat();
     this.hud.setLobbyBackVisible(this.playing);
     if (wasMulti) {
       this.rememberWorker(true);
@@ -538,6 +555,7 @@ export class Game {
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
+    this.resetChat();
   }
 
   private renderPlayers(players: PublicPlayer[]): void {
@@ -565,6 +583,12 @@ export class Game {
       })),
       players.length > 1 ? "Ihr seid zu zweit in diesem Raum." : "Noch warte auf die zweite Person.",
     );
+    if (this.mode === "multi") {
+      this.hud.setChatEnabled(
+        true,
+        players.length > 1 ? "Ihr schreibt in diesem Raum." : "Noch warte auf die zweite Person.",
+      );
+    }
   }
 
   private onTick(message: TickMessage): void {
@@ -822,9 +846,65 @@ export class Game {
     if (open) {
       this.focus = null;
       this.hud.hideInspect();
+      this.chatOpen = false;
+      this.hud.setChatOpen(false);
     }
     this.rosterOpen = open;
     this.hud.setRosterOpen(open);
+  }
+
+  private setChatOpen(open: boolean): void {
+    if (open) {
+      this.focus = null;
+      this.hud.hideInspect();
+      this.rosterOpen = false;
+      this.hud.setRosterOpen(false);
+      this.chatUnread = 0;
+      this.hud.setChatUnread(0);
+    }
+    this.chatOpen = open;
+    this.hud.setChatOpen(open);
+  }
+
+  private sendChat(value: string): void {
+    const text = cleanChat(value);
+    if (!text) return;
+    if (this.mode !== "multi" || !this.socket) {
+      this.flash("Chat gibt es im Koop.");
+      return;
+    }
+    this.socket.emit("chat", { text });
+  }
+
+  private loadChat(raw: ChatMessage[] | undefined): void {
+    this.chatLog = [];
+    this.chatUnread = 0;
+    for (const entry of raw ?? []) {
+      const message = parseChatMessage(entry);
+      if (message) this.receiveChat(message, true);
+    }
+    this.hud.setChatUnread(0);
+    this.hud.setChatMessages(this.chatLog, this.playerId);
+  }
+
+  private receiveChat(message: ChatMessage, fromHistory: boolean): void {
+    if (this.chatLog.some((entry) => entry.id === message.id)) return;
+    this.chatLog.push(message);
+    this.hud.setChatMessages(this.chatLog, this.playerId);
+    if (!fromHistory && !this.chatOpen && message.playerId !== this.playerId) {
+      this.chatUnread += 1;
+      this.hud.setChatUnread(this.chatUnread);
+    }
+  }
+
+  private resetChat(): void {
+    this.chatLog = [];
+    this.chatUnread = 0;
+    this.chatOpen = false;
+    this.hud.setChatOpen(false);
+    this.hud.setChatMessages([], "");
+    this.hud.setChatUnread(0);
+    this.hud.setChatEnabled(false, "Chat gibt es im Koop.");
   }
 
   private focusPlayer(id: string): void {
@@ -849,7 +929,10 @@ export class Game {
     this.hud.setPlayerName(clean);
     this.hud.setGateError("");
     this.hud.showNameGate(false);
-    if (!this.playing) this.hud.setLobby(true);
+    if (!this.playing) {
+      this.hud.setLobby(true);
+      void this.refreshLobby();
+    }
   }
 
   private openLobby(fromLevelEnd = false): void {
@@ -873,7 +956,7 @@ export class Game {
   private async refreshLobby(): Promise<void> {
     try {
       const [rooms, host] = await Promise.all([
-        fetch(apiUrl("/api/rooms")).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number; level?: number | null }[]>),
+        fetch(apiUrl("/api/rooms"), { cache: "no-store" }).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number; level?: number | null }[]>),
         fetch(apiUrl("/api/host")).then((response) => response.json() as Promise<{ urls: string[] }>),
       ]);
       this.hud.setRooms(rooms);
@@ -946,6 +1029,7 @@ export class Game {
     const school = families.length > 0 && serviceNearby(this.city, index, ServiceKind.School);
     const university = families.length > 0 && serviceNearby(this.city, index, ServiceKind.University);
     this.setRosterOpen(false);
+    this.setChatOpen(false);
     this.hud.showInspect({
       kind: service?.kind === ServiceKind.Power ? "power" : service?.kind === ServiceKind.Water ? "water" : workplace ? "work" : families.length > 0 ? "home" : "field",
       kicker: service ? "Gebäude" : workplace ? (this.city.zones[index] === Zone.Industrial ? "Industrie" : "Gewerbe") : families.length > 0 ? "Wohnhaus" : "Feld",
@@ -996,6 +1080,7 @@ export class Game {
     const home = cellCoords(this.city, car.home);
     const family = houseReport(this.city, car.home).find((entry) => entry.surname === car.surname);
     this.setRosterOpen(false);
+    this.setChatOpen(false);
     this.hud.showInspect({
       kind: "car",
       kicker: "Unterwegs",

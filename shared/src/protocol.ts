@@ -21,7 +21,19 @@ export interface WelcomePayload {
   room: string;
   players: PublicPlayer[];
   level: number | null;
+  chat: ChatMessage[];
 }
+
+export interface ChatMessage {
+  id: string;
+  playerId: string;
+  name: string;
+  text: string;
+  at: number;
+}
+
+export const CHAT_MAX = 180;
+export const CHAT_HISTORY = 40;
 
 export interface StatePayload {
   meta: SimMeta;
@@ -56,6 +68,28 @@ export function cleanName(value: unknown): string {
   if (typeof value !== "string") return "Spieler";
   const name = value.trim().replace(/\s+/g, " ").slice(0, 18);
   return name.length > 0 ? name : "Spieler";
+}
+
+export function cleanChat(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.replace(/[\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, CHAT_MAX);
+  return text.length > 0 ? text : null;
+}
+
+export function parseChatMessage(raw: unknown): ChatMessage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const body = raw as { id?: unknown; playerId?: unknown; name?: unknown; text?: unknown; at?: unknown };
+  const text = cleanChat(body.text);
+  if (!text || typeof body.id !== "string" || body.id.length === 0) return null;
+  if (typeof body.playerId !== "string" || body.playerId.length === 0) return null;
+  const at = Number(body.at);
+  return {
+    id: body.id.slice(0, 64),
+    playerId: body.playerId.slice(0, 64),
+    name: cleanName(body.name),
+    text,
+    at: Number.isFinite(at) ? at : Date.now(),
+  };
 }
 
 export function parseCommand(raw: unknown): Command | null {

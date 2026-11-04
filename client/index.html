@@ -6,7 +6,7 @@
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off">
+  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
@@ -29,6 +29,10 @@
           <span id="mission-summary">1/10</span>
         </button>
         <button id="open-players" type="button">Spieler</button>
+        <button id="open-chat" type="button">
+          Chat
+          <span id="chat-badge" hidden>0</span>
+        </button>
         <button id="leave" type="button" hidden>Trennen</button>
       </div>
     </header>
@@ -51,15 +55,19 @@
           <div class="tools">
             <button type="button" data-tool="road">Straße</button>
             <button type="button" data-tool="bridge">Brücke</button>
-            <button type="button" data-tool="fill">Aufschütten</button>
-            <button type="button" data-tool="bulldoze">Abriss</button>
           </div>
         </section>
         <section>
-          <p>Leitungen</p>
+          <p>Gelände</p>
           <div class="tools">
-            <button type="button" data-tool="line">Strom</button>
-            <button type="button" data-tool="pipe">Wasser</button>
+            <button type="button" data-tool="fill">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19h18L14.5 8.5 12 12 8.5 7Z"/><path d="M5 19v2M19 19v2"/></svg>
+              Aufschütten
+            </button>
+            <button type="button" data-tool="bulldoze">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13v-3h3l2-3h7v6"/><rect x="8" y="13" width="11" height="4" rx="1"/><path d="M3 10v5h5"/><circle cx="10" cy="19" r="2"/><circle cx="17" cy="19" r="2"/></svg>
+              Abriss
+            </button>
           </div>
         </section>
         <section>
@@ -91,6 +99,8 @@
           <div class="tools">
             <button type="button" data-tool="power">Kraftwerk</button>
             <button type="button" data-tool="water">Wasserwerk</button>
+            <button type="button" data-tool="line">Strom</button>
+            <button type="button" data-tool="pipe">Wasser</button>
           </div>
         </section>
         <section>
@@ -164,6 +174,21 @@
       <p id="roster-note" class="insp-note">Du spielst allein.</p>
       <div id="roster-list"></div>
     </aside>
+    <aside id="chat" hidden>
+      <header class="insp-head">
+        <div>
+          <p class="eyebrow">Koop</p>
+          <h2>Chat</h2>
+        </div>
+        <button id="chat-close" type="button" aria-label="Schließen">×</button>
+      </header>
+      <p id="chat-note" class="insp-note">Chat gibt es im Koop.</p>
+      <div id="chat-log"></div>
+      <form id="chat-form">
+        <input id="chat-input" type="text" maxlength="180" placeholder="Nachricht" autocomplete="off" />
+        <button id="chat-send" type="submit">Senden</button>
+      </form>
+    </aside>
     <div id="toast" hidden></div>
     <footer>
       <p id="status">Lupe wählen und ein Feld anklicken.</p>
@@ -173,7 +198,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.18</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.19</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>
@@ -185,8 +210,13 @@
     </div>
     <div id="lobby">
       <section class="sheet">
-        <p class="eyebrow">Cityline</p>
-        <h1>Welche Stadt bauen wir?</h1>
+        <header class="notes-head">
+          <div>
+            <p class="eyebrow">Cityline</p>
+            <h1>Welche Stadt bauen wir?</h1>
+          </div>
+          <button id="lobby-close" type="button" aria-label="Schließen">×</button>
+        </header>
         <p id="host-note" class="note"></p>
         <label class="field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" /></label>
         <div class="row">
@@ -194,6 +224,9 @@
           <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
           <button id="solo-new" type="button">Neue lokale Stadt</button>
         </div>
+        <h2 id="live-heading" hidden>Jetzt online</h2>
+        <p id="live-note" class="note" hidden>Städte, in denen gerade jemand spielt. Du kannst beitreten, solange ein Platz frei ist.</p>
+        <div id="live-rooms" class="rooms" hidden></div>
         <h2>Level-Modus</h2>
         <p class="note">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop nutzt denselben Stadtnamen: Level 3 in „hauptstadt“ ist der Raum <code>l3-hauptstadt</code>.</p>
         <div id="level-grid" class="level-grid"></div>

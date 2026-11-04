@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { Server, Socket } from "socket.io";
 import { applyCommand, createCity } from "../../shared/src/city.ts";
 import { uniqueCells } from "../../shared/src/grid.ts";
 import { createLevelCity, evaluateLevel, isLevelRoom, levelById, levelRoomCode, parseLevelRoom } from "../../shared/src/levels.ts";
-import { cleanName, cleanRoom, commandCells, parseCommand, type LevelSync } from "../../shared/src/protocol.ts";
+import { CHAT_HISTORY, cleanChat, cleanName, cleanRoom, commandCells, parseCommand, type ChatMessage, type LevelSync } from "../../shared/src/protocol.ts";
 import { buildMeta, refreshUtilities, stepSimulation } from "../../shared/src/sim.ts";
 import { packCells, writeCity, type CityState, type Command, type PublicPlayer } from "../../shared/src/types.ts";
 import { deleteCity, loadCity, saveCity, savedRooms, type RoomListing } from "./persist.ts";
@@ -26,6 +27,7 @@ interface Room {
   players: Player[];
   locks: Map<number, { playerId: string; at: number }>;
   level: LevelSync | null;
+  chat: ChatMessage[];
 }
 
 export function attachCityServer(io: Server): {
@@ -95,9 +97,28 @@ export function attachCityServer(io: Server): {
         room: room.code,
         players: publicPlayers(room),
         level: room.level?.id ?? null,
+        chat: room.chat,
       });
       emitState(room);
       broadcastPlayers(room);
+    });
+
+    socket.on("chat", (payload: unknown) => {
+      if (!joined) return;
+      const text = cleanChat((payload as { text?: unknown })?.text);
+      if (!text) return;
+      const message: ChatMessage = {
+        id: randomUUID(),
+        playerId: joined.player.id,
+        name: joined.player.name,
+        text,
+        at: Date.now(),
+      };
+      joined.room.chat.push(message);
+      if (joined.room.chat.length > CHAT_HISTORY) {
+        joined.room.chat.splice(0, joined.room.chat.length - CHAT_HISTORY);
+      }
+      for (const player of joined.room.players) player.socket.emit("chat", message);
     });
 
     socket.on("lock", (payload: unknown) => {
@@ -235,7 +256,7 @@ function createRoom(code: string): Room {
   const parsed = parseLevelRoom(code);
   if (parsed) {
     const def = levelById(parsed.level);
-    if (!def) return { code, city: createCity(), players: [], locks: new Map(), level: null };
+    if (!def) return { code, city: createCity(), players: [], locks: new Map(), level: null, chat: [] };
     const city = createLevelCity(def);
     return {
       code,
@@ -243,9 +264,10 @@ function createRoom(code: string): Room {
       players: [],
       locks: new Map(),
       level: { id: def.id, startedTick: city.tick, outcome: "playing" },
+      chat: [],
     };
   }
-  return { code, city: loadCity(code) ?? createCity(), players: [], locks: new Map(), level: null };
+  return { code, city: loadCity(code) ?? createCity(), players: [], locks: new Map(), level: null, chat: [] };
 }
 
 function resetLevel(room: Room): void {
