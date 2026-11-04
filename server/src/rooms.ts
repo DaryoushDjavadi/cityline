@@ -156,6 +156,24 @@ export function attachCityServer(io: Server): {
       broadcastPlayers(joined.room);
     });
 
+    socket.on("cursor", (payload: unknown) => {
+      if (!joined) return;
+      const body = payload as { x?: unknown; z?: unknown };
+      const x = Number(body?.x);
+      const z = Number(body?.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+      const cursor = {
+        playerId: joined.player.id,
+        name: joined.player.name,
+        x: Math.max(-800, Math.min(800, x)),
+        z: Math.max(-800, Math.min(800, z)),
+      };
+      for (const player of joined.room.players) {
+        if (player.id === joined.player.id) continue;
+        player.socket.emit("cursor", cursor);
+      }
+    });
+
     socket.on("levelReset", () => {
       if (!joined?.room.level) return;
       resetLevel(joined.room);
@@ -197,6 +215,10 @@ export function attachCityServer(io: Server): {
       if (!joined) return;
       const { room, player } = joined;
       releaseLocks(room, player.id);
+      for (const other of room.players) {
+        if (other.id === player.id) continue;
+        other.socket.emit("cursorGone", { playerId: player.id });
+      }
       room.players = room.players.filter((entry) => entry.id !== player.id);
       room.players.forEach((entry, index) => {
         entry.slot = index;

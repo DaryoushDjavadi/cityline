@@ -6,7 +6,7 @@
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off">
+  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
@@ -48,7 +48,13 @@
       <aside id="rail">
         <section>
           <p>Schauen</p>
-          <button type="button" data-tool="inspect" class="active">Lupe</button>
+          <div class="tools">
+            <button type="button" data-tool="inspect" class="active">Lupe</button>
+            <button id="toggle-pan" type="button" aria-pressed="false">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
+              Verschieben
+            </button>
+          </div>
         </section>
         <section>
           <p>Straßen</p>
@@ -189,6 +195,7 @@
         <button id="chat-send" type="submit">Senden</button>
       </form>
     </aside>
+    <div id="peer-cursors" aria-hidden="true"></div>
     <div id="toast" hidden></div>
     <footer>
       <p id="status">Lupe wählen und ein Feld anklicken.</p>
@@ -198,7 +205,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.19</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.20</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>
@@ -218,25 +225,33 @@
           <button id="lobby-close" type="button" aria-label="Schließen">×</button>
         </header>
         <p id="host-note" class="note"></p>
-        <label class="field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" /></label>
-        <div class="row">
+        <div class="row" id="lobby-resume">
           <button id="lobby-back" type="button" hidden>Zurück zum Spiel</button>
-          <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
-          <button id="solo-new" type="button">Neue lokale Stadt</button>
         </div>
+        <label class="field name-field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" /></label>
+        <section class="lobby-block lobby-create">
+          <h2>Möchtest du eine neue Stadt erstellen?</h2>
+          <p class="note">Eigene Stadt, frei bauen — allein oder zu zweit. Das ist der normale Start.</p>
+          <label class="field">Stadtname <input id="room" value="hauptstadt" maxlength="24" /></label>
+          <div class="row">
+            <button id="solo-new" type="button">Stadt erstellen</button>
+            <button id="connect" type="button">Im Koop öffnen</button>
+            <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
+          </div>
+        </section>
         <h2 id="live-heading" hidden>Jetzt online</h2>
         <p id="live-note" class="note" hidden>Städte, in denen gerade jemand spielt. Du kannst beitreten, solange ein Platz frei ist.</p>
         <div id="live-rooms" class="rooms" hidden></div>
-        <h2>Level-Modus</h2>
-        <p class="note">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop nutzt denselben Stadtnamen: Level 3 in „hauptstadt“ ist der Raum <code>l3-hauptstadt</code>.</p>
-        <div id="level-grid" class="level-grid"></div>
-        <label class="field">Stadtname <input id="room" value="hauptstadt" maxlength="24" /></label>
+        <section class="lobby-block lobby-levels">
+          <h2>Möchtest du eines der vorgefertigten Levels spielen?</h2>
+          <p class="note">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop nutzt denselben Stadtnamen: Level 3 in „hauptstadt“ ist der Raum <code>l3-hauptstadt</code>.</p>
+          <div id="level-grid" class="level-grid"></div>
+        </section>
+        <h2>Gespeicherte Städte</h2>
         <div class="row">
           <button id="save-city" type="button">Diese Stadt speichern</button>
-          <button id="connect" type="button">Im Koop öffnen</button>
         </div>
         <p id="save-note" class="note"></p>
-        <h2>Gespeicherte Städte</h2>
         <div id="room-list" class="rooms"></div>
       </section>
     </div>

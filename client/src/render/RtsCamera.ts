@@ -25,13 +25,18 @@ export class RtsCamera {
     else this.keys.delete(code);
   }
 
-  begin(button: number, x: number, y: number): boolean {
-    if (button === 2) this.dragging = "orbit";
+  begin(button: number, x: number, y: number, panMode = false): boolean {
+    if (panMode && button === 0) this.dragging = "pan";
+    else if (button === 2) this.dragging = "orbit";
     else if (button === 1) this.dragging = "pan";
     else return false;
     this.lastX = x;
     this.lastY = y;
     return true;
+  }
+
+  isDragging(): boolean {
+    return this.dragging !== null;
   }
 
   move(x: number, y: number): void {
