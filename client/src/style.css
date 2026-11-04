@@ -474,7 +474,13 @@ button { padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
 .hud-icon { display: none; }
 .compact-only { display: none !important; }
 .hud-btn { display: inline-flex; align-items: center; gap: 8px; }
-.dock-controls { display: flex; flex-direction: column; gap: 8px; }
+.dock-controls {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 #open-lobby, #open-notes, #solo-new, #lobby-back, #level-end-next, #brief-retry, #gate-enter, #toggle-pan.active, #toggle-pan-hud.active, #toggle-orbit.active, #toggle-orbit-hud.active, #tool-inspect-hud.active {
   background: #e2b15a;
   color: #241b10;
@@ -494,6 +500,8 @@ button { padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
 .dock-bar { display: flex; gap: 8px; }
 .dock-bar button { flex: 1; padding: 12px 10px; }
 .menu-toggle {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -508,6 +516,17 @@ button { padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
   letter-spacing: 0.03em;
 }
 .menu-toggle:hover { background: #4a3d28; }
+#toggle-rail .hammer-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .chevron {
   width: 8px;
   height: 8px;
@@ -1757,6 +1776,7 @@ input:focus-visible, button:focus-visible {
   }
   #toggle-stats.active,
   #toggle-demand.active,
+  #toggle-rail.active,
   #open-players.active,
   body[data-roster="on"] #open-players,
   body[data-chat="on"] #open-chat {
@@ -1776,6 +1796,8 @@ input:focus-visible, button:focus-visible {
     gap: 6px;
   }
   .dock-controls {
+    position: relative;
+    z-index: 2;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
@@ -1784,10 +1806,17 @@ input:focus-visible, button:focus-visible {
   }
   .dock-bar { flex: none; }
   #toggle-rail {
+    position: relative;
+    z-index: 3;
     width: auto;
     flex-direction: row;
     gap: 6px;
     padding: 8px 10px;
+  }
+  #toggle-rail.active {
+    background: #e2b15a;
+    color: #241b10;
+    border-color: transparent;
   }
   #toggle-rail .chevron { display: none; }
   body[data-menu="closed"] #dock {
@@ -1795,17 +1824,20 @@ input:focus-visible, button:focus-visible {
     bottom: max(8px, env(safe-area-inset-bottom));
   }
   body[data-menu="closed"] #rail { display: none; }
-#rail {
-  width: min(420px, calc(100vw - 16px));
-  height: min(46dvh, 380px);
-  max-height: min(46dvh, 380px);
-  flex: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-}
-#rail button { min-height: 44px; font-size: 14px; }
+  #rail {
+    position: relative;
+    z-index: 1;
+    width: min(420px, calc(100vw - 16px));
+    height: min(46dvh, 380px);
+    max-height: min(46dvh, calc(100dvh - 140px));
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  #rail button { min-height: 44px; font-size: 14px; }
   #demand, #inspector, #roster, #chat, #brief { pointer-events: auto; }
 
   #brief {
@@ -1966,6 +1998,8 @@ input:focus-visible, button:focus-visible {
     width: min(300px, 46vw);
     height: auto;
     max-height: calc(100dvh - 118px);
+    flex: 1 1 auto;
+    min-height: 0;
   }
   body[data-stats="open"] #rail {
     max-height: calc(100dvh - 168px);

@@ -344,8 +344,11 @@ export function createHud(events: HudControls): Hud {
   const paintMenu = () => {
     document.body.dataset.menu = menuOpen ? "open" : "closed";
     toggleLabel.textContent = isCompactHud() ? "Bauen" : menuOpen ? "Menü zuklappen" : "Menü aufklappen";
+    toggleRail.classList.toggle("active", menuOpen);
     toggleRail.setAttribute("aria-expanded", String(menuOpen));
+    toggleRail.setAttribute("aria-pressed", String(menuOpen));
     toggleRail.setAttribute("aria-label", menuOpen ? "Baumenü zuklappen" : "Baumenü aufklappen");
+    toggleRail.title = menuOpen ? "Baumenü zuklappen" : "Baumenü aufklappen";
   };
   const paintDemandOpen = () => {
     document.body.dataset.demand = demandOpen ? "open" : "closed";
@@ -360,7 +363,9 @@ export function createHud(events: HudControls): Hud {
     toggleStats.setAttribute("aria-label", label);
     toggleStats.title = label;
   };
-  toggleRail.addEventListener("click", () => {
+  toggleRail.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     menuOpen = !menuOpen;
     paintMenu();
     if (menuOpen) events.onCompactPanel("menu");
