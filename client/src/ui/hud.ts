@@ -419,9 +419,10 @@ export function createHud(events: HudControls): Hud {
       jobs.textContent = money.format(meta.stats.jobs);
       power.textContent = `${meta.stats.powerUsed}/${meta.stats.powerCapacity}`;
       water.textContent = `${meta.stats.waterUsed}/${meta.stats.waterCapacity}`;
-      food.textContent = `${meta.stats.foodUsed}/${meta.stats.foodCapacity}`;
-      foodStock.textContent = `Lager ${money.format(meta.stats.foodStock)}`;
-      foodStock.style.color = meta.stats.foodUsed > meta.stats.foodCapacity && meta.stats.foodUsed > 0 ? "#e07a6a" : "#9dca86";
+      food.textContent = money.format(meta.stats.foodStock);
+      foodStock.textContent = `Bedarf ${money.format(meta.stats.foodUsed)} · Erzeugung ${money.format(meta.stats.foodCapacity)}`;
+      const hungry = meta.stats.foodUsed > 0 && meta.stats.foodUsed > meta.stats.foodCapacity + meta.stats.foodStock;
+      foodStock.style.color = hungry ? "#e07a6a" : "#9dca86";
       traffic.textContent = `${meta.stats.traffic}`;
       paintDemand("r", meta.demand.residential);
       paintDemand("c", meta.demand.commercial);

@@ -129,9 +129,9 @@ export interface TradeDeal {
 }
 
 export const TRADE: TradeDeal[] = [
-  { id: "grain", name: "Getreide", side: "import", blurb: "Günstig im Einkauf. +2 Nahrung ins Lager.", price: 28, food: 2 },
+  { id: "grain", name: "Getreide", side: "import", blurb: "Günstig im Einkauf. +2 Nahrung.", price: 28, food: 2 },
   { id: "food_in", name: "Nahrung", side: "import", blurb: "+4 Nahrung. Teurer als Getreide.", price: 90, food: 4 },
-  { id: "food_out", name: "Nahrung", side: "export", blurb: "4 Nahrung aus dem Lager verkaufen.", price: 55, food: -4, requires: "food" },
+  { id: "food_out", name: "Nahrung", side: "export", blurb: "4 Nahrung verkaufen.", price: 55, food: -4, requires: "food" },
   { id: "wares", name: "Waren", side: "export", blurb: "Stadtprodukte. Braucht Gewerbe. Verkauf bringt mehr als der Einkauf.", price: 62, requires: "commercial" },
   { id: "parts", name: "Maschinen", side: "export", blurb: "Braucht Industrie. Verkauf unter dem Listenpreis.", price: 78, requires: "industrial" },
 ];

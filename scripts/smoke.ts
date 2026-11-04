@@ -310,6 +310,10 @@ if (booksAir.income < 200) throw new Error(`airport should pay ${booksAir.income
 const beforeFood = air.food;
 const bought = applyCommand(air, { type: "trade", index: airCell, deal: "grain" });
 if (!bought.ok || air.food !== beforeFood + 2) throw new Error("grain import");
+const grainMeta = buildMeta(air);
+if (grainMeta.stats.foodStock !== air.food || grainMeta.food !== air.food) {
+  throw new Error("grain must raise the one city-wide food stock");
+}
 if (!applyCommand(air, { type: "trade", index: airCell, deal: "food_in" }).ok || air.food !== 6) throw new Error("food import");
 const sold = applyCommand(air, { type: "trade", index: airCell, deal: "food_out" });
 if (!sold.ok || air.food !== 2) throw new Error("food export");
@@ -363,6 +367,31 @@ const darkAirport = cellIndex(darkAir, 4, 5);
 if (!applyCommand(darkAir, { type: "service", index: darkAirport, kind: ServiceKind.Airport }).ok) throw new Error("dark airport");
 refreshUtilities(darkAir);
 if ((darkAir.utility[darkAirport] & 3) !== 0) throw new Error(`distant airport should stay unsupplied ${darkAir.utility[darkAirport]}`);
+
+const grainTown = createCity();
+grainTown.terrain.fill(0);
+grainTown.funds = 200_000;
+if (!applyCommand(grainTown, { type: "road", cells: [10, 11, 12, 13, 14].map((x) => cellIndex(grainTown, x, 10)) }).ok) {
+  throw new Error("grain town road");
+}
+for (const x of [10, 11, 12, 13, 14]) {
+  if (!applyCommand(grainTown, { type: "build", kind: "cottage", cells: [cellIndex(grainTown, x, 11)] }).ok) throw new Error("grain town cottage");
+}
+const grainPort = cellIndex(grainTown, 10, 9);
+if (!applyCommand(grainTown, { type: "service", index: grainPort, kind: ServiceKind.Airport }).ok) throw new Error("grain town airport");
+const hungry = buildMeta(grainTown);
+if (hungry.stats.population !== 60 || hungry.stats.foodUsed !== 1 || hungry.stats.foodCapacity !== 0) {
+  throw new Error(`grain town need ${hungry.stats.foodUsed}/${hungry.stats.foodCapacity} pop=${hungry.stats.population}`);
+}
+if (hungry.stats.foodStock !== 0) throw new Error("grain town should start with empty stock");
+if (!applyCommand(grainTown, { type: "trade", index: grainPort, deal: "grain" }).ok) throw new Error("grain town buy");
+const grainFed = buildMeta(grainTown);
+if (grainTown.food !== 2 || grainFed.stats.foodStock !== 2 || grainFed.food !== 2) {
+  throw new Error(`grain buy should add +2 to the global stock ${grainTown.food} ${grainFed.stats.foodStock}`);
+}
+if (grainFed.stats.foodUsed !== 1 || grainFed.stats.foodCapacity !== 0) {
+  throw new Error("import must not be a second warehouse next to need/production");
+}
 
 const restoredFood = saveToCity(cityToSave(farmTown, "food"));
 if (!restoredFood || restoredFood.food !== farmTown.food) throw new Error("food did not save");

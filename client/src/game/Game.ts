@@ -131,7 +131,7 @@ const REASONS: Record<string, string> = {
   empty: "Nichts zu bauen.",
   rejected: "Die Fläche nimmt das so nicht an.",
   no_university: "Studium braucht eine Schule und eine Universität in der Stadt.",
-  no_stock: "Dafür reicht das Nahrungslager nicht.",
+  no_stock: "Dafür reicht die Nahrung nicht.",
   no_market: "Dafür braucht die Stadt das passende Gewerbe oder die Industrie.",
 };
 
@@ -1470,7 +1470,7 @@ export class Game {
         ] : []),
         ...(airport ? [
           { icon: "plane" as const, label: "Ertrag", value: "260 € / 2 s" },
-          { icon: "food" as const, label: "Lager", value: String(this.city.food) },
+          { icon: "food" as const, label: "Nahrung", value: String(this.city.food) },
         ] : []),
       ],
       families: families.map((family) => ({
