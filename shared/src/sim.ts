@@ -147,7 +147,14 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
   const seen = new Uint8Array(count);
   const groups: { cells: number[]; distance: number; use: number }[] = [];
   for (let index = 0; index < count; index += 1) {
-    if (seen[index] || city.zones[index] === Zone.None || isRoad(city, index)) continue;
+    if (seen[index] || isRoad(city, index)) continue;
+    if (city.services[index] === ServiceKind.Airport) {
+      seen[index] = 1;
+      const reach = carrierDistance(city, index, layer, distance, kind);
+      if (reach >= 0) groups.push({ cells: [index], distance: reach, use: 0 });
+      continue;
+    }
+    if (city.zones[index] === Zone.None) continue;
     const cells: number[] = [];
     const pending = [index];
     seen[index] = 1;

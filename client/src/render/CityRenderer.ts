@@ -347,8 +347,11 @@ export class CityRenderer {
 
       const service = city.services[index];
       const served = modelForService(service);
-      if (served) this.placeModel(served.key, world.x, world.z, 0xffffff);
-      else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index)) {
+      if (served) {
+        const airportLit =
+          service !== ServiceKind.Airport || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
+        this.placeModel(served.key, world.x, world.z, airportLit ? 0xffffff : 0x8d847c);
+      } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index)) {
         const roll = scatter(x, y) % 19;
         const jx = ((scatter(x + 3, y) % 7) - 3) * 0.7;
         const jz = ((scatter(x, y + 5) % 7) - 3) * 0.7;

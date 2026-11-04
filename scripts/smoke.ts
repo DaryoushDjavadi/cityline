@@ -315,6 +315,55 @@ const sold = applyCommand(air, { type: "trade", index: airCell, deal: "food_out"
 if (!sold.ok || air.food !== 2) throw new Error("food export");
 if (applyCommand(air, { type: "trade", index: airCell, deal: "wares" }).ok) throw new Error("wares need commercial");
 
+const wiredAir = createCity();
+wiredAir.terrain.fill(0);
+wiredAir.funds = 200_000;
+if (!applyCommand(wiredAir, { type: "road", cells: [cellIndex(wiredAir, 4, 4), cellIndex(wiredAir, 6, 4), cellIndex(wiredAir, 8, 4)] }).ok) {
+  throw new Error("wired air road");
+}
+if (!applyCommand(wiredAir, { type: "service", index: cellIndex(wiredAir, 4, 3), kind: ServiceKind.Power }).ok) throw new Error("wired air plant");
+if (!applyCommand(wiredAir, { type: "service", index: cellIndex(wiredAir, 8, 3), kind: ServiceKind.Water }).ok) throw new Error("wired air water");
+const wiredAirport = cellIndex(wiredAir, 6, 5);
+if (!applyCommand(wiredAir, { type: "service", index: wiredAirport, kind: ServiceKind.Airport }).ok) throw new Error("wired airport");
+if (!applyCommand(wiredAir, { type: "build", kind: "cottage", cells: [cellIndex(wiredAir, 4, 5)] }).ok) throw new Error("wired air house");
+if (!applyCommand(wiredAir, { type: "line", cells: [cellIndex(wiredAir, 4, 4), cellIndex(wiredAir, 5, 4), cellIndex(wiredAir, 6, 4)] }).ok) {
+  throw new Error("wired air line");
+}
+if (!applyCommand(wiredAir, { type: "pipe", cells: [cellIndex(wiredAir, 8, 4), cellIndex(wiredAir, 7, 4), cellIndex(wiredAir, 6, 4)] }).ok) {
+  throw new Error("wired air pipe");
+}
+refreshUtilities(wiredAir);
+if ((wiredAir.utility[wiredAirport] & 3) !== 3) throw new Error(`airport lines should supply ${wiredAir.utility[wiredAirport]}`);
+if ((wiredAir.utility[cellIndex(wiredAir, 4, 5)] & 1) === 0) throw new Error("house on the same power line should stay powered");
+if ((wiredAir.utility[cellIndex(wiredAir, 4, 4)] & 1) === 0) throw new Error("power line to airport should stay live");
+if ((wiredAir.utility[cellIndex(wiredAir, 8, 4)] & 2) === 0) throw new Error("water pipe to airport should stay live");
+const grain = applyCommand(wiredAir, { type: "trade", index: wiredAirport, deal: "grain" });
+if (!grain.ok || wiredAir.food !== 2) throw new Error("supplied airport should still trade");
+
+const nextAir = createCity();
+nextAir.terrain.fill(0);
+nextAir.funds = 200_000;
+if (!applyCommand(nextAir, { type: "road", cells: [cellIndex(nextAir, 5, 4), cellIndex(nextAir, 6, 4), cellIndex(nextAir, 7, 4)] }).ok) {
+  throw new Error("adj air road");
+}
+if (!applyCommand(nextAir, { type: "service", index: cellIndex(nextAir, 5, 5), kind: ServiceKind.Power }).ok) throw new Error("adj air plant");
+if (!applyCommand(nextAir, { type: "service", index: cellIndex(nextAir, 7, 5), kind: ServiceKind.Water }).ok) throw new Error("adj air water");
+const nextAirport = cellIndex(nextAir, 6, 5);
+if (!applyCommand(nextAir, { type: "service", index: nextAirport, kind: ServiceKind.Airport }).ok) throw new Error("adj airport");
+refreshUtilities(nextAir);
+if ((nextAir.utility[nextAirport] & 3) !== 3) throw new Error(`airport next to plants should be supplied ${nextAir.utility[nextAirport]}`);
+
+const darkAir = createCity();
+darkAir.terrain.fill(0);
+darkAir.funds = 200_000;
+if (!applyCommand(darkAir, { type: "road", cells: [cellIndex(darkAir, 4, 4), cellIndex(darkAir, 10, 4)] }).ok) throw new Error("dark air road");
+if (!applyCommand(darkAir, { type: "service", index: cellIndex(darkAir, 10, 3), kind: ServiceKind.Power }).ok) throw new Error("dark air plant");
+if (!applyCommand(darkAir, { type: "service", index: cellIndex(darkAir, 10, 5), kind: ServiceKind.Water }).ok) throw new Error("dark air water");
+const darkAirport = cellIndex(darkAir, 4, 5);
+if (!applyCommand(darkAir, { type: "service", index: darkAirport, kind: ServiceKind.Airport }).ok) throw new Error("dark airport");
+refreshUtilities(darkAir);
+if ((darkAir.utility[darkAirport] & 3) !== 0) throw new Error(`distant airport should stay unsupplied ${darkAir.utility[darkAirport]}`);
+
 const restoredFood = saveToCity(cityToSave(farmTown, "food"));
 if (!restoredFood || restoredFood.food !== farmTown.food) throw new Error("food did not save");
 
