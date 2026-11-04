@@ -72,7 +72,7 @@ body[data-pan="on"] #view:active { cursor: grabbing; }
 
 #topbar, #dock, #demand, #brief, #toast, #save-toast, footer { pointer-events: none; }
 
-#topbar button, #dock .dock-bar button, #toggle-rail, #rail, #rail button, #demand label, #inspector, #inspector button, #inspector input, #roster, #roster button, #chat, #chat button, #chat input, footer, #lobby, #notes, #brief button, #level-end, #name-gate {
+#topbar button, #dock .dock-bar button, #toggle-rail, #rail, #rail button, #demand label, #inspector, #inspector button, #inspector input, #roster, #roster button, #chat, #chat-log, #chat-note, #chat button, #chat input, footer, #lobby, #notes, #brief button, #level-end, #name-gate {
   pointer-events: auto;
 }
 
@@ -421,14 +421,21 @@ body[data-play="level"] #brief {
 #chat {
   display: flex;
   flex-direction: column;
+  height: min(520px, calc(100vh - 216px));
+  max-height: calc(100vh - 216px);
+  overflow: hidden;
 }
 #chat[hidden] { display: none; }
 #chat-log {
-  flex: 1;
-  min-height: 140px;
-  max-height: 280px;
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 4px 14px 8px;
+  pointer-events: auto;
 }
 .chat-row {
   padding: 8px 0;
@@ -439,6 +446,7 @@ body[data-play="level"] #brief {
 .chat-row.self b { color: #e2b15a; }
 #chat-form {
   display: flex;
+  flex: none;
   gap: 8px;
   padding: 10px 14px 0;
   border-top: 1px solid rgba(232, 205, 150, 0.16);
@@ -461,12 +469,14 @@ body[data-play="level"] #brief {
   position: sticky;
   top: 0;
   display: flex;
+  flex: none;
   gap: 12px;
   align-items: center;
   padding: 14px;
   background: rgba(20, 26, 18, 0.96);
   border-bottom: 1px solid rgba(232, 205, 150, 0.16);
 }
+#chat-note { flex: none; }
 #insp-mark {
   width: 46px;
   height: 46px;
@@ -729,6 +739,7 @@ input { padding: 10px 12px; }
     width: min(320px, calc(100% - 28px));
     max-height: 38vh;
   }
+  #chat { height: 38vh; }
   #save-toast { bottom: 18px; }
 }
 

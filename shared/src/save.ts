@@ -7,6 +7,8 @@ export interface CitySave {
   version: 1;
   savedAt: string;
   name: string;
+  /** Stable slot/room key. Distinct even when two cities share a display name. */
+  id?: string;
   meta: SimMeta;
   cells: string;
 }
@@ -27,14 +29,16 @@ export function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-export function cityToSave(city: CityState, name: string): CitySave {
-  return {
+export function cityToSave(city: CityState, name: string, id?: string): CitySave {
+  const save: CitySave = {
     version: 1,
     savedAt: new Date().toISOString(),
     name,
     meta: buildMeta(city),
     cells: bytesToBase64(packCells(city)),
   };
+  if (id) save.id = id;
+  return save;
 }
 
 export function saveToCity(raw: unknown): CityState | null {

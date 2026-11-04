@@ -22,9 +22,16 @@ import {
   cellBudget,
   cellCoords,
   cellIndex,
+  allocateCityCode,
   cityToSave,
   createCity,
   createLevelCity,
+  deleteCitySlot,
+  getActiveCityId,
+  listCitySlots,
+  loadCitySlot,
+  loadOrCreateClientId,
+  mergeRoomLists,
   employeesAt,
   evaluateLevel,
   houseReport,
@@ -41,6 +48,7 @@ import {
   parseLevelRoom,
   refreshUtilities,
   saveToCity,
+  writeCitySlot,
   scholarshipCost,
   serviceInfo,
   serviceNearby,
@@ -48,6 +56,7 @@ import {
   worldToCell,
   writeCity,
   type ChatMessage,
+  type CitySave,
   type CityState,
   type Command,
   type CommandResult,
@@ -61,7 +70,6 @@ import {
 } from "../../../shared/src/index.ts";
 import { isLevelOpen, loadPlayerName, loadUnlockedLevel, savePlayerName, unlockAfterWin } from "../ui/levelProgress.ts";
 
-const SOLO_KEY = "cityline-solo";
 const AUTO_SAVE_MS = (() => {
   const raw = Number(new URLSearchParams(location.search).get("autosave"));
   return Number.isFinite(raw) && raw >= 250 ? raw : 120_000;
@@ -142,6 +150,7 @@ export class Game {
     onLeave: () => this.leave(),
     onNewSolo: () => this.startSolo(false),
     onContinue: () => this.startSolo(true),
+    onOpenSaved: (code) => this.openSavedCity(code),
     onOpenLobby: () => this.openLobby(),
     onLobbyBack: () => this.closeLobby(),
     onStartLevel: (id) => this.startLevel(id, false),
@@ -191,7 +200,13 @@ export class Game {
   private readonly denied = new Set<number>();
   private lockSig = "";
   private playerId = "";
+  private readonly clientId = loadOrCreateClientId(localStorage, () => crypto.randomUUID());
   private room = "";
+  private activeCityId: string | null = null;
+  private joinIntent: { room: string; name: string; level?: number } | null = null;
+  private joinRetries = 0;
+  private lastRoomCodes: string[] = [];
+  private lastRooms: { code: string; players: number }[] = [];
   private overlays = { zones: true, power: false, water: false };
   private statusUntil = 0;
   private lastFrame = performance.now();
@@ -218,7 +233,7 @@ export class Game {
     this.bindInput();
     this.resize();
     window.addEventListener("resize", () => this.resize());
-    this.hud.setContinueVisible(localStorage.getItem(SOLO_KEY) !== null);
+    this.hud.setContinueVisible(listCitySlots(localStorage).length > 0);
     this.hud.setLevelUnlock(loadUnlockedLevel());
     this.hud.setBriefOpen(true);
     this.hud.setRosterOpen(false);
@@ -510,14 +525,49 @@ export class Game {
 
   private join(room: string, name: string, level?: number): void {
     this.leaveSocket();
-    const socket = io(socketUrl());
+    this.joinIntent = { room, name, level };
+    const socket = io(socketUrl(), { reconnection: true, reconnectionDelay: 800, reconnectionAttempts: Infinity });
     this.socket = socket;
+    socket.on("connect", () => {
+      if (!this.joinIntent) return;
+      socket.emit("join", {
+        room: this.joinIntent.room,
+        name: this.joinIntent.name,
+        level: this.joinIntent.level,
+        clientId: this.clientId,
+      });
+    });
     socket.on("connect_error", () => this.flash(isDevServer ? "Server nicht erreichbar. Starte ihn auf Port 8787." : "Server nicht erreichbar. Versuch es gleich noch einmal."));
+    socket.on("disconnect", (reason) => {
+      if (!this.joinIntent || reason === "io client disconnect") return;
+      this.flash("Verbindung unterbrochen. Verbinde neu…");
+    });
+    socket.on("replaced", () => {
+      this.joinIntent = null;
+      this.flash("Dieser Platz wird in einem anderen Fenster genutzt.");
+      this.leave();
+    });
     socket.on("joinError", (payload: { reason?: string }) => {
+      if (payload.reason === "room_full" && this.joinIntent && this.joinRetries < 6) {
+        this.joinRetries += 1;
+        window.setTimeout(() => {
+          if (this.socket === socket && this.joinIntent && socket.connected) {
+            socket.emit("join", {
+              room: this.joinIntent.room,
+              name: this.joinIntent.name,
+              level: this.joinIntent.level,
+              clientId: this.clientId,
+            });
+          }
+        }, 350);
+        return;
+      }
       this.flash(REASONS[payload.reason ?? ""] ?? "Beitritt abgelehnt.");
+      this.joinIntent = null;
       this.leaveSocket();
     });
     socket.on("welcome", (payload: WelcomePayload) => {
+      this.joinRetries = 0;
       this.mode = "multi";
       this.playerId = payload.playerId;
       this.room = payload.room;
@@ -525,10 +575,12 @@ export class Game {
       this.hud.setJoined(true);
       this.hud.setLobby(false);
       this.hud.setLobbyBackVisible(true);
+      this.hud.setRoomName(payload.room);
       if (payload.level) {
         this.enterLevel(payload.level, `Koop Level ${payload.level} · ${payload.room}`);
       } else {
         this.clearLevel();
+        this.activeCityId = payload.room;
         this.hud.setMode(`Koop · ${payload.room}`);
         this.lastSave = performance.now();
       }
@@ -575,11 +627,12 @@ export class Game {
       if (!result.ok) this.flash(REASONS[result.reason ?? "rejected"] ?? "Die Aktion wurde abgelehnt.");
       else if (result.reason) this.flash(REASONS[result.reason] ?? result.reason);
     });
-    socket.emit("join", { room, name, level });
   }
 
   private leave(): void {
     const wasMulti = this.mode === "multi";
+    this.joinIntent = null;
+    this.joinRetries = 0;
     this.leaveSocket();
     this.mode = "single";
     this.playerId = "";
@@ -677,13 +730,10 @@ export class Game {
 
   private maybeAutoSave(): void {
     if (!this.playing || this.playKind === "level") return;
+    if (!this.activeCityId) return;
     if (performance.now() - this.lastSave < AUTO_SAVE_MS) return;
     this.lastSave = performance.now();
-    if (this.mode === "single") {
-      localStorage.setItem(SOLO_KEY, JSON.stringify(cityToSave(this.city, "lokal")));
-      this.hud.setContinueVisible(true);
-    }
-    this.hud.showSaveToast("Stadt gespeichert");
+    if (this.persistActiveCity()) this.hud.showSaveToast("Stadt gespeichert");
   }
 
   private describe(cell: { x: number; y: number } | null): void {
@@ -785,29 +835,116 @@ export class Game {
   }
 
   private startSolo(load: boolean): void {
+    if (load) {
+      const id = getActiveCityId(localStorage) ?? listCitySlots(localStorage)[0]?.id;
+      if (!id) {
+        this.flash("Keine gespeicherte Stadt.");
+        return;
+      }
+      this.loadLocalCity(id);
+      return;
+    }
+    const typed = this.hud.roomName().trim();
+    const taken = this.knownCodes();
+    const id = allocateCityCode(typed, taken);
+    if (!id) {
+      this.flash("Der Name braucht mindestens zwei Buchstaben oder Ziffern.");
+      return;
+    }
+    this.joinIntent = null;
     this.leaveSocket();
     this.clearLevel();
     this.mode = "single";
     this.playing = true;
+    this.activeCityId = id;
+    this.hud.setRoomName(id);
     this.hud.setJoined(false);
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
     this.setBriefOpen(true);
-    if (load) {
-      const raw = localStorage.getItem(SOLO_KEY);
-      const loaded = raw ? saveToCity(JSON.parse(raw) as unknown) : null;
-      if (loaded) writeCity(this.city, packCells(loaded), buildMeta(loaded));
-    } else {
-      const fresh = createCity();
-      writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    const fresh = createCity();
+    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    refreshUtilities(this.city);
+    this.persistActiveCity(typed || id);
+    this.rememberWorker(true);
+    this.setTool("inspect");
+    this.lastSave = performance.now();
+    this.publish();
+    void this.refreshLobby();
+  }
+
+  private loadLocalCity(id: string): void {
+    const save = loadCitySlot(id, localStorage);
+    const loaded = save ? saveToCity(save) : null;
+    if (!loaded) {
+      this.flash("Diese Stadt ließ sich nicht laden.");
+      return;
     }
+    this.joinIntent = null;
+    this.leaveSocket();
+    this.clearLevel();
+    this.mode = "single";
+    this.playing = true;
+    this.activeCityId = id;
+    this.hud.setRoomName(id);
+    this.hud.setJoined(false);
+    this.hud.setMode("Singleplayer");
+    this.hud.setPlayers("");
+    this.hud.setLobby(false);
+    this.hud.setLobbyBackVisible(true);
+    this.setBriefOpen(true);
+    writeCity(this.city, packCells(loaded), buildMeta(loaded));
     refreshUtilities(this.city);
     this.rememberWorker(true);
     this.setTool("inspect");
     this.lastSave = performance.now();
     this.publish();
+  }
+
+  private openSavedCity(code: string): void {
+    const live = this.lastRooms.find((entry) => entry.code === code && entry.players > 0);
+    if (live) {
+      this.join(code, this.hud.playerName());
+      return;
+    }
+    if (loadCitySlot(code, localStorage)) {
+      this.loadLocalCity(code);
+      return;
+    }
+    this.join(code, this.hud.playerName());
+  }
+
+  private knownCodes(): string[] {
+    return [...new Set([...listCitySlots(localStorage).map((slot) => slot.id), ...this.lastRoomCodes])];
+  }
+
+  private persistActiveCity(displayName?: string): boolean {
+    if (this.playKind === "level" || !this.activeCityId) return false;
+    const id = this.activeCityId;
+    const existing = loadCitySlot(id, localStorage);
+    const name = (displayName && displayName.trim()) || existing?.name || id;
+    const save = cityToSave(this.city, name, id);
+    if (!writeCitySlot(id, save, localStorage)) return false;
+    this.hud.setContinueVisible(true);
+    if (this.mode === "single") void this.pushCityToServer(save);
+    return true;
+  }
+
+  private async pushCityToServer(save: CitySave): Promise<string | null> {
+    try {
+      const response = await fetch(apiUrl("/api/cities"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(save),
+      });
+      const body = (await response.json()) as { ok?: boolean; code?: string };
+      if (!response.ok || !body.ok || !body.code) return null;
+      return body.code;
+    } catch {
+      return null;
+    }
   }
 
   private startLevel(id: number, coop: boolean): void {
@@ -842,6 +979,7 @@ export class Game {
 
   private enterLevel(id: number, mode: string): void {
     this.playKind = "level";
+    this.activeCityId = null;
     this.levelId = id;
     this.levelSettled = false;
     this.levelStartedTick = this.city.tick;
@@ -1056,61 +1194,93 @@ export class Game {
   }
 
   private async refreshLobby(): Promise<void> {
+    const local = listCitySlots(localStorage).map((slot) => ({
+      code: slot.id,
+      name: slot.name,
+      players: 0,
+      population: slot.population,
+      funds: slot.funds,
+      level: null as number | null,
+    }));
+    let remote: { code: string; name?: string; players: number; population: number; funds: number; level?: number | null }[] = [];
     try {
       const [rooms, host] = await Promise.all([
-        fetch(apiUrl("/api/rooms"), { cache: "no-store" }).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number; level?: number | null }[]>),
+        fetch(apiUrl("/api/rooms"), { cache: "no-store" }).then((response) => response.json() as Promise<{ code: string; name?: string; players: number; population: number; funds: number; level?: number | null }[]>),
         fetch(apiUrl("/api/host")).then((response) => response.json() as Promise<{ urls: string[] }>),
       ]);
-      this.hud.setRooms(rooms);
+      remote = rooms;
+      this.lastRoomCodes = rooms.map((entry) => entry.code);
+      this.lastRooms = rooms.map((entry) => ({ code: entry.code, players: entry.players }));
       if (isDevServer) {
-        const local = host.urls.length > 0 ? host.urls.join(", ") : `http://${location.host}`;
-        this.hud.setHost(`Im gleichen Netzwerk öffnen andere Geräte ${local}. Aus einem anderen WLAN ist dieser Rechner nicht erreichbar.`);
+        const localHost = host.urls.length > 0 ? host.urls.join(", ") : `http://${location.host}`;
+        this.hud.setHost(`Im gleichen Netzwerk öffnen andere Geräte ${localHost}. Aus einem anderen WLAN ist dieser Rechner nicht erreichbar.`);
       } else {
         this.hud.setHost(`Freunde öffnen ${location.origin}. Freie Städte teilt ihr über den Stadtnamen, Level über l3-stadtname.`);
       }
     } catch {
-      this.hud.setRooms([]);
       this.hud.setHost(isDevServer ? "Der Koop-Server antwortet nicht. Eine lokale Stadt geht trotzdem. Koop braucht den Server auf diesem Rechner, Port 8787." : "Der Koop-Server antwortet gerade nicht. Eine lokale Stadt geht trotzdem.");
     }
+    this.hud.setRooms(mergeRoomLists(local, remote));
+    this.hud.setContinueVisible(local.length > 0);
   }
 
   private async deleteSavedCity(code: string): Promise<void> {
+    deleteCitySlot(code, localStorage);
+    if (this.activeCityId === code) this.activeCityId = getActiveCityId(localStorage);
     try {
       const response = await fetch(apiUrl(`/api/cities/${encodeURIComponent(code)}`), { method: "DELETE" });
       const body = (await response.json()) as { ok?: boolean; reason?: string };
       if (!response.ok || !body.ok) {
-        this.hud.setSaveNote(body.reason === "in_use" ? "Die Stadt ist gerade im Koop offen." : "Die Stadt ließ sich nicht löschen.");
+        if (body.reason === "in_use") {
+          this.hud.setSaveNote("Die Stadt ist gerade im Koop offen.");
+          return;
+        }
+        if (body.reason === "missing") {
+          this.hud.setSaveNote(`„${code}“ ist lokal gelöscht.`);
+          await this.refreshLobby();
+          return;
+        }
+        this.hud.setSaveNote("Die Stadt ließ sich nicht löschen.");
         return;
       }
       this.hud.setSaveNote(`„${code}“ ist gelöscht.`);
       await this.refreshLobby();
     } catch {
-      this.hud.setSaveNote("Der Server hat das Löschen nicht bestätigt.");
+      this.hud.setSaveNote(`„${code}“ ist lokal gelöscht.`);
+      await this.refreshLobby();
     }
   }
 
   private async saveCurrentCity(): Promise<void> {
-    const save = cityToSave(this.city, this.hud.roomName());
-    if (this.playKind !== "level") {
-      localStorage.setItem(SOLO_KEY, JSON.stringify(save));
-      this.hud.setContinueVisible(true);
+    if (this.playKind === "level") {
+      this.hud.setSaveNote("Im Level-Modus gibt es keinen Speicherstand.");
+      return;
     }
-    try {
-      const response = await fetch(apiUrl("/api/cities"), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(save),
-      });
-      const body = (await response.json()) as { ok?: boolean; code?: string };
-      if (!response.ok || !body.ok || !body.code) {
+    if (!this.activeCityId) {
+      const id = allocateCityCode(this.hud.roomName(), this.knownCodes());
+      if (!id) {
         this.hud.setSaveNote("Der Name braucht mindestens zwei Buchstaben oder Ziffern.");
         return;
       }
-      this.hud.setSaveNote(`„${body.code}“ ist gespeichert, inklusive Straßen, Leitungen, Zonen, Gebäuden, Bildung und Kasse. Im Koop öffnen lädt genau diese Stadt.`);
-      await this.refreshLobby();
-    } catch {
-      this.hud.setSaveNote("Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
+      this.activeCityId = id;
+      this.hud.setRoomName(id);
     }
+    const existing = loadCitySlot(this.activeCityId, localStorage);
+    const typed = this.hud.roomName().trim();
+    const display = existing?.name || typed || this.activeCityId;
+    if (!this.persistActiveCity(display)) {
+      this.hud.setSaveNote("Diese Stadt wurde nicht überschrieben.");
+      return;
+    }
+    const save = loadCitySlot(this.activeCityId, localStorage);
+    const code = save ? await this.pushCityToServer(save) : null;
+    if (!code) {
+      this.hud.setSaveNote("Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
+      await this.refreshLobby();
+      return;
+    }
+    this.hud.setSaveNote(`„${display}“ ist gespeichert (${code}), inklusive Straßen, Leitungen, Zonen, Gebäuden, Bildung und Kasse. Im Koop öffnen lädt genau diese Stadt.`);
+    await this.refreshLobby();
   }
 
   private showCell(cell: { x: number; y: number }): void {

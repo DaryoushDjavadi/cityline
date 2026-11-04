@@ -29,6 +29,7 @@ export type ToolId =
 
 export interface RoomCard {
   code: string;
+  name?: string;
   players: number;
   population: number;
   funds: number;
@@ -91,6 +92,7 @@ export interface HudControls {
   onLeave: () => void;
   onNewSolo: () => void;
   onContinue: () => void;
+  onOpenSaved: (code: string) => void;
   onOpenLobby: () => void;
   onLobbyBack: () => void;
   onSave: () => void;
@@ -152,6 +154,7 @@ export interface Hud {
   showInspect: (view: InspectView) => void;
   hideInspect: () => void;
   setPlayerName: (name: string) => void;
+  setRoomName: (name: string) => void;
   playerName: () => string;
   roomName: () => string;
 }
@@ -297,6 +300,10 @@ export function createHud(events: HudControls): Hud {
     chatInput.value = "";
     chatInput.focus();
   });
+  const stopChatWheel = (event: WheelEvent) => event.stopPropagation();
+  chat.addEventListener("wheel", stopChatWheel, { passive: true });
+  chatLog.addEventListener("wheel", stopChatWheel, { passive: true });
+  chatLog.addEventListener("touchmove", (event) => event.stopPropagation(), { passive: true });
   requiredButton("#gate-enter").addEventListener("click", () => events.onNameReady(gateName.value));
   gateName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") events.onNameReady(gateName.value);
@@ -485,6 +492,8 @@ export function createHud(events: HudControls): Hud {
       }
     },
     setChatMessages(messages, selfId) {
+      const slack = 48;
+      const stick = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight <= slack;
       chatLog.replaceChildren(...messages.map((message) => {
         const row = document.createElement("div");
         row.className = message.playerId === selfId ? "chat-row self" : "chat-row";
@@ -495,7 +504,7 @@ export function createHud(events: HudControls): Hud {
         row.append(who, body);
         return row;
       }));
-      chatLog.scrollTop = chatLog.scrollHeight;
+      if (stick) chatLog.scrollTop = chatLog.scrollHeight;
     },
     setChatUnread(count) {
       const unread = count > 0;
@@ -553,6 +562,7 @@ export function createHud(events: HudControls): Hud {
       name.value = value;
       gateName.value = value;
     },
+    setRoomName(value) { room.value = value; },
     showLevelEnd(view) {
       levelEnd.hidden = false;
       levelEndSheet.classList.toggle("fail", !view.won);
@@ -571,7 +581,7 @@ export function createHud(events: HudControls): Hud {
       liveList.replaceChildren(...live.map((entry) => roomRow(entry, {
         onJoin: () => {
           room.value = entry.code;
-          events.onJoin(entry.code, name.value);
+          events.onOpenSaved(entry.code);
         },
         onDelete: () => events.onDelete(entry.code),
         live: true,
@@ -586,7 +596,7 @@ export function createHud(events: HudControls): Hud {
       for (const entry of saved) list.append(roomRow(entry, {
         onJoin: () => {
           room.value = entry.code;
-          events.onJoin(entry.code, name.value);
+          events.onOpenSaved(entry.code);
         },
         onDelete: () => events.onDelete(entry.code),
         live: false,
@@ -689,7 +699,7 @@ function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () =>
   button.type = "button";
   button.disabled = full;
   const title = document.createElement("span");
-  title.textContent = entry.code;
+  title.textContent = entry.name || entry.code;
   button.append(title);
   if (joinable) {
     const badge = document.createElement("em");
@@ -699,7 +709,8 @@ function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () =>
   }
   const meta = document.createElement("em");
   const kind = entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`;
-  meta.textContent = full ? `2/2 · gerade voll · ${kind}` : `${entry.players}/2 · ${kind}`;
+  const key = entry.name && entry.name !== entry.code ? `${entry.code} · ${kind}` : kind;
+  meta.textContent = full ? `2/2 · gerade voll · ${key}` : `${entry.players}/2 · ${key}`;
   button.append(meta);
   if (!full) button.addEventListener("click", options.onJoin);
   if (options.live || entry.level) {

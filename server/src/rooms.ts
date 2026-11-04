@@ -3,17 +3,20 @@ import type { Server, Socket } from "socket.io";
 import { applyCommand, createCity } from "../../shared/src/city.ts";
 import { uniqueCells } from "../../shared/src/grid.ts";
 import { createLevelCity, evaluateLevel, isLevelRoom, levelById, levelRoomCode, parseLevelRoom } from "../../shared/src/levels.ts";
-import { CHAT_HISTORY, cleanChat, cleanName, cleanRoom, commandCells, parseCommand, type ChatMessage, type LevelSync } from "../../shared/src/protocol.ts";
+import { CHAT_HISTORY, cleanChat, cleanClientId, cleanName, cleanRoom, commandCells, parseCommand, type ChatMessage, type LevelSync } from "../../shared/src/protocol.ts";
 import { buildMeta, refreshUtilities, stepSimulation } from "../../shared/src/sim.ts";
 import { packCells, writeCity, type CityState, type Command, type PublicPlayer } from "../../shared/src/types.ts";
-import { deleteCity, loadCity, saveCity, savedRooms, type RoomListing } from "./persist.ts";
+import { deleteCity, loadCity, peekSave, saveCity, savedRooms, type RoomListing } from "./persist.ts";
 
 const MAX_PLAYERS = 2;
 const TICK_MS = 500;
 const LOCK_MS = 5000;
+/** Keep an empty coop room in memory so a dropped host can rejoin without resetting the map. */
+const EMPTY_ROOM_MS = 15 * 60 * 1000;
 
 interface Player {
   id: string;
+  clientId: string;
   name: string;
   socket: Socket;
   slot: number;
@@ -23,28 +26,37 @@ interface Player {
 
 interface Room {
   code: string;
+  name: string;
   city: ReturnType<typeof createCity>;
   players: Player[];
   locks: Map<number, { playerId: string; at: number }>;
   level: LevelSync | null;
   chat: ChatMessage[];
+  emptyAt: number | null;
 }
 
 export function attachCityServer(io: Server): {
   listRooms: () => RoomListing[];
-  importCity: (code: string, city: CityState) => void;
+  importCity: (code: string, city: CityState, name?: string) => void;
   removeCity: (code: string) => "ok" | "missing" | "in_use";
 } {
   const rooms = new Map<string, Room>();
 
   const timer = setInterval(() => {
-    for (const room of rooms.values()) {
-      if (room.players.length === 0) continue;
+    const now = Date.now();
+    for (const [code, room] of rooms) {
+      if (room.players.length === 0) {
+        if (room.emptyAt !== null && now - room.emptyAt > EMPTY_ROOM_MS) {
+          if (!room.level) saveCity(room.code, room.city, room.name);
+          rooms.delete(code);
+        }
+        continue;
+      }
       const frozen = room.level !== null && room.level.outcome !== "playing";
       if (!frozen) {
         stepSimulation(room.city);
         if (room.level) syncLevel(room);
-        else if (room.city.tick % 8 === 0) saveCity(room.code, room.city);
+        else if (room.city.tick % 8 === 0) saveCity(room.code, room.city, room.name);
       }
       emitState(room);
     }
@@ -56,7 +68,7 @@ export function attachCityServer(io: Server): {
 
     socket.on("join", (payload: unknown) => {
       if (joined) return;
-      const body = payload as { room?: unknown; name?: unknown; level?: unknown };
+      const body = payload as { room?: unknown; name?: unknown; level?: unknown; clientId?: unknown };
       const wanted = Number(body?.level);
       const tagged = cleanRoom(body?.room);
       const fromLevel = Number.isInteger(wanted) ? levelRoomCode(wanted, tagged ?? "") : null;
@@ -76,24 +88,18 @@ export function attachCityServer(io: Server): {
         return;
       }
       const room = existing ?? createRoom(code);
-      if (room.players.length >= MAX_PLAYERS) {
+      const clientId = cleanClientId(body?.clientId) ?? socket.id;
+      const seated = seatPlayer(room, socket, cleanName(body?.name), clientId);
+      if (!seated) {
         socket.emit("joinError", { reason: "room_full" });
         return;
       }
       rooms.set(code, room);
-      const player: Player = {
-        id: socket.id,
-        name: cleanName(body?.name),
-        socket,
-        slot: room.players.length,
-        lookX: 0,
-        lookZ: 0,
-      };
-      room.players.push(player);
-      joined = { room, player };
+      room.emptyAt = null;
+      joined = { room, player: seated };
       socket.emit("welcome", {
-        playerId: player.id,
-        slot: player.slot,
+        playerId: seated.id,
+        slot: seated.slot,
         room: room.code,
         players: publicPlayers(room),
         level: room.level?.id ?? null,
@@ -207,29 +213,31 @@ export function attachCityServer(io: Server): {
       broadcastLocks(joined.room);
       if (result.applied.length > 0) {
         if (joined.room.level) syncLevel(joined.room);
-        else saveCity(joined.room.code, joined.room.city);
+        else saveCity(joined.room.code, joined.room.city, joined.room.name);
       }
     });
 
     socket.on("disconnect", () => {
       if (!joined) return;
       const { room, player } = joined;
+      joined = null;
+      // Replaced by a later socket of the same client — leave the living seat alone.
+      if (player.socket !== socket) return;
       releaseLocks(room, player.id);
       for (const other of room.players) {
         if (other.id === player.id) continue;
         other.socket.emit("cursorGone", { playerId: player.id });
       }
-      room.players = room.players.filter((entry) => entry.id !== player.id);
+      room.players = room.players.filter((entry) => entry.socket !== socket);
       room.players.forEach((entry, index) => {
         entry.slot = index;
       });
       broadcastLocks(room);
       broadcastPlayers(room);
       if (room.players.length === 0) {
-        if (!room.level) saveCity(room.code, room.city);
-        rooms.delete(room.code);
+        if (!room.level) saveCity(room.code, room.city, room.name);
+        room.emptyAt = Date.now();
       }
-      joined = null;
     });
   });
 
@@ -240,26 +248,29 @@ export function attachCityServer(io: Server): {
       if (live) rooms.delete(code);
       return deleteCity(code) ? "ok" : "missing";
     },
-    importCity(code, next) {
+    importCity(code, next, name) {
       if (isLevelRoom(code)) return;
       const live = rooms.get(code);
+      const label = name?.trim() || live?.name || peekSave(code)?.name || code;
       if (live) {
         if (live.level) return;
         writeCity(live.city, packCells(next), buildMeta(next));
         refreshUtilities(live.city);
+        live.name = label;
         emitState(live);
-        saveCity(code, live.city);
+        saveCity(code, live.city, live.name);
         return;
       }
       refreshUtilities(next);
-      saveCity(code, next);
+      saveCity(code, next, label);
     },
     listRooms() {
-      const listed = savedRooms().filter((entry) => !isLevelRoom(entry.code));
+      const listed: RoomListing[] = savedRooms().filter((entry) => !isLevelRoom(entry.code));
       for (const room of rooms.values()) {
         const existing = listed.find((entry) => entry.code === room.code);
         const summary = {
           code: room.code,
+          name: room.name,
           savedAt: new Date().toISOString(),
           population: room.city.levels.reduce((sum, level, index) => sum + (room.city.zones[index] === 1 ? level * 12 : 0), 0),
           funds: room.city.funds,
@@ -278,18 +289,60 @@ function createRoom(code: string): Room {
   const parsed = parseLevelRoom(code);
   if (parsed) {
     const def = levelById(parsed.level);
-    if (!def) return { code, city: createCity(), players: [], locks: new Map(), level: null, chat: [] };
+    if (!def) {
+      return { code, name: code, city: createCity(), players: [], locks: new Map(), level: null, chat: [], emptyAt: null };
+    }
     const city = createLevelCity(def);
     return {
       code,
+      name: code,
       city,
       players: [],
       locks: new Map(),
       level: { id: def.id, startedTick: city.tick, outcome: "playing" },
       chat: [],
+      emptyAt: null,
     };
   }
-  return { code, city: loadCity(code) ?? createCity(), players: [], locks: new Map(), level: null, chat: [] };
+  const saved = peekSave(code);
+  return {
+    code,
+    name: saved?.name || code,
+    city: loadCity(code) ?? createCity(),
+    players: [],
+    locks: new Map(),
+    level: null,
+    chat: [],
+    emptyAt: null,
+  };
+}
+
+/** Place or replace a seat. Same clientId reclaims the old socket so a refresh is not room_full. */
+function seatPlayer(room: Room, socket: Socket, name: string, clientId: string): Player | null {
+  const previous = room.players.find((entry) => entry.clientId === clientId);
+  if (previous) {
+    const oldSocket = previous.socket;
+    previous.socket = socket;
+    previous.name = name;
+    previous.id = clientId;
+    if (oldSocket !== socket) {
+      oldSocket.emit("replaced");
+      oldSocket.disconnect(true);
+    }
+    return previous;
+  }
+  if (room.players.length >= MAX_PLAYERS) return null;
+  const player: Player = {
+    id: clientId,
+    clientId,
+    name,
+    socket,
+    slot: room.players.length,
+    lookX: 0,
+    lookZ: 0,
+  };
+  room.players.push(player);
+  return player;
 }
 
 function resetLevel(room: Room): void {
