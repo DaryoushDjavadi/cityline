@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.23",
+    at: "4. Nov 2026",
+    title: "Handy und Tablet",
+    items: [
+      "Auf schmalen Bildschirmen klappen Menü, Aufgabe, Kasse, Nachfrage und Chat ein. Die Karte bleibt frei.",
+      "Unten liegen kleine Buttons für Bauen, Verschieben, Städte und Nachfrage. Ein Finger baut, zwei Finger zoomen.",
+      "Am großen Bildschirm bleibt die Oberfläche wie bisher.",
+    ],
+  },
+  {
     version: "0.22",
     at: "4. Nov 2026",
     title: "Eigene Städte, Chat, Koop",

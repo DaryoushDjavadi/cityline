@@ -69,6 +69,7 @@ import {
   type WelcomePayload,
 } from "../../../shared/src/index.ts";
 import { isLevelOpen, loadPlayerName, loadUnlockedLevel, savePlayerName, unlockAfterWin } from "../ui/levelProgress.ts";
+import { isCompactHud, onCompactHudChange } from "../ui/layout.ts";
 
 const AUTO_SAVE_MS = (() => {
   const raw = Number(new URLSearchParams(location.search).get("autosave"));
@@ -166,6 +167,7 @@ export class Game {
     onFocusPlayer: (id) => this.focusPlayer(id),
     onNameReady: (value) => this.acceptName(value),
     onTogglePan: () => this.setPanMode(!this.panMode),
+    onCompactPanel: (panel) => this.onCompactPanel(panel),
     onSave: () => {
       void this.saveCurrentCity();
     },
@@ -220,6 +222,10 @@ export class Game {
   private chatLog: ChatMessage[] = [];
   private chatUnread = 0;
   private panMode = false;
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; midX: number; midY: number; distance: number } | null = null;
+  private pinched = false;
+  private inspectDown: { x: number; y: number } | null = null;
   private lastCursor = 0;
   private readonly remoteCursors = new Map<string, { name: string; x: number; z: number }>();
   private readonly cursorNdc = new THREE.Vector3();
@@ -235,7 +241,7 @@ export class Game {
     window.addEventListener("resize", () => this.resize());
     this.hud.setContinueVisible(listCitySlots(localStorage).length > 0);
     this.hud.setLevelUnlock(loadUnlockedLevel());
-    this.hud.setBriefOpen(true);
+    this.setBriefOpen(!isCompactHud());
     this.hud.setRosterOpen(false);
     this.hud.setChatOpen(false);
     this.hud.setChatUnread(0);
@@ -252,6 +258,16 @@ export class Game {
       this.hud.showNameGate(true);
     }
     this.setTool("inspect");
+    onCompactHudChange((compact) => {
+      if (compact) {
+        this.setBriefOpen(false);
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+      } else {
+        this.setBriefOpen(true);
+      }
+      this.refreshHint();
+    });
     this.rememberWorker(false);
     void this.refreshLobby();
     window.setInterval(() => {
@@ -297,9 +313,14 @@ export class Game {
   }
 
   private refreshHint(): void {
+    const compact = isCompactHud();
     const camera = this.panMode
-      ? "Ziehen verschiebt die Karte ohne zu drehen. Nochmal Verschieben beendet den Modus. Mausrad zoomt, Q/E dreht, WASD fährt."
-      : "Rechte Taste schaut um, mittlere Taste oder Verschieben schiebt die Karte, Mausrad zoomt, Q/E dreht, WASD fährt. Escape zurück zur Lupe.";
+      ? compact
+        ? "Ziehen verschiebt die Karte. Zwei Finger zoomen. Nochmal Verschieben beendet den Modus."
+        : "Ziehen verschiebt die Karte ohne zu drehen. Nochmal Verschieben beendet den Modus. Mausrad zoomt, Q/E dreht, WASD fährt."
+      : compact
+        ? "Ein Finger baut oder tippt. Ziehen mit der Lupe verschiebt, zwei Finger zoomen. Verschieben für die Hand."
+        : "Rechte Taste schaut um, mittlere Taste oder Verschieben schiebt die Karte, Mausrad zoomt, Q/E dreht, WASD fährt. Escape zurück zur Lupe.";
     this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."} ${camera}`);
   }
 
@@ -308,6 +329,7 @@ export class Game {
     this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     this.canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => this.onPointerUp(event));
+    window.addEventListener("pointercancel", (event) => this.onPointerUp(event));
     this.canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
       this.camera.wheel(event.deltaY);
@@ -350,6 +372,21 @@ export class Game {
   }
 
   private onPointerDown(event: PointerEvent): void {
+    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.pointers.size >= 2) {
+      this.cancelStroke(false);
+      this.camera.end();
+      this.pinched = true;
+      const [a, b] = this.pinchPoints();
+      this.pinch = {
+        dist: Math.hypot(b.x - a.x, b.y - a.y),
+        midX: (a.x + b.x) / 2,
+        midY: (a.y + b.y) / 2,
+        distance: this.camera.distance,
+      };
+      this.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     if (this.camera.begin(event.button, event.clientX, event.clientY, this.panMode)) {
       if (event.button === 0) this.canvas.setPointerCapture(event.pointerId);
       return;
@@ -361,7 +398,11 @@ export class Game {
       return;
     }
     this.anchor = cell;
-    if (this.tool === "inspect") return;
+    if (this.tool === "inspect") {
+      this.inspectDown = { x: event.clientX, y: event.clientY };
+      if (event.pointerType !== "mouse") this.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     this.building = true;
     this.painted.clear();
     this.denied.clear();
@@ -370,6 +411,25 @@ export class Game {
   }
 
   private onPointerMove(event: PointerEvent): void {
+    if (this.pointers.has(event.pointerId)) this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.pinch && this.pointers.size >= 2) {
+      this.movePinch();
+      return;
+    }
+    if (
+      this.inspectDown &&
+      !this.camera.isDragging() &&
+      !this.building &&
+      event.pointerType !== "mouse" &&
+      this.tool === "inspect"
+    ) {
+      const dx = event.clientX - this.inspectDown.x;
+      const dy = event.clientY - this.inspectDown.y;
+      if (Math.hypot(dx, dy) >= 12) {
+        this.camera.begin(0, this.inspectDown.x, this.inspectDown.y, true);
+        this.camera.move(event.clientX, event.clientY);
+      }
+    }
     this.camera.move(event.clientX, event.clientY);
     this.emitCursor(event);
     const cell = this.pick(event);
@@ -379,10 +439,30 @@ export class Game {
   }
 
   private onPointerUp(event: PointerEvent): void {
+    this.pointers.delete(event.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+    if (event.type === "pointercancel") {
+      this.pinched = this.pointers.size >= 2;
+      this.inspectDown = null;
+      this.camera.end();
+      this.cancelStroke(false);
+      this.building = false;
+      this.anchor = null;
+      return;
+    }
+    if (this.pinched) {
+      if (this.pointers.size === 0) this.pinched = false;
+      this.inspectDown = null;
+      this.camera.end();
+      this.cancelStroke(false);
+      return;
+    }
     const cameraDrag = this.camera.isDragging();
     this.camera.end();
+    this.inspectDown = null;
     if (cameraDrag && event.button === 0) {
       this.cancelStroke(false);
+      this.anchor = null;
       return;
     }
     if (event.button !== 0) return;
@@ -396,6 +476,24 @@ export class Game {
     if (!this.building) return;
     this.building = false;
     this.commit();
+  }
+
+  private pinchPoints(): { x: number; y: number }[] {
+    return [...this.pointers.values()].slice(0, 2);
+  }
+
+  private movePinch(): void {
+    if (!this.pinch || this.pointers.size < 2) return;
+    const [a, b] = this.pinchPoints();
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    if (this.pinch.dist > 8 && dist > 8) {
+      this.camera.setDistance(this.pinch.distance * (this.pinch.dist / dist));
+    }
+    this.camera.nudge(midX - this.pinch.midX, midY - this.pinch.midY);
+    this.pinch.midX = midX;
+    this.pinch.midY = midY;
   }
 
   private updateStroke(cell: { x: number; y: number }): void {
@@ -587,7 +685,7 @@ export class Game {
       this.renderPlayers(payload.players);
       this.loadChat(payload.chat);
       this.rememberWorker(false);
-      this.setBriefOpen(true);
+      this.setBriefOpen(!isCompactHud());
       this.flash(payload.level ? "Level-Koop verbunden. Ihr baut an derselben Aufgabe." : "Verbunden. Bauaktionen laufen über den Server.");
     });
     socket.on("state", (payload: StatePayload) => {
@@ -863,7 +961,7 @@ export class Game {
     this.hud.setPlayers("");
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
-    this.setBriefOpen(true);
+    this.setBriefOpen(!isCompactHud());
     const fresh = createCity();
     writeCity(this.city, packCells(fresh), buildMeta(fresh));
     refreshUtilities(this.city);
@@ -894,7 +992,7 @@ export class Game {
     this.hud.setPlayers("");
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
-    this.setBriefOpen(true);
+    this.setBriefOpen(!isCompactHud());
     writeCity(this.city, packCells(loaded), buildMeta(loaded));
     refreshUtilities(this.city);
     this.rememberWorker(true);
@@ -989,7 +1087,7 @@ export class Game {
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
     this.hud.setLevelUnlock(loadUnlockedLevel(), id);
-    this.setBriefOpen(true);
+    this.setBriefOpen(!isCompactHud());
   }
 
   private applyLevelSync(sync: LevelSync): void {
@@ -1080,6 +1178,7 @@ export class Game {
   private setBriefOpen(open: boolean): void {
     this.briefOpen = open;
     this.hud.setBriefOpen(open);
+    if (open) this.shrinkCompactHud("brief");
   }
 
   private setRosterOpen(open: boolean): void {
@@ -1088,6 +1187,7 @@ export class Game {
       this.hud.hideInspect();
       this.chatOpen = false;
       this.hud.setChatOpen(false);
+      this.shrinkCompactHud("roster");
     }
     this.rosterOpen = open;
     this.hud.setRosterOpen(open);
@@ -1101,9 +1201,36 @@ export class Game {
       this.hud.setRosterOpen(false);
       this.chatUnread = 0;
       this.hud.setChatUnread(0);
+      this.shrinkCompactHud("chat");
     }
     this.chatOpen = open;
     this.hud.setChatOpen(open);
+  }
+
+  private onCompactPanel(panel: "menu" | "demand" | "stats"): void {
+    if (!isCompactHud()) return;
+    if (panel === "stats") return;
+    this.briefOpen = false;
+    this.hud.setBriefOpen(false);
+    this.chatOpen = false;
+    this.hud.setChatOpen(false);
+    this.rosterOpen = false;
+    this.hud.setRosterOpen(false);
+    this.focus = null;
+    this.hud.hideInspect();
+    if (panel === "menu") this.hud.setDemandOpen(false);
+    if (panel === "demand") this.hud.setMenuOpen(false);
+  }
+
+  private shrinkCompactHud(keep: "brief" | "roster" | "chat" | "inspect"): void {
+    if (!isCompactHud()) return;
+    this.hud.setDemandOpen(false);
+    this.hud.setStatsOpen(false);
+    if (keep !== "brief") {
+      this.briefOpen = false;
+      this.hud.setBriefOpen(false);
+    }
+    if (keep === "chat" || keep === "roster" || keep === "inspect") this.hud.setMenuOpen(false);
   }
 
   private sendChat(value: string): void {
@@ -1302,6 +1429,7 @@ export class Game {
     const university = families.length > 0 && serviceNearby(this.city, index, ServiceKind.University);
     this.setRosterOpen(false);
     this.setChatOpen(false);
+    this.shrinkCompactHud("inspect");
     this.hud.showInspect({
       kind: service?.kind === ServiceKind.Power ? "power" : service?.kind === ServiceKind.Water ? "water" : workplace ? "work" : families.length > 0 ? "home" : "field",
       kicker: service ? "Gebäude" : workplace ? (this.city.zones[index] === Zone.Industrial ? "Industrie" : "Gewerbe") : families.length > 0 ? "Wohnhaus" : "Feld",
@@ -1353,6 +1481,7 @@ export class Game {
     const family = houseReport(this.city, car.home).find((entry) => entry.surname === car.surname);
     this.setRosterOpen(false);
     this.setChatOpen(false);
+    this.shrinkCompactHud("inspect");
     this.hud.showInspect({
       kind: "car",
       kicker: "Unterwegs",
