@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.25",
+    at: "4. Nov 2026",
+    title: "Städtemenü",
+    items: [
+      "Das Startmenü ist klarer: Name oben, dann Neue Stadt und Levels, darunter die Städte als Karten.",
+      "Gespeicherte Städte zeigen Einwohner und zuletzt gespielt. Laufende Koop-Städte bleiben grün markiert.",
+      "Eine leere Liste erklärt, wie man die erste Stadt anlegt. Koop-Hosten steht darunter.",
+    ],
+  },
+  {
     version: "0.24",
     at: "4. Nov 2026",
     title: "Leitungen, Flughafen, Nahrung",

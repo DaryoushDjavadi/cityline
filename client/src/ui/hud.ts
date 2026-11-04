@@ -37,6 +37,7 @@ export interface RoomCard {
   population: number;
   funds: number;
   level?: number | null;
+  savedAt?: string;
 }
 
 export interface RosterPlayer {
@@ -686,9 +687,12 @@ export function createHud(events: HudControls): Hud {
       })));
       list.replaceChildren();
       if (saved.length === 0) {
-        const empty = document.createElement("p");
-        empty.textContent = live.length > 0 ? "Keine weiteren gespeicherten Städte." : "Noch keine gespeicherte Stadt.";
-        list.append(empty);
+        list.append(roomsEmpty(
+          live.length > 0 ? "Keine weiteren gespeicherten Städte" : "Noch keine gespeicherte Stadt",
+          live.length > 0
+            ? "Oben in der Liste sind die Räume, in denen gerade jemand spielt."
+            : "Lege oben eine neue Stadt an. Sie erscheint danach hier.",
+        ));
         return;
       }
       for (const entry of saved) list.append(roomRow(entry, {
@@ -820,28 +824,54 @@ function hireRow(hire: InspectHire, onHire: () => void): HTMLElement {
   return row;
 }
 
+function roomsEmpty(title: string, hint: string): HTMLElement {
+  const empty = document.createElement("div");
+  empty.className = "rooms-empty";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("span");
+  copy.textContent = hint;
+  empty.append(heading, copy);
+  return empty;
+}
+
 function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () => void; live: boolean }): HTMLElement {
   const joinable = entry.players > 0 && entry.players < 2;
   const full = entry.players >= 2;
+  const label = entry.name || entry.code;
   const row = document.createElement("div");
   row.className = joinable ? "room-row live" : full ? "room-row full" : "room-row";
   const button = document.createElement("button");
   button.type = "button";
+  button.className = "room-card";
   button.disabled = full;
-  const title = document.createElement("span");
-  title.textContent = entry.name || entry.code;
-  button.append(title);
+  button.setAttribute("aria-label", joinable ? `${label} beitreten` : `${label} öffnen`);
+  const mark = document.createElement("span");
+  mark.className = "room-mark";
+  mark.setAttribute("aria-hidden", "true");
+  const copy = document.createElement("span");
+  copy.className = "room-card-copy";
+  const title = document.createElement("strong");
+  title.className = "room-name";
+  title.textContent = label;
+  const meta = document.createElement("span");
+  meta.className = "room-meta";
+  const bits: string[] = [];
+  if (full) bits.push("2/2 · gerade voll");
+  else if (joinable) bits.push("1/2 · Platz frei");
+  bits.push(entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`);
+  const played = formatSavedAt(entry.savedAt);
+  if (played && !joinable && !full) bits.push(`Zuletzt ${played}`);
+  if (entry.name && entry.name.toLowerCase() !== entry.code.toLowerCase()) bits.push(entry.code);
+  meta.textContent = bits.join(" · ");
+  copy.append(title, meta);
+  button.append(mark, copy);
   if (joinable) {
     const badge = document.createElement("em");
     badge.className = "live-tag";
-    badge.textContent = "Online-Koop-Stadt — bereit zum Beitreten";
+    badge.textContent = "Online";
     button.append(badge);
   }
-  const meta = document.createElement("em");
-  const kind = entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`;
-  const key = entry.name && entry.name !== entry.code ? `${entry.code} · ${kind}` : kind;
-  meta.textContent = full ? `2/2 · gerade voll · ${key}` : `${entry.players}/2 · ${key}`;
-  button.append(meta);
   if (!full) button.addEventListener("click", options.onJoin);
   if (options.live || entry.level) {
     row.append(button);
@@ -849,10 +879,25 @@ function roomRow(entry: RoomCard, options: { onJoin: () => void; onDelete: () =>
   }
   const remove = document.createElement("button");
   remove.type = "button";
+  remove.className = "room-delete";
   remove.textContent = "Löschen";
+  remove.setAttribute("aria-label", `${label} löschen`);
   remove.addEventListener("click", options.onDelete);
   row.append(button, remove);
   return row;
+}
+
+function formatSavedAt(iso?: string): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const diff = Date.now() - date.getTime();
+  if (diff < 45_000) return "gerade eben";
+  if (diff < 3_600_000) return `vor ${Math.max(1, Math.floor(diff / 60_000))} Min.`;
+  if (diff < 22 * 3_600_000) return `vor ${Math.max(1, Math.floor(diff / 3_600_000))} Std.`;
+  if (diff < 48 * 3_600_000) return "gestern";
+  if (diff < 6 * 86_400_000) return `vor ${Math.max(2, Math.floor(diff / 86_400_000))} Tagen`;
+  return new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short" }).format(date);
 }
 
 function renderNote(entry: PatchNote, latest: boolean): HTMLElement {
