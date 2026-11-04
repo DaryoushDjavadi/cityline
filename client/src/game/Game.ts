@@ -62,6 +62,10 @@ import {
 import { isLevelOpen, loadPlayerName, loadUnlockedLevel, savePlayerName, unlockAfterWin } from "../ui/levelProgress.ts";
 
 const SOLO_KEY = "cityline-solo";
+const AUTO_SAVE_MS = (() => {
+  const raw = Number(new URLSearchParams(location.search).get("autosave"));
+  return Number.isFinite(raw) && raw >= 250 ? raw : 120_000;
+})();
 
 const HINTS: Partial<Record<ToolId, string>> = {
   inspect: "Lupe: Straßen, Häuser und fahrende Autos anklicken.",
@@ -526,6 +530,7 @@ export class Game {
       } else {
         this.clearLevel();
         this.hud.setMode(`Koop · ${payload.room}`);
+        this.lastSave = performance.now();
       }
       this.renderPlayers(payload.players);
       this.loadChat(payload.chat);
@@ -666,12 +671,19 @@ export class Game {
     this.hud.setStats(meta);
     this.view.sync(this.city, this.overlays);
     if (this.playKind === "level") this.syncLevel();
-    else if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
+    else this.maybeAutoSave();
+    if (this.focus === "cell" && this.selected >= 0) this.showCell(cellCoords(this.city, this.selected));
+  }
+
+  private maybeAutoSave(): void {
+    if (!this.playing || this.playKind === "level") return;
+    if (performance.now() - this.lastSave < AUTO_SAVE_MS) return;
+    this.lastSave = performance.now();
+    if (this.mode === "single") {
       localStorage.setItem(SOLO_KEY, JSON.stringify(cityToSave(this.city, "lokal")));
-      this.lastSave = performance.now();
       this.hud.setContinueVisible(true);
     }
-    if (this.focus === "cell" && this.selected >= 0) this.showCell(cellCoords(this.city, this.selected));
+    this.hud.showSaveToast("Stadt gespeichert");
   }
 
   private describe(cell: { x: number; y: number } | null): void {
@@ -794,6 +806,7 @@ export class Game {
     refreshUtilities(this.city);
     this.rememberWorker(true);
     this.setTool("inspect");
+    this.lastSave = performance.now();
     this.publish();
   }
 
