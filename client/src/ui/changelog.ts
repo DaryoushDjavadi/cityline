@@ -7,6 +7,15 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.21",
+    at: "4. Nov 2026",
+    title: "Automatisch speichern",
+    items: [
+      "Eigene Städte speichern sich alle zwei Minuten von selbst, nicht im Level-Modus.",
+      "Rechts unten erscheint kurz „Stadt gespeichert“.",
+    ],
+  },
+  {
     version: "0.20",
     at: "4. Nov 2026",
     title: "Städtemenü, Verschieben, Koop-Zeiger",

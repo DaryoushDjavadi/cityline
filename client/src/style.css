@@ -62,7 +62,7 @@ body[data-pan="on"] #view:active { cursor: grabbing; }
   white-space: nowrap;
 }
 
-#topbar, #dock, #demand, #inspector, #brief, #roster, #chat, #toast, footer, #lobby, #notes, #level-end, #name-gate {
+#topbar, #dock, #demand, #inspector, #brief, #roster, #chat, #toast, #save-toast, footer, #lobby, #notes, #level-end, #name-gate {
   position: fixed;
   z-index: 2;
 }
@@ -70,7 +70,7 @@ body[data-pan="on"] #view:active { cursor: grabbing; }
 #topbar { z-index: 4; }
 #dock { z-index: 3; }
 
-#topbar, #dock, #demand, #brief, #toast, footer { pointer-events: none; }
+#topbar, #dock, #demand, #brief, #toast, #save-toast, footer { pointer-events: none; }
 
 #topbar button, #dock .dock-bar button, #toggle-rail, #rail, #rail button, #demand label, #inspector, #inspector button, #inspector input, #roster, #roster button, #chat, #chat button, #chat input, footer, #lobby, #notes, #brief button, #level-end, #name-gate {
   pointer-events: auto;
@@ -392,6 +392,19 @@ body[data-play="level"] #brief {
   font-weight: 700;
   letter-spacing: 0;
 }
+#save-toast {
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  padding: 8px 12px;
+  color: #d7ecca;
+  background: rgba(20, 26, 18, 0.94);
+  border: 1px solid rgba(157, 202, 134, 0.75);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+#save-toast[hidden] { display: none; }
 #demand p { margin: 0 0 8px; }
 #demand label { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin-bottom: 8px; font-size: 13px; }
 #demand i { grid-column: 1 / -1; display: block; height: 7px; width: 0; border-radius: 99px; background: #7dbe6a; }
@@ -716,6 +729,7 @@ input { padding: 10px 12px; }
     width: min(320px, calc(100% - 28px));
     max-height: 38vh;
   }
+  #save-toast { bottom: 18px; }
 }
 
 @media (max-width: 720px) {

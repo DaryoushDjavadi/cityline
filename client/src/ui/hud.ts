@@ -127,6 +127,7 @@ export interface Hud {
   setLobby: (open: boolean) => void;
   setHost: (text: string) => void;
   setSaveNote: (text: string) => void;
+  showSaveToast: (text?: string) => void;
   setContinueVisible: (visible: boolean) => void;
   setLobbyBackVisible: (visible: boolean) => void;
   setRooms: (rooms: RoomCard[]) => void;
@@ -218,9 +219,11 @@ export function createHud(events: HudControls): Hud {
   const levelEnd = required("#level-end");
   const levelEndSheet = required(".level-sheet");
   const toast = required("#toast");
+  const saveToast = required("#save-toast");
   const rank = required("#rank");
   let seenGoals: number | null = null;
   let toastTimer = 0;
+  let saveToastTimer = 0;
   let levelMode = false;
   for (const level of LEVELS) {
     const card = document.createElement("div");
@@ -375,6 +378,12 @@ export function createHud(events: HudControls): Hud {
     setLobby(open) { lobby.hidden = !open; },
     setHost(text) { host.textContent = text; },
     setSaveNote(text) { required("#save-note").textContent = text; },
+    showSaveToast(text = "Stadt gespeichert") {
+      saveToast.textContent = text;
+      saveToast.hidden = false;
+      window.clearTimeout(saveToastTimer);
+      saveToastTimer = window.setTimeout(() => { saveToast.hidden = true; }, 2800);
+    },
     setContinueVisible(visible) { requiredButton("#solo-continue").hidden = !visible; },
     setLobbyBackVisible(visible) { requiredButton("#lobby-back").hidden = !visible; },
     setLevelUnlock(unlocked, current = null) {
