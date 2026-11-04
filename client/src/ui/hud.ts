@@ -597,7 +597,8 @@ export function createHud(events: HudControls): Hud {
       paintDemand("c", meta.demand.commercial);
       paintDemand("i", meta.demand.industrial);
       const title = cityTitle(meta.stats.population);
-      rank.textContent = title.next ? `${title.name} · noch ${money.format(title.left)} bis ${title.next}` : title.name;
+      rank.textContent = title.name;
+      rank.title = title.next ? `${title.name} · noch ${money.format(title.left)} bis ${title.next}` : title.name;
       if (levelMode) return;
       const goals = meta.goals ?? 0;
       const done = GOALS.filter((goal) => (goals & goal.bit) !== 0).length;
