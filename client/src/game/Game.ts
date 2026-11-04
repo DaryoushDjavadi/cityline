@@ -67,6 +67,7 @@ import {
   type LevelSync,
   type LockSnapshot,
   type PublicPlayer,
+  type RoomListEntry,
   type ServiceId,
   type SimMeta,
   type StatePayload,
@@ -1339,11 +1340,12 @@ export class Game {
       population: slot.population,
       funds: slot.funds,
       level: null as number | null,
+      savedAt: slot.savedAt,
     }));
-    let remote: { code: string; name?: string; players: number; population: number; funds: number; level?: number | null }[] = [];
+    let remote: RoomListEntry[] = [];
     try {
       const [rooms, host] = await Promise.all([
-        fetch(apiUrl("/api/rooms"), { cache: "no-store" }).then((response) => response.json() as Promise<{ code: string; name?: string; players: number; population: number; funds: number; level?: number | null }[]>),
+        fetch(apiUrl("/api/rooms"), { cache: "no-store" }).then((response) => response.json() as Promise<RoomListEntry[]>),
         fetch(apiUrl("/api/host")).then((response) => response.json() as Promise<{ urls: string[] }>),
       ]);
       remote = rooms;

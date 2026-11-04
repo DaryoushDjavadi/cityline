@@ -246,10 +246,15 @@ const migrated = listCitySlots(legacy);
 if (migrated.length !== 1 || !loadCitySlot(migrated[0].id, legacy)) throw new Error("legacy solo slot should migrate");
 
 const merged = mergeRoomLists(
-  [{ code: "alpha", name: "Alpha", players: 0, population: 12, funds: 1 }],
-  [{ code: "alpha", players: 1, population: 40, funds: 2 }, { code: "beta", players: 0, population: 0, funds: 0 }],
+  [{ code: "alpha", name: "Alpha", players: 0, population: 12, funds: 1, savedAt: "2026-01-01T00:00:00.000Z" }],
+  [
+    { code: "alpha", players: 1, population: 40, funds: 2, savedAt: "2026-02-01T00:00:00.000Z" },
+    { code: "beta", players: 0, population: 0, funds: 0, savedAt: "2026-03-01T00:00:00.000Z" },
+  ],
 );
 if (merged.length !== 2 || merged.find((row) => row.code === "alpha")?.players !== 1) throw new Error("lobby merge");
+if (merged.find((row) => row.code === "alpha")?.savedAt !== "2026-02-01T00:00:00.000Z") throw new Error("lobby merge keeps later savedAt");
+if (merged[0]?.code !== "alpha" || merged[1]?.code !== "beta") throw new Error("lobby merge sorts live first");
 if (loadOrCreateClientId(store, () => "aaaaaaaa") !== "aaaaaaaa") throw new Error("new client id");
 if (loadOrCreateClientId(store, () => "bbbbbbbb") !== "aaaaaaaa") throw new Error("stable client id");
 

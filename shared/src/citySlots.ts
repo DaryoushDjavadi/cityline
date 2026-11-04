@@ -34,6 +34,7 @@ export interface RoomListEntry {
   population: number;
   funds: number;
   level?: number | null;
+  savedAt?: string;
 }
 
 /** Unique storage/room key. Display names may collide; keys must not. */
@@ -153,6 +154,7 @@ export function mergeRoomLists(local: RoomListEntry[], remote: RoomListEntry[]):
   for (const row of local) map.set(row.code, { ...row });
   for (const row of remote) {
     const prev = map.get(row.code);
+    const savedAt = [prev?.savedAt, row.savedAt].filter((value): value is string => !!value).sort().at(-1);
     map.set(row.code, {
       code: row.code,
       name: row.name || prev?.name,
@@ -160,11 +162,21 @@ export function mergeRoomLists(local: RoomListEntry[], remote: RoomListEntry[]):
       population: row.players > 0 ? row.population : row.population || prev?.population || 0,
       funds: row.funds || prev?.funds || 0,
       level: row.level ?? prev?.level ?? null,
+      savedAt,
     });
   }
-  return [...map.values()].sort(
-    (a, b) => b.players - a.players || (a.name ?? a.code).localeCompare(b.name ?? b.code, "de"),
-  );
+  return [...map.values()].sort((a, b) => {
+    if (b.players !== a.players) return b.players - a.players;
+    const byTime = stamp(b.savedAt) - stamp(a.savedAt);
+    if (byTime !== 0) return byTime;
+    return (a.name ?? a.code).localeCompare(b.name ?? b.code, "de");
+  });
+}
+
+function stamp(value?: string): number {
+  if (!value) return 0;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
 }
 
 export function loadOrCreateClientId(storage: KeyValueStore, randomId: () => string): string {
