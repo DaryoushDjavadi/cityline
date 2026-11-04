@@ -43,13 +43,15 @@ app.get("/api/rooms", (_request, response) => {
 });
 
 app.post("/api/cities", (request, response) => {
-  const code = cleanRoom((request.body as { name?: unknown } | undefined)?.name);
+  const body = request.body as { name?: unknown; id?: unknown } | undefined;
   const loaded = saveToCity(request.body);
+  const code = cleanRoom(body?.id) ?? cleanRoom(body?.name);
   if (!code || !loaded || isLevelRoom(code)) {
     response.status(400).json({ ok: false, reason: "bad_city" });
     return;
   }
-  city.importCity(code, loaded);
+  const label = typeof body?.name === "string" && body.name.trim() ? body.name.trim().slice(0, 48) : code;
+  city.importCity(code, loaded, label);
   response.json({ ok: true, code });
 });
 

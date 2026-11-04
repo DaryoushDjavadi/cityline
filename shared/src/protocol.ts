@@ -5,6 +5,7 @@ export interface JoinPayload {
   room: string;
   name: string;
   level?: number;
+  clientId?: string;
 }
 
 export type LevelOutcome = "playing" | "won" | "lost";
@@ -62,6 +63,12 @@ export function cleanRoom(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const room = value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 24);
   return room.length >= 2 ? room : null;
+}
+
+export function cleanClientId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim().slice(0, 64);
+  return /^[a-zA-Z0-9_-]{8,64}$/.test(id) ? id : null;
 }
 
 export function cleanName(value: unknown): string {

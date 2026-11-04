@@ -7,6 +7,7 @@ export * from "./sim.ts";
 export * from "./protocol.ts";
 export * from "./catalog.ts";
 export * from "./save.ts";
+export * from "./citySlots.ts";
 export * from "./people.ts";
 export * from "./goals.ts";
 export * from "./levels.ts";

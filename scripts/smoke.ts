@@ -1,4 +1,4 @@
-import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
+import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -204,5 +204,43 @@ if (!parseChatMessage({ id: "a", playerId: "p", name: "Anna", text: "hi", at: 1 
 if (parseChatMessage({ id: "a", name: "Anna", text: "hi", at: 1 })) throw new Error("chat needs player");
 if (!parseCursor({ playerId: "p", name: "Anna", x: 12, z: -4 })) throw new Error("cursor parse");
 if (parseCursor({ name: "Anna", x: 1, z: 1 })) throw new Error("cursor needs player");
+if (cleanClientId("short") || !cleanClientId("player-one-id")) throw new Error("client id");
+
+if (allocateCityCode("Berlin", []) !== "berlin") throw new Error("first city keeps the name as key");
+if (allocateCityCode("Berlin", ["berlin"]) !== "berlin-2") throw new Error("same name must get a new key");
+if (allocateCityCode("Berlin", ["berlin", "berlin-2"]) !== "berlin-3") throw new Error("third same name");
+if (allocateCityCode("l3-team", []) === "l3-team" || isLevelRoom(allocateCityCode("l3-team", []) ?? "")) {
+  throw new Error("freeplay keys must not look like level rooms");
+}
+
+const store = new MemoryStore();
+const first = cityToSave(city, "Berlin", "berlin");
+if (!first.id || first.id !== "berlin") throw new Error("save id");
+if (!writeCitySlot("berlin", first, store)) throw new Error("write A");
+city.funds += 50;
+const secondCity = createCity();
+const second = cityToSave(secondCity, "Berlin", "berlin-2");
+if (!writeCitySlot("berlin-2", second, store)) throw new Error("write B");
+const storedA = loadCitySlot("berlin", store);
+if (!storedA || storedA.meta.funds !== first.meta.funds) throw new Error("creating B must not clobber A");
+if (listCitySlots(store).length !== 2) throw new Error("library should list both cities");
+const emptySnap = cityToSave(createCity(), "Berlin", "berlin");
+if (writeCitySlot("berlin", { ...emptySnap, meta: { ...emptySnap.meta, tick: 0 } }, store)) {
+  throw new Error("blank overwrite of a developed slot must fail");
+}
+if (loadCitySlot("berlin", store)?.meta.funds !== first.meta.funds) throw new Error("developed slot stayed intact");
+
+const legacy = new MemoryStore();
+legacy.setItem(LEGACY_SOLO_KEY, JSON.stringify(cityToSave(city, "lokal")));
+const migrated = listCitySlots(legacy);
+if (migrated.length !== 1 || !loadCitySlot(migrated[0].id, legacy)) throw new Error("legacy solo slot should migrate");
+
+const merged = mergeRoomLists(
+  [{ code: "alpha", name: "Alpha", players: 0, population: 12, funds: 1 }],
+  [{ code: "alpha", players: 1, population: 40, funds: 2 }, { code: "beta", players: 0, population: 0, funds: 0 }],
+);
+if (merged.length !== 2 || merged.find((row) => row.code === "alpha")?.players !== 1) throw new Error("lobby merge");
+if (loadOrCreateClientId(store, () => "aaaaaaaa") !== "aaaaaaaa") throw new Error("new client id");
+if (loadOrCreateClientId(store, () => "bbbbbbbb") !== "aaaaaaaa") throw new Error("stable client id");
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

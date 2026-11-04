@@ -1,7 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cityToSave, saveToCity } from "../../shared/src/save.ts";
+import { cleanRoom } from "../../shared/src/protocol.ts";
+import { cityToSave, saveToCity, type CitySave } from "../../shared/src/save.ts";
 import { refreshUtilities } from "../../shared/src/sim.ts";
 import type { CityState } from "../../shared/src/types.ts";
 
@@ -31,6 +32,7 @@ function seedRooms(): void {
 
 export interface RoomListing {
   code: string;
+  name: string;
   savedAt: string;
   population: number;
   funds: number;
@@ -40,7 +42,7 @@ export interface RoomListing {
 
 export function loadCity(code: string): CityState | null {
   try {
-    const city = saveToCity(JSON.parse(readFileSync(fileFor(code), "utf8")));
+    const city = saveToCity(readRaw(code));
     if (!city) return null;
     refreshUtilities(city);
     return city;
@@ -49,14 +51,29 @@ export function loadCity(code: string): CityState | null {
   }
 }
 
-export function saveCity(code: string, city: CityState): void {
+export function peekSave(code: string): CitySave | null {
+  try {
+    const raw = readRaw(code);
+    return raw && saveToCity(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCity(code: string, city: CityState, name?: string): void {
+  const safe = cleanRoom(code);
+  if (!safe) return;
   mkdirSync(directory, { recursive: true });
-  writeFileSync(fileFor(code), JSON.stringify(cityToSave(city, code)));
+  const previous = peekSave(safe);
+  const label = (name && name.trim()) || previous?.name || safe;
+  writeFileSync(fileFor(safe), JSON.stringify(cityToSave(city, label, safe)));
 }
 
 export function deleteCity(code: string): boolean {
+  const safe = cleanRoom(code);
+  if (!safe) return false;
   try {
-    rmSync(fileFor(code));
+    rmSync(fileFor(safe));
     return true;
   } catch {
     return false;
@@ -69,13 +86,14 @@ export function savedRooms(): RoomListing[] {
       .filter((name) => name.endsWith(".json"))
       .map((name) => {
         const code = name.slice(0, -5);
-        const city = loadCity(code);
-        const raw = JSON.parse(readFileSync(fileFor(code), "utf8")) as { savedAt?: string };
+        const raw = peekSave(code);
+        const city = raw ? loadCity(code) : null;
         return {
           code,
-          savedAt: raw.savedAt ?? "",
-          population: city ? countPopulation(city) : 0,
-          funds: city?.funds ?? 0,
+          name: raw?.name || code,
+          savedAt: raw?.savedAt ?? "",
+          population: city ? countPopulation(city) : raw?.meta?.stats?.population ?? 0,
+          funds: city?.funds ?? raw?.meta?.funds ?? 0,
           players: 0,
         };
       });
@@ -92,6 +110,16 @@ function countPopulation(city: CityState): number {
   return population;
 }
 
+function readRaw(code: string): CitySave | null {
+  const safe = cleanRoom(code);
+  if (!safe) return null;
+  const parsed = JSON.parse(readFileSync(fileFor(safe), "utf8")) as unknown;
+  if (!parsed || typeof parsed !== "object") return null;
+  return parsed as CitySave;
+}
+
 function fileFor(code: string): string {
-  return path.join(directory, `${code}.json`);
+  const safe = cleanRoom(code);
+  if (!safe) throw new Error("bad city code");
+  return path.join(directory, `${safe}.json`);
 }

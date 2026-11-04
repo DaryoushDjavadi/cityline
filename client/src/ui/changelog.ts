@@ -7,6 +7,17 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.22",
+    at: "4. Nov 2026",
+    title: "Eigene Städte, Chat, Koop",
+    items: [
+      "Jede Stadt hat einen eigenen Speicherplatz. Eine neue Stadt überschreibt keine andere, auch nicht bei gleichem Namen.",
+      "Nach dem Erstellen und nach dem Speichern steht die Stadt in der Liste. Nach dem Neuladen auch.",
+      "Im Chat lassen sich die Nachrichten scrollen. Neue Nachrichten holen dich nach unten, wenn du schon unten warst.",
+      "Wenn jemand den Tab schließt, bleibt die Koop-Stadt für die anderen offen. Später kann man denselben Raum wieder betreten.",
+    ],
+  },
+  {
     version: "0.21",
     at: "4. Nov 2026",
     title: "Automatisch speichern",
