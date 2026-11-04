@@ -13,6 +13,7 @@ import {
   inBounds,
   uniqueCells,
 } from "./grid.ts";
+import { NEW_CITY_TICK } from "./climate.ts";
 import { pourTerrain as generateTerrain, type MapGenOptions } from "./terrain.ts";
 import {
   ServiceKind,
@@ -34,7 +35,7 @@ export function createCity(width = GRID_SIZE, height = GRID_SIZE, opts: MapGenOp
   const city: CityState = {
     width,
     height,
-    tick: 0,
+    tick: NEW_CITY_TICK,
     revision: 0,
     rng: 1,
     funds: STARTING_FUNDS,

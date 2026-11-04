@@ -1,4 +1,4 @@
-import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
+import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 {
@@ -451,6 +451,13 @@ const noon = climateAt(Math.floor(DAY_TICKS * 0.5));
 const midnight = climateAt(0);
 if (noon.daylight <= midnight.daylight) throw new Error("noon should be brighter than midnight");
 if (!/^\d{2}:\d{2}$/.test(noon.clock)) throw new Error(`bad clock ${noon.clock}`);
+{
+  const dawn = climateAt(createCity().tick);
+  if (dawn.clock !== "07:00") throw new Error(`new city should start at 07:00, got ${dawn.clock}`);
+  if (dawn.isNight) throw new Error("new city should not start in the dark");
+  const levelDawn = climateAt(createLevelCity(LEVELS[0]).tick);
+  if (levelDawn.clock !== dawn.clock) throw new Error("level cities should share the freeplay morning clock");
+}
 const walkers = streetPedestrians(city);
 for (const ped of walkers) {
   if (ped.child) continue;
