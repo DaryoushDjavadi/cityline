@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { networkInterfaces } from "node:os";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
+import { isLevelRoom } from "../../shared/src/levels.ts";
 import { cleanRoom } from "../../shared/src/protocol.ts";
 import { saveToCity } from "../../shared/src/save.ts";
 import { attachCityServer } from "./rooms.ts";
@@ -43,7 +44,7 @@ app.get("/api/rooms", (_request, response) => {
 app.post("/api/cities", (request, response) => {
   const code = cleanRoom((request.body as { name?: unknown } | undefined)?.name);
   const loaded = saveToCity(request.body);
-  if (!code || !loaded) {
+  if (!code || !loaded || isLevelRoom(code)) {
     response.status(400).json({ ok: false, reason: "bad_city" });
     return;
   }
@@ -93,6 +94,6 @@ if (existsSync(path.join(CLIENT_DIST, "index.html"))) {
   console.log(`Cityline-Client wird aus ${CLIENT_DIST} ausgeliefert`);
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`Cityline-Server hört auf http://localhost:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`Cityline-Server hört auf http://0.0.0.0:${PORT}`);
 });

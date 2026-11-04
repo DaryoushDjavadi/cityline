@@ -92,6 +92,7 @@ export class CityRenderer {
   private readonly jobMaterial: THREE.SpriteMaterial;
   private badgeTime = 0;
   private readonly hover: THREE.LineLoop;
+  private readonly peerMarks: THREE.Group[] = [];
   private readonly graph = new Map<number, number[]>();
   private shown: CityState | null = null;
   private walkers: Walker[] = [];
@@ -207,6 +208,23 @@ export class CityRenderer {
     this.hover.scale.set(CELL_SIZE * 0.96, 1, CELL_SIZE * 0.96);
     this.hover.visible = false;
     this.scene.add(this.hover);
+  }
+
+  setPeers(peers: { x: number; z: number }[]): void {
+    while (this.peerMarks.length < peers.length) {
+      const mark = peerPin();
+      this.scene.add(mark);
+      this.peerMarks.push(mark);
+    }
+    this.peerMarks.forEach((mark, index) => {
+      const peer = peers[index];
+      if (!peer) {
+        mark.visible = false;
+        return;
+      }
+      mark.visible = true;
+      mark.position.set(peer.x, 0, peer.z);
+    });
   }
 
   resize(width: number, height: number): void {
@@ -846,6 +864,22 @@ function jobBadge(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+function peerPin(): THREE.Group {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.45, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xe2b15a, roughness: 0.45 }),
+  );
+  pole.position.y = 5;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(1.6, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0xf4efe4, emissive: 0xe2b15a, emissiveIntensity: 0.35 }),
+  );
+  head.position.y = 11;
+  group.add(pole, head);
+  return group;
 }
 
 function mesh(geometry: THREE.BufferGeometry, material: THREE.Material, capacity = CAP): THREE.InstancedMesh {

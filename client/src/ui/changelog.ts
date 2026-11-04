@@ -7,6 +7,35 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.18",
+    at: "4. Nov 2026",
+    title: "HUD ohne Überlappung",
+    items: [
+      "Aufgabe, Menü, Spielerliste und Inspektor liegen nebeneinander, nicht übereinander.",
+      "Die Spielerliste und die Lupe teilen sich die rechte Seite: immer nur eines ist offen.",
+    ],
+  },
+  {
+    version: "0.17",
+    at: "4. Nov 2026",
+    title: "Level-Koop und Spielerliste",
+    items: [
+      "Die Aufgabe bleibt oben rechts sichtbar. Ein Klick öffnet das Briefing wieder.",
+      "Jedes Level geht auch zu zweit: Raum l3-hauptstadt ist Level 3 in der Stadt hauptstadt.",
+      "Beim ersten Besuch fragt das Spiel nach dem Namen. Die Spielerliste zeigt, wer da ist.",
+    ],
+  },
+  {
+    version: "0.16",
+    at: "4. Nov 2026",
+    title: "Level-Modus",
+    items: [
+      "Im Menü Städte gibt es zehn Level. Level 1 ist frei, der Rest geht nacheinander auf.",
+      "Jedes Level hat eine klare Aufgabe. Geschafft schaltet das nächste frei.",
+      "Freies Bauen und Koop bleiben wie sie sind.",
+    ],
+  },
+  {
     version: "0.15",
     at: "3. Nov 2026, 18:10",
     title: "Aufträge und Nachfrage",

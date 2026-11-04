@@ -8,6 +8,7 @@ import {
   BUILDINGS,
   CELL_SIZE,
   COST,
+  LEVEL_COUNT,
   POWER_BIT,
   ServiceKind,
   WATER_BIT,
@@ -22,14 +23,19 @@ import {
   cellIndex,
   cityToSave,
   createCity,
+  createLevelCity,
   employeesAt,
+  evaluateLevel,
   houseReport,
   isLine,
   jobOpenings,
   isPipe,
   isRoad,
+  levelById,
+  levelRoomCode,
   lineCells,
   packCells,
+  parseLevelRoom,
   refreshUtilities,
   saveToCity,
   scholarshipCost,
@@ -41,6 +47,7 @@ import {
   type CityState,
   type Command,
   type CommandResult,
+  type LevelSync,
   type LockSnapshot,
   type PublicPlayer,
   type ServiceId,
@@ -48,6 +55,7 @@ import {
   type StatePayload,
   type WelcomePayload,
 } from "../../../shared/src/index.ts";
+import { isLevelOpen, loadPlayerName, loadUnlockedLevel, savePlayerName, unlockAfterWin } from "../ui/levelProgress.ts";
 
 const SOLO_KEY = "cityline-solo";
 
@@ -92,6 +100,7 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
 const REASONS: Record<string, string> = {
   room_full: "In diesem Raum bauen schon zwei Spieler.",
   bad_room: "Der Raumname braucht mindestens zwei Buchstaben oder Ziffern.",
+  level_mismatch: "Dieser Raum läuft auf einem anderen Level.",
   funds: "Für den Rest der Fläche reicht das Geld nicht.",
   locked: "Diese Felder belegt gerade der andere Spieler.",
   empty: "Nichts zu bauen.",
@@ -125,10 +134,18 @@ export class Game {
     onLeave: () => this.leave(),
     onNewSolo: () => this.startSolo(false),
     onContinue: () => this.startSolo(true),
-    onOpenLobby: () => {
-      this.hud.setLobby(true);
-      void this.refreshLobby();
-    },
+    onOpenLobby: () => this.openLobby(),
+    onLobbyBack: () => this.closeLobby(),
+    onStartLevel: (id) => this.startLevel(id, false),
+    onStartLevelCoop: (id) => this.startLevel(id, true),
+    onRetryLevel: () => this.retryLevel(),
+    onNextLevel: () => this.nextLevel(),
+    onOpenLevelSelect: () => this.openLobby(true),
+    onToggleBrief: () => this.setBriefOpen(!this.briefOpen),
+    onCloseBrief: () => this.setBriefOpen(false),
+    onToggleRoster: () => this.setRosterOpen(!this.rosterOpen),
+    onFocusPlayer: (id) => this.focusPlayer(id),
+    onNameReady: (value) => this.acceptName(value),
     onSave: () => {
       void this.saveCurrentCity();
     },
@@ -146,6 +163,10 @@ export class Game {
 
   private socket: Socket | null = null;
   private mode: "single" | "multi" = "single";
+  private playKind: "free" | "level" = "free";
+  private levelId = 0;
+  private levelStartedTick = 0;
+  private levelSettled = false;
   private generation = 1;
   private tool: ToolId = "inspect";
   private focus: "cell" | null = null;
@@ -163,6 +184,12 @@ export class Game {
   private overlays = { zones: true, power: false, water: false };
   private statusUntil = 0;
   private lastFrame = performance.now();
+  private lastLook = 0;
+  private briefOpen = true;
+  private rosterOpen = false;
+  private named = false;
+  private peers: PublicPlayer[] = [];
+  private rosterSig = "";
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.camera = new RtsCamera();
@@ -173,6 +200,18 @@ export class Game {
     this.resize();
     window.addEventListener("resize", () => this.resize());
     this.hud.setContinueVisible(localStorage.getItem(SOLO_KEY) !== null);
+    this.hud.setLevelUnlock(loadUnlockedLevel());
+    this.hud.setBriefOpen(true);
+    this.hud.setRosterOpen(false);
+    const storedName = loadPlayerName();
+    if (storedName) {
+      this.named = true;
+      this.hud.setPlayerName(storedName);
+      this.hud.showNameGate(false);
+    } else {
+      this.hud.setLobby(false);
+      this.hud.showNameGate(true);
+    }
     this.setTool("inspect");
     this.rememberWorker(false);
     void this.refreshLobby();
@@ -187,6 +226,10 @@ export class Game {
     const dt = Math.min(0.05, (time - this.lastFrame) / 1000);
     this.lastFrame = time;
     this.camera.update(dt);
+    if (this.mode === "multi" && this.socket && time - this.lastLook > 280) {
+      this.lastLook = time;
+      this.socket.emit("look", { x: this.camera.target.x, z: this.camera.target.z });
+    }
     this.view.update(dt, this.camera.target);
     this.view.render(this.camera.camera);
     requestAnimationFrame((next) => this.frame(next));
@@ -417,7 +460,7 @@ export class Game {
     this.socket.emit("lock", { cells: this.stroke });
   }
 
-  private join(room: string, name: string): void {
+  private join(room: string, name: string, level?: number): void {
     this.leaveSocket();
     const socket = io(socketUrl());
     this.socket = socket;
@@ -430,19 +473,27 @@ export class Game {
       this.mode = "multi";
       this.playerId = payload.playerId;
       this.room = payload.room;
-      this.hud.setJoined(true);
-      this.hud.setMode(`Koop · ${payload.room}`);
-      this.hud.setLobby(false);
       this.playing = true;
+      this.hud.setJoined(true);
+      this.hud.setLobby(false);
+      this.hud.setLobbyBackVisible(true);
+      if (payload.level) {
+        this.enterLevel(payload.level, `Koop Level ${payload.level} · ${payload.room}`);
+      } else {
+        this.clearLevel();
+        this.hud.setMode(`Koop · ${payload.room}`);
+      }
       this.renderPlayers(payload.players);
       this.rememberWorker(false);
-      this.flash("Verbunden. Bauaktionen laufen über den Server.");
+      this.setBriefOpen(true);
+      this.flash(payload.level ? "Level-Koop verbunden. Ihr baut an derselben Aufgabe." : "Verbunden. Bauaktionen laufen über den Server.");
     });
     socket.on("state", (payload: StatePayload) => {
       if (this.mode !== "multi") return;
       const cells = asUint8Array(payload.cells);
       if (!cells) return;
       writeCity(this.city, cells, payload.meta);
+      if (payload.level) this.applyLevelSync(payload.level);
       this.publish(payload.meta);
     });
     socket.on("players", (payload: { players: PublicPlayer[] }) => this.renderPlayers(payload.players));
@@ -459,7 +510,7 @@ export class Game {
       if (!result.ok) this.flash(REASONS[result.reason ?? "rejected"] ?? "Die Aktion wurde abgelehnt.");
       else if (result.reason) this.flash(REASONS[result.reason] ?? result.reason);
     });
-    socket.emit("join", { room, name });
+    socket.emit("join", { room, name, level });
   }
 
   private leave(): void {
@@ -472,6 +523,11 @@ export class Game {
     this.hud.setJoined(false);
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
+    this.peers = [];
+    this.rosterSig = "";
+    this.view.setPeers([]);
+    this.hud.setRoster([], "Du spielst allein.");
+    this.hud.setLobbyBackVisible(this.playing);
     if (wasMulti) {
       this.rememberWorker(true);
       this.flash("Getrennt. Diese Stadt läuft jetzt lokal weiter.");
@@ -485,14 +541,30 @@ export class Game {
   }
 
   private renderPlayers(players: PublicPlayer[]): void {
+    this.peers = players;
+    this.view.setPeers(
+      players
+        .filter((player) => player.id !== this.playerId)
+        .map((player) => ({ x: player.lookX, z: player.lookZ })),
+    );
+    const signature = players.map((player) => `${player.id}:${player.name}`).join("|");
+    if (signature === this.rosterSig) return;
+    this.rosterSig = signature;
     if (players.length === 0) {
       this.hud.setPlayers("");
+      this.hud.setRoster([], "Niemand ist verbunden.");
       return;
     }
-    const text = players
-      .map((player) => `${player.name}${player.id === this.playerId ? " (du)" : ""}`)
-      .join(" · ");
-    this.hud.setPlayers(`${text} · ${players.length}/2`);
+    this.hud.setPlayers(players.length > 1 ? `${players.length}/2 verbunden` : `${players.length}/2 wartet`);
+    this.hud.setRoster(
+      players.map((player) => ({
+        id: player.id,
+        name: player.name,
+        self: player.id === this.playerId,
+        present: true,
+      })),
+      players.length > 1 ? "Ihr seid zu zweit in diesem Raum." : "Noch warte auf die zweite Person.",
+    );
   }
 
   private onTick(message: TickMessage): void {
@@ -519,7 +591,8 @@ export class Game {
   private publish(meta: SimMeta = buildMeta(this.city)): void {
     this.hud.setStats(meta);
     this.view.sync(this.city, this.overlays);
-    if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
+    if (this.playKind === "level") this.syncLevel();
+    else if (this.playing && this.mode === "single" && performance.now() - this.lastSave > 2000) {
       localStorage.setItem(SOLO_KEY, JSON.stringify(cityToSave(this.city, "lokal")));
       this.lastSave = performance.now();
       this.hud.setContinueVisible(true);
@@ -588,12 +661,15 @@ export class Game {
 
   private startSolo(load: boolean): void {
     this.leaveSocket();
+    this.clearLevel();
     this.mode = "single";
     this.playing = true;
     this.hud.setJoined(false);
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
     this.hud.setLobby(false);
+    this.hud.setLobbyBackVisible(true);
+    this.setBriefOpen(true);
     if (load) {
       const raw = localStorage.getItem(SOLO_KEY);
       const loaded = raw ? saveToCity(JSON.parse(raw) as unknown) : null;
@@ -608,10 +684,196 @@ export class Game {
     this.publish();
   }
 
+  private startLevel(id: number, coop: boolean): void {
+    const level = levelById(id);
+    if (!level) return;
+    if (!isLevelOpen(id, loadUnlockedLevel())) {
+      this.flash("Dieses Level ist noch gesperrt.");
+      return;
+    }
+    if (coop) {
+      const tag = this.hud.roomName();
+      const code = levelRoomCode(id, tag);
+      if (!code) {
+        this.flash("Für Koop braucht der Stadtname mindestens zwei Buchstaben oder Ziffern.");
+        return;
+      }
+      this.join(tag, this.hud.playerName(), id);
+      return;
+    }
+    this.leaveSocket();
+    this.mode = "single";
+    this.playing = true;
+    const fresh = createLevelCity(level);
+    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    refreshUtilities(this.city);
+    this.enterLevel(id, `Level ${id} · ${level.title}`);
+    this.rememberWorker(true);
+    this.setTool("inspect");
+    this.publish();
+    this.flash(`Aufgabe: ${level.blurb}`);
+  }
+
+  private enterLevel(id: number, mode: string): void {
+    this.playKind = "level";
+    this.levelId = id;
+    this.levelSettled = false;
+    this.levelStartedTick = this.city.tick;
+    this.hud.hideLevelEnd();
+    this.hud.setPlayKind("level");
+    this.hud.setMode(mode);
+    this.hud.setLobby(false);
+    this.hud.setLobbyBackVisible(true);
+    this.hud.setLevelUnlock(loadUnlockedLevel(), id);
+    this.setBriefOpen(true);
+  }
+
+  private applyLevelSync(sync: LevelSync): void {
+    this.playKind = "level";
+    this.levelId = sync.id;
+    this.levelStartedTick = sync.startedTick;
+    this.hud.setPlayKind("level");
+    if (sync.outcome === "won" && !this.levelSettled) this.finishLevel(true);
+    else if (sync.outcome === "lost" && !this.levelSettled) this.finishLevel(false);
+    else if (sync.outcome === "playing" && this.levelSettled) {
+      this.levelSettled = false;
+      this.hud.hideLevelEnd();
+    }
+  }
+
+  private retryLevel(): void {
+    if (this.levelId <= 0) return;
+    if (this.mode === "multi") {
+      this.socket?.emit("levelReset");
+      this.levelSettled = false;
+      this.hud.hideLevelEnd();
+      return;
+    }
+    this.startLevel(this.levelId, false);
+  }
+
+  private nextLevel(): void {
+    if (this.levelId <= 0 || this.levelId >= LEVEL_COUNT) return;
+    const next = this.levelId + 1;
+    if (this.mode === "multi") {
+      const parsed = parseLevelRoom(this.room);
+      const tag = parsed?.tag ?? this.hud.roomName();
+      this.join(tag, this.hud.playerName(), next);
+      return;
+    }
+    this.startLevel(next, false);
+  }
+
+  private syncLevel(): void {
+    const level = levelById(this.levelId);
+    if (!level) return;
+    const status = evaluateLevel(level, this.city, this.levelStartedTick);
+    this.hud.setLevelBrief(status);
+    if (this.mode === "multi") return;
+    if (this.levelSettled) return;
+    if (status.won) this.finishLevel(true);
+    else if (status.failed) this.finishLevel(false);
+  }
+
+  private finishLevel(won: boolean): void {
+    this.levelSettled = true;
+    if (this.mode === "single") this.rememberWorker(false);
+    const level = levelById(this.levelId);
+    if (!level) return;
+    this.setBriefOpen(true);
+    if (won) {
+      const unlocked = unlockAfterWin(level.id);
+      this.hud.setLevelUnlock(unlocked, level.id);
+      this.hud.showLevelEnd({
+        won: true,
+        title: "Level geschafft",
+        text: level.id >= LEVEL_COUNT
+          ? "Alle zehn Level sind geschafft. Du kannst sie jederzeit nochmal spielen."
+          : `${level.title} ist geschafft. Das nächste Level ist frei.`,
+        next: level.id < LEVEL_COUNT,
+      });
+      this.flash("Level geschafft.");
+      return;
+    }
+    this.hud.showLevelEnd({
+      won: false,
+      title: "Zeit abgelaufen",
+      text: "Die Aufgabe ist in der Zeit nicht fertig geworden. Nochmal versuchen oder zurück zur Levelwahl.",
+      next: false,
+    });
+    this.flash("Zeit abgelaufen.");
+  }
+
+  private clearLevel(): void {
+    this.playKind = "free";
+    this.levelId = 0;
+    this.levelStartedTick = 0;
+    this.levelSettled = false;
+    this.hud.setPlayKind("free");
+    this.hud.hideLevelEnd();
+  }
+
+  private setBriefOpen(open: boolean): void {
+    this.briefOpen = open;
+    this.hud.setBriefOpen(open);
+  }
+
+  private setRosterOpen(open: boolean): void {
+    if (open) {
+      this.focus = null;
+      this.hud.hideInspect();
+    }
+    this.rosterOpen = open;
+    this.hud.setRosterOpen(open);
+  }
+
+  private focusPlayer(id: string): void {
+    const peer = this.peers.find((entry) => entry.id === id);
+    if (!peer) {
+      this.flash("Die Person ist gerade nicht da.");
+      return;
+    }
+    this.camera.lookAt(peer.lookX, peer.lookZ);
+    this.setRosterOpen(false);
+    this.flash(`${peer.name} ist hier.`);
+  }
+
+  private acceptName(value: string): void {
+    const clean = savePlayerName(value);
+    if (!clean) {
+      this.hud.showNameGate(true);
+      this.hud.setGateError("Bitte einen Namen eingeben.");
+      return;
+    }
+    this.named = true;
+    this.hud.setPlayerName(clean);
+    this.hud.setGateError("");
+    this.hud.showNameGate(false);
+    if (!this.playing) this.hud.setLobby(true);
+  }
+
+  private openLobby(fromLevelEnd = false): void {
+    if (!this.named) {
+      this.hud.showNameGate(true);
+      return;
+    }
+    this.hud.setLobby(true);
+    this.hud.setLobbyBackVisible(this.playing && (!fromLevelEnd || !this.levelSettled));
+    this.hud.setLevelUnlock(loadUnlockedLevel(), this.levelId || null);
+    if (fromLevelEnd) this.hud.hideLevelEnd();
+    if (this.playKind === "level" && this.mode === "single" && !this.levelSettled) this.rememberWorker(false);
+    void this.refreshLobby();
+  }
+
+  private closeLobby(): void {
+    this.hud.setLobby(false);
+    if (this.playKind === "level" && this.mode === "single" && !this.levelSettled) this.rememberWorker(true);
+  }
+
   private async refreshLobby(): Promise<void> {
     try {
       const [rooms, host] = await Promise.all([
-        fetch(apiUrl("/api/rooms")).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number }[]>),
+        fetch(apiUrl("/api/rooms")).then((response) => response.json() as Promise<{ code: string; players: number; population: number; funds: number; level?: number | null }[]>),
         fetch(apiUrl("/api/host")).then((response) => response.json() as Promise<{ urls: string[] }>),
       ]);
       this.hud.setRooms(rooms);
@@ -619,7 +881,7 @@ export class Game {
         const local = host.urls.length > 0 ? host.urls.join(", ") : `http://${location.host}`;
         this.hud.setHost(`Im gleichen Netzwerk öffnen andere Geräte ${local}. Aus einem anderen WLAN ist dieser Rechner nicht erreichbar.`);
       } else {
-        this.hud.setHost(`Freunde öffnen einfach ${location.origin} und treten derselben Stadt bei.`);
+        this.hud.setHost(`Freunde öffnen ${location.origin}. Freie Städte teilt ihr über den Stadtnamen, Level über l3-stadtname.`);
       }
     } catch {
       this.hud.setRooms([]);
@@ -644,8 +906,10 @@ export class Game {
 
   private async saveCurrentCity(): Promise<void> {
     const save = cityToSave(this.city, this.hud.roomName());
-    localStorage.setItem(SOLO_KEY, JSON.stringify(save));
-    this.hud.setContinueVisible(true);
+    if (this.playKind !== "level") {
+      localStorage.setItem(SOLO_KEY, JSON.stringify(save));
+      this.hud.setContinueVisible(true);
+    }
     try {
       const response = await fetch(apiUrl("/api/cities"), {
         method: "POST",
@@ -681,6 +945,7 @@ export class Game {
     const seeking = workplace && openings > 0 ? unemployedAdults(this.city).slice(0, 8) : [];
     const school = families.length > 0 && serviceNearby(this.city, index, ServiceKind.School);
     const university = families.length > 0 && serviceNearby(this.city, index, ServiceKind.University);
+    this.setRosterOpen(false);
     this.hud.showInspect({
       kind: service?.kind === ServiceKind.Power ? "power" : service?.kind === ServiceKind.Water ? "water" : workplace ? "work" : families.length > 0 ? "home" : "field",
       kicker: service ? "Gebäude" : workplace ? (this.city.zones[index] === Zone.Industrial ? "Industrie" : "Gewerbe") : families.length > 0 ? "Wohnhaus" : "Feld",
@@ -730,6 +995,7 @@ export class Game {
     this.selected = car.home;
     const home = cellCoords(this.city, car.home);
     const family = houseReport(this.city, car.home).find((entry) => entry.surname === car.surname);
+    this.setRosterOpen(false);
     this.hud.showInspect({
       kind: "car",
       kicker: "Unterwegs",

@@ -35,6 +35,7 @@ export interface RoomListing {
   population: number;
   funds: number;
   players: number;
+  level?: number | null;
 }
 
 export function loadCity(code: string): CityState | null {
