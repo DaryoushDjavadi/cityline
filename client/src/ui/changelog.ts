@@ -7,6 +7,15 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.26",
+    at: "4. Nov 2026",
+    title: "Flughafen: Strom, Wasser, Nahrung",
+    items: [
+      "Der Flughafen gilt als versorgt, wenn Leitungen oder Rohre ihn berühren, oder wenn Kraftwerk und Wasserwerk direkt daneben stehen.",
+      "Nahrung ist ein stadtweiter Vorrat. Die Kasse oben zeigt diese Zahl. Getreide und Import erhöhen genau denselben Stand.",
+    ],
+  },
+  {
     version: "0.25",
     at: "4. Nov 2026",
     title: "Städtemenü",
