@@ -189,6 +189,7 @@ export class Game {
   private rosterOpen = false;
   private named = false;
   private peers: PublicPlayer[] = [];
+  private rosterSig = "";
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.camera = new RtsCamera();
@@ -523,6 +524,7 @@ export class Game {
     this.hud.setMode("Singleplayer");
     this.hud.setPlayers("");
     this.peers = [];
+    this.rosterSig = "";
     this.view.setPeers([]);
     this.hud.setRoster([], "Du spielst allein.");
     this.hud.setLobbyBackVisible(this.playing);
@@ -545,6 +547,9 @@ export class Game {
         .filter((player) => player.id !== this.playerId)
         .map((player) => ({ x: player.lookX, z: player.lookZ })),
     );
+    const signature = players.map((player) => `${player.id}:${player.name}`).join("|");
+    if (signature === this.rosterSig) return;
+    this.rosterSig = signature;
     if (players.length === 0) {
       this.hud.setPlayers("");
       this.hud.setRoster([], "Niemand ist verbunden.");
@@ -814,6 +819,10 @@ export class Game {
   }
 
   private setRosterOpen(open: boolean): void {
+    if (open) {
+      this.focus = null;
+      this.hud.hideInspect();
+    }
     this.rosterOpen = open;
     this.hud.setRosterOpen(open);
   }
@@ -832,11 +841,13 @@ export class Game {
   private acceptName(value: string): void {
     const clean = savePlayerName(value);
     if (!clean) {
-      this.flash("Bitte einen Namen eingeben.");
+      this.hud.showNameGate(true);
+      this.hud.setGateError("Bitte einen Namen eingeben.");
       return;
     }
     this.named = true;
     this.hud.setPlayerName(clean);
+    this.hud.setGateError("");
     this.hud.showNameGate(false);
     if (!this.playing) this.hud.setLobby(true);
   }
@@ -934,6 +945,7 @@ export class Game {
     const seeking = workplace && openings > 0 ? unemployedAdults(this.city).slice(0, 8) : [];
     const school = families.length > 0 && serviceNearby(this.city, index, ServiceKind.School);
     const university = families.length > 0 && serviceNearby(this.city, index, ServiceKind.University);
+    this.setRosterOpen(false);
     this.hud.showInspect({
       kind: service?.kind === ServiceKind.Power ? "power" : service?.kind === ServiceKind.Water ? "water" : workplace ? "work" : families.length > 0 ? "home" : "field",
       kicker: service ? "Gebäude" : workplace ? (this.city.zones[index] === Zone.Industrial ? "Industrie" : "Gewerbe") : families.length > 0 ? "Wohnhaus" : "Feld",
@@ -983,6 +995,7 @@ export class Game {
     this.selected = car.home;
     const home = cellCoords(this.city, car.home);
     const family = houseReport(this.city, car.home).find((entry) => entry.surname === car.surname);
+    this.setRosterOpen(false);
     this.hud.showInspect({
       kind: "car",
       kicker: "Unterwegs",

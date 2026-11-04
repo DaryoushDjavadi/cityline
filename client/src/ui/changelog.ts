@@ -7,6 +7,15 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.18",
+    at: "4. Nov 2026",
+    title: "HUD ohne Überlappung",
+    items: [
+      "Aufgabe, Menü, Spielerliste und Inspektor liegen nebeneinander, nicht übereinander.",
+      "Die Spielerliste und die Lupe teilen sich die rechte Seite: immer nur eines ist offen.",
+    ],
+  },
+  {
     version: "0.17",
     at: "4. Nov 2026",
     title: "Level-Koop und Spielerliste",

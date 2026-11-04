@@ -136,6 +136,7 @@ export interface Hud {
   setRosterOpen: (open: boolean) => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
+  setGateError: (text: string) => void;
   showLevelEnd: (view: { won: boolean; title: string; text: string; next: boolean }) => void;
   hideLevelEnd: () => void;
   showInspect: (view: InspectView) => void;
@@ -191,6 +192,7 @@ export function createHud(events: HudControls): Hud {
   const rosterNote = required("#roster-note");
   const nameGate = required("#name-gate");
   const gateName = requiredInput("#gate-name");
+  const gateError = required("#gate-error");
   const levelGrid = required("#level-grid");
   const levelEnd = required("#level-end");
   const levelEndSheet = required(".level-sheet");
@@ -437,8 +439,14 @@ export function createHud(events: HudControls): Hud {
     setInspecting(open) { document.body.dataset.inspect = open ? "on" : "off"; },
     showNameGate(open, preset = "") {
       nameGate.hidden = !open;
+      gateError.hidden = true;
+      gateError.textContent = "";
       if (open && preset) gateName.value = preset;
       if (open) gateName.focus();
+    },
+    setGateError(text) {
+      gateError.textContent = text;
+      gateError.hidden = !text;
     },
     setPlayerName(value) {
       name.value = value;

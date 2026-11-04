@@ -94,6 +94,6 @@ if (existsSync(path.join(CLIENT_DIST, "index.html"))) {
   console.log(`Cityline-Client wird aus ${CLIENT_DIST} ausgeliefert`);
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`Cityline-Server hört auf http://localhost:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`Cityline-Server hört auf http://0.0.0.0:${PORT}`);
 });
