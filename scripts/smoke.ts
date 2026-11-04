@@ -1,4 +1,4 @@
-import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, createCity, evaluateLevel, formatClock, isBridge, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, lineCells, listAdults, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
+import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -192,5 +192,10 @@ if (!applyCommand(muted, { type: "road", cells: spineRoad }).ok) throw new Error
 const beforeGoals = muted.funds;
 claimGoals(muted);
 if (muted.funds !== beforeGoals) throw new Error("level mask must block freeplay payouts");
+
+if (levelRoomCode(1, "Hauptstadt") !== "l1-hauptstadt") throw new Error("level room code");
+if (levelRoomCode(3, "l3-hauptstadt") !== "l3-hauptstadt") throw new Error("level room strips prefix");
+if (!isLevelRoom("l10-team") || isLevelRoom("hauptstadt")) throw new Error("level room detect");
+if (parseLevelRoom("l3-hauptstadt")?.level !== 3) throw new Error("parse level room");
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

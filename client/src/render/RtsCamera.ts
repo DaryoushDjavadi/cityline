@@ -56,6 +56,12 @@ export class RtsCamera {
     this.distance = clamp(this.distance * Math.exp(deltaY * 0.0011), 48, 560);
   }
 
+  lookAt(x: number, z: number): void {
+    const limit = HALF - 40;
+    this.target.x = clamp(x, -limit, limit);
+    this.target.z = clamp(z, -limit, limit);
+  }
+
   update(dt: number): void {
     if (this.keys.has("KeyQ")) this.azimuth += dt * 0.85;
     if (this.keys.has("KeyE")) this.azimuth -= dt * 0.85;

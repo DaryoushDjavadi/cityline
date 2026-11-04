@@ -4,6 +4,15 @@ import { Zone, type Command, type PublicPlayer, type ServiceId, type SimMeta, ty
 export interface JoinPayload {
   room: string;
   name: string;
+  level?: number;
+}
+
+export type LevelOutcome = "playing" | "won" | "lost";
+
+export interface LevelSync {
+  id: number;
+  startedTick: number;
+  outcome: LevelOutcome;
 }
 
 export interface WelcomePayload {
@@ -11,11 +20,13 @@ export interface WelcomePayload {
   slot: number;
   room: string;
   players: PublicPlayer[];
+  level: number | null;
 }
 
 export interface StatePayload {
   meta: SimMeta;
   cells: Uint8Array;
+  level?: LevelSync | null;
 }
 
 export interface ClientCommand {

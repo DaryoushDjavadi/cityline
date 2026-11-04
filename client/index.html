@@ -6,7 +6,7 @@
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open">
+  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
@@ -24,6 +24,11 @@
         <div><em>Verkehr</em><b id="traffic">0</b></div>
       </div>
       <div class="top-actions">
+        <button id="open-brief" type="button">
+          <em>Aufgabe</em>
+          <span id="mission-summary">1/10</span>
+        </button>
+        <button id="open-players" type="button">Spieler</button>
         <button id="leave" type="button" hidden>Trennen</button>
       </div>
     </header>
@@ -135,13 +140,29 @@
       </div>
     </aside>
     <aside id="brief">
-      <p id="brief-kicker">Auftrag 1/10</p>
-      <h2 id="brief-title">Erste Straße</h2>
+      <header class="brief-head">
+        <div>
+          <p id="brief-kicker">Auftrag 1/10</p>
+          <h2 id="brief-title">Erste Straße</h2>
+        </div>
+        <button id="brief-close" type="button" aria-label="Schließen">×</button>
+      </header>
       <p id="brief-text">Leg mindestens sechs Straßenfelder.</p>
       <b id="brief-pay">+2.000 €</b>
       <ul id="brief-goals" hidden></ul>
       <p id="brief-time" hidden></p>
       <button id="brief-retry" type="button" hidden>Neu starten</button>
+    </aside>
+    <aside id="roster" hidden>
+      <header class="insp-head">
+        <div>
+          <p class="eyebrow">Koop</p>
+          <h2>Spielerliste</h2>
+        </div>
+        <button id="roster-close" type="button" aria-label="Schließen">×</button>
+      </header>
+      <p id="roster-note" class="insp-note">Du spielst allein.</p>
+      <div id="roster-list"></div>
     </aside>
     <div id="toast" hidden></div>
     <footer>
@@ -152,7 +173,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.16</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.17</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>
@@ -174,7 +195,7 @@
           <button id="solo-new" type="button">Neue lokale Stadt</button>
         </div>
         <h2>Level-Modus</h2>
-        <p class="note">Zehn Aufgaben, allein. Level 1 ist frei. Das nächste geht auf, wenn du gewinnst. Koop bleibt beim freien Bauen.</p>
+        <p class="note">Zehn Aufgaben, allein oder zu zweit. Level 1 ist frei. Koop nutzt denselben Stadtnamen: Level 3 in „hauptstadt“ ist der Raum <code>l3-hauptstadt</code>.</p>
         <div id="level-grid" class="level-grid"></div>
         <label class="field">Stadtname <input id="room" value="hauptstadt" maxlength="24" /></label>
         <div class="row">
@@ -184,6 +205,17 @@
         <p id="save-note" class="note"></p>
         <h2>Gespeicherte Städte</h2>
         <div id="room-list" class="rooms"></div>
+      </section>
+    </div>
+    <div id="name-gate" hidden>
+      <section class="sheet">
+        <p class="eyebrow">Cityline</p>
+        <h1>Wie heißt du?</h1>
+        <p class="note">Den Namen sehen die anderen, wenn ihr zusammen baut. Du kannst ihn später in Städte ändern.</p>
+        <label class="field">Dein Name <input id="gate-name" value="" maxlength="18" /></label>
+        <div class="row">
+          <button id="gate-enter" type="button">Weiter</button>
+        </div>
       </section>
     </div>
     <div id="level-end" hidden>

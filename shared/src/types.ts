@@ -110,6 +110,8 @@ export interface PublicPlayer {
   id: string;
   name: string;
   slot: number;
+  lookX: number;
+  lookZ: number;
 }
 
 export const POST_SLOTS = 8;

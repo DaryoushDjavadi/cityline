@@ -1,7 +1,8 @@
 import type { Server, Socket } from "socket.io";
 import { applyCommand, createCity } from "../../shared/src/city.ts";
 import { uniqueCells } from "../../shared/src/grid.ts";
-import { cleanName, cleanRoom, commandCells, parseCommand } from "../../shared/src/protocol.ts";
+import { createLevelCity, evaluateLevel, isLevelRoom, levelById, levelRoomCode, parseLevelRoom } from "../../shared/src/levels.ts";
+import { cleanName, cleanRoom, commandCells, parseCommand, type LevelSync } from "../../shared/src/protocol.ts";
 import { buildMeta, refreshUtilities, stepSimulation } from "../../shared/src/sim.ts";
 import { packCells, writeCity, type CityState, type Command, type PublicPlayer } from "../../shared/src/types.ts";
 import { deleteCity, loadCity, saveCity, savedRooms, type RoomListing } from "./persist.ts";
@@ -15,6 +16,8 @@ interface Player {
   name: string;
   socket: Socket;
   slot: number;
+  lookX: number;
+  lookZ: number;
 }
 
 interface Room {
@@ -22,6 +25,7 @@ interface Room {
   city: ReturnType<typeof createCity>;
   players: Player[];
   locks: Map<number, { playerId: string; at: number }>;
+  level: LevelSync | null;
 }
 
 export function attachCityServer(io: Server): {
@@ -34,8 +38,12 @@ export function attachCityServer(io: Server): {
   const timer = setInterval(() => {
     for (const room of rooms.values()) {
       if (room.players.length === 0) continue;
-      stepSimulation(room.city);
-      if (room.city.tick % 8 === 0) saveCity(room.code, room.city);
+      const frozen = room.level !== null && room.level.outcome !== "playing";
+      if (!frozen) {
+        stepSimulation(room.city);
+        if (room.level) syncLevel(room);
+        else if (room.city.tick % 8 === 0) saveCity(room.code, room.city);
+      }
       emitState(room);
     }
   }, TICK_MS);
@@ -46,13 +54,26 @@ export function attachCityServer(io: Server): {
 
     socket.on("join", (payload: unknown) => {
       if (joined) return;
-      const body = payload as { room?: unknown; name?: unknown };
-      const code = cleanRoom(body?.room);
+      const body = payload as { room?: unknown; name?: unknown; level?: unknown };
+      const wanted = Number(body?.level);
+      const tagged = cleanRoom(body?.room);
+      const fromLevel = Number.isInteger(wanted) ? levelRoomCode(wanted, tagged ?? "") : null;
+      const code = fromLevel ?? tagged;
       if (!code) {
         socket.emit("joinError", { reason: "bad_room" });
         return;
       }
-      const room = rooms.get(code) ?? createRoom(code);
+      const parsed = parseLevelRoom(code);
+      const existing = rooms.get(code);
+      if (existing && parsed && existing.level?.id !== parsed.level) {
+        socket.emit("joinError", { reason: "level_mismatch" });
+        return;
+      }
+      if (existing && !parsed && existing.level) {
+        socket.emit("joinError", { reason: "level_mismatch" });
+        return;
+      }
+      const room = existing ?? createRoom(code);
       if (room.players.length >= MAX_PLAYERS) {
         socket.emit("joinError", { reason: "room_full" });
         return;
@@ -63,6 +84,8 @@ export function attachCityServer(io: Server): {
         name: cleanName(body?.name),
         socket,
         slot: room.players.length,
+        lookX: 0,
+        lookZ: 0,
       };
       room.players.push(player);
       joined = { room, player };
@@ -71,6 +94,7 @@ export function attachCityServer(io: Server): {
         slot: player.slot,
         room: room.code,
         players: publicPlayers(room),
+        level: room.level?.id ?? null,
       });
       emitState(room);
       broadcastPlayers(room);
@@ -100,12 +124,34 @@ export function attachCityServer(io: Server): {
       broadcastLocks(joined.room);
     });
 
+    socket.on("look", (payload: unknown) => {
+      if (!joined) return;
+      const body = payload as { x?: unknown; z?: unknown };
+      const x = Number(body?.x);
+      const z = Number(body?.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+      joined.player.lookX = Math.max(-400, Math.min(400, x));
+      joined.player.lookZ = Math.max(-400, Math.min(400, z));
+      broadcastPlayers(joined.room);
+    });
+
+    socket.on("levelReset", () => {
+      if (!joined?.room.level) return;
+      resetLevel(joined.room);
+      emitState(joined.room);
+      broadcastLocks(joined.room);
+    });
+
     socket.on("command", (payload: unknown) => {
       if (!joined) return;
       const body = payload as { id?: unknown; command?: unknown };
       const id = typeof body?.id === "string" ? body.id.slice(0, 64) : "";
       const command = parseCommand(body?.command);
       if (!id || !command) {
+        socket.emit("commandResult", { id, ok: false, reason: "rejected", spent: 0, rejected: [] });
+        return;
+      }
+      if (joined.room.level && joined.room.level.outcome !== "playing") {
         socket.emit("commandResult", { id, ok: false, reason: "rejected", spent: 0, rejected: [] });
         return;
       }
@@ -120,7 +166,10 @@ export function attachCityServer(io: Server): {
       socket.emit("commandResult", { id, ...result });
       emitState(joined.room);
       broadcastLocks(joined.room);
-      if (result.applied.length > 0) saveCity(joined.room.code, joined.room.city);
+      if (result.applied.length > 0) {
+        if (joined.room.level) syncLevel(joined.room);
+        else saveCity(joined.room.code, joined.room.city);
+      }
     });
 
     socket.on("disconnect", () => {
@@ -134,7 +183,7 @@ export function attachCityServer(io: Server): {
       broadcastLocks(room);
       broadcastPlayers(room);
       if (room.players.length === 0) {
-        saveCity(room.code, room.city);
+        if (!room.level) saveCity(room.code, room.city);
         rooms.delete(room.code);
       }
       joined = null;
@@ -149,8 +198,10 @@ export function attachCityServer(io: Server): {
       return deleteCity(code) ? "ok" : "missing";
     },
     importCity(code, next) {
+      if (isLevelRoom(code)) return;
       const live = rooms.get(code);
       if (live) {
+        if (live.level) return;
         writeCity(live.city, packCells(next), buildMeta(next));
         refreshUtilities(live.city);
         emitState(live);
@@ -161,9 +212,8 @@ export function attachCityServer(io: Server): {
       saveCity(code, next);
     },
     listRooms() {
-      const online = new Map(rooms);
-      const listed = savedRooms();
-      for (const room of online.values()) {
+      const listed = savedRooms().filter((entry) => !isLevelRoom(entry.code));
+      for (const room of rooms.values()) {
         const existing = listed.find((entry) => entry.code === room.code);
         const summary = {
           code: room.code,
@@ -171,6 +221,7 @@ export function attachCityServer(io: Server): {
           population: room.city.levels.reduce((sum, level, index) => sum + (room.city.zones[index] === 1 ? level * 12 : 0), 0),
           funds: room.city.funds,
           players: room.players.length,
+          level: room.level?.id ?? null,
         };
         if (existing) Object.assign(existing, summary);
         else listed.push(summary);
@@ -181,15 +232,54 @@ export function attachCityServer(io: Server): {
 }
 
 function createRoom(code: string): Room {
-  return { code, city: loadCity(code) ?? createCity(), players: [], locks: new Map() };
+  const parsed = parseLevelRoom(code);
+  if (parsed) {
+    const def = levelById(parsed.level);
+    if (!def) return { code, city: createCity(), players: [], locks: new Map(), level: null };
+    const city = createLevelCity(def);
+    return {
+      code,
+      city,
+      players: [],
+      locks: new Map(),
+      level: { id: def.id, startedTick: city.tick, outcome: "playing" },
+    };
+  }
+  return { code, city: loadCity(code) ?? createCity(), players: [], locks: new Map(), level: null };
+}
+
+function resetLevel(room: Room): void {
+  if (!room.level) return;
+  const def = levelById(room.level.id);
+  if (!def) return;
+  const city = createLevelCity(def);
+  writeCity(room.city, packCells(city), buildMeta(city));
+  refreshUtilities(room.city);
+  room.locks.clear();
+  room.level = { id: def.id, startedTick: room.city.tick, outcome: "playing" };
+}
+
+function syncLevel(room: Room): void {
+  if (!room.level || room.level.outcome !== "playing") return;
+  const def = levelById(room.level.id);
+  if (!def) return;
+  const status = evaluateLevel(def, room.city, room.level.startedTick);
+  if (status.won) room.level.outcome = "won";
+  else if (status.failed) room.level.outcome = "lost";
 }
 
 function publicPlayers(room: Room): PublicPlayer[] {
-  return room.players.map((player) => ({ id: player.id, name: player.name, slot: player.slot }));
+  return room.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    slot: player.slot,
+    lookX: player.lookX,
+    lookZ: player.lookZ,
+  }));
 }
 
 function emitState(room: Room): void {
-  const payload = { meta: buildMeta(room.city), cells: packCells(room.city) };
+  const payload = { meta: buildMeta(room.city), cells: packCells(room.city), level: room.level };
   for (const player of room.players) player.socket.emit("state", payload);
 }
 

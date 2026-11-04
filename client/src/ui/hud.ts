@@ -32,6 +32,14 @@ export interface RoomCard {
   players: number;
   population: number;
   funds: number;
+  level?: number | null;
+}
+
+export interface RosterPlayer {
+  id: string;
+  name: string;
+  self: boolean;
+  present: boolean;
 }
 
 export type InspectKind = "field" | "home" | "work" | "car" | "power" | "water";
@@ -92,9 +100,15 @@ export interface HudControls {
   onHire: (home: number, slot: number) => void;
   onCloseInspect: () => void;
   onStartLevel: (id: number) => void;
+  onStartLevelCoop: (id: number) => void;
   onRetryLevel: () => void;
   onNextLevel: () => void;
   onOpenLevelSelect: () => void;
+  onToggleBrief: () => void;
+  onCloseBrief: () => void;
+  onToggleRoster: () => void;
+  onFocusPlayer: (id: string) => void;
+  onNameReady: (name: string) => void;
 }
 
 const money = new Intl.NumberFormat("de-DE");
@@ -116,10 +130,17 @@ export interface Hud {
   setLevelUnlock: (unlocked: number, current?: number | null) => void;
   setPlayKind: (kind: "free" | "level") => void;
   setLevelBrief: (status: LevelStatus | null) => void;
+  setMission: (summary: string) => void;
+  setBriefOpen: (open: boolean) => void;
+  setRoster: (players: RosterPlayer[], note: string) => void;
+  setRosterOpen: (open: boolean) => void;
+  setInspecting: (open: boolean) => void;
+  showNameGate: (open: boolean, preset?: string) => void;
   showLevelEnd: (view: { won: boolean; title: string; text: string; next: boolean }) => void;
   hideLevelEnd: () => void;
   showInspect: (view: InspectView) => void;
   hideInspect: () => void;
+  setPlayerName: (name: string) => void;
   playerName: () => string;
   roomName: () => string;
 }
@@ -156,6 +177,7 @@ export function createHud(events: HudControls): Hud {
   const notes = required("#notes");
   const notesCurrent = required("#notes-current");
   const notesList = required("#notes-list");
+  const brief = required("#brief");
   const briefKicker = required("#brief-kicker");
   const briefTitle = required("#brief-title");
   const briefText = required("#brief-text");
@@ -163,6 +185,12 @@ export function createHud(events: HudControls): Hud {
   const briefGoals = required("#brief-goals");
   const briefTime = required("#brief-time");
   const briefRetry = requiredButton("#brief-retry");
+  const mission = required("#mission-summary");
+  const roster = required("#roster");
+  const rosterList = required("#roster-list");
+  const rosterNote = required("#roster-note");
+  const nameGate = required("#name-gate");
+  const gateName = requiredInput("#gate-name");
   const levelGrid = required("#level-grid");
   const levelEnd = required("#level-end");
   const levelEndSheet = required(".level-sheet");
@@ -172,6 +200,9 @@ export function createHud(events: HudControls): Hud {
   let toastTimer = 0;
   let levelMode = false;
   for (const level of LEVELS) {
+    const card = document.createElement("div");
+    card.className = "level-card";
+    card.dataset.level = String(level.id);
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.level = String(level.id);
@@ -179,7 +210,17 @@ export function createHud(events: HudControls): Hud {
       if (button.disabled) return;
       events.onStartLevel(level.id);
     });
-    levelGrid.append(button);
+    const coop = document.createElement("button");
+    coop.type = "button";
+    coop.className = "coop";
+    coop.dataset.level = String(level.id);
+    coop.textContent = "Koop";
+    coop.addEventListener("click", () => {
+      if (coop.disabled) return;
+      events.onStartLevelCoop(level.id);
+    });
+    card.append(button, coop);
+    levelGrid.append(card);
   }
   const latest = CHANGELOG[0];
   if (latest) {
@@ -216,6 +257,15 @@ export function createHud(events: HudControls): Hud {
   requiredButton("#solo-continue").addEventListener("click", () => events.onContinue());
   requiredButton("#lobby-back").addEventListener("click", () => events.onLobbyBack());
   requiredButton("#open-lobby").addEventListener("click", () => events.onOpenLobby());
+  requiredButton("#open-brief").addEventListener("click", () => events.onToggleBrief());
+  requiredButton("#brief-close").addEventListener("click", () => events.onCloseBrief());
+  requiredButton("#open-players").addEventListener("click", () => events.onToggleRoster());
+  requiredButton("#roster-close").addEventListener("click", () => events.onToggleRoster());
+  requiredButton("#gate-enter").addEventListener("click", () => events.onNameReady(gateName.value));
+  gateName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") events.onNameReady(gateName.value);
+  });
+  name.addEventListener("change", () => events.onNameReady(name.value));
   briefRetry.addEventListener("click", () => events.onRetryLevel());
   requiredButton("#level-end-next").addEventListener("click", () => events.onNextLevel());
   requiredButton("#level-end-retry").addEventListener("click", () => events.onRetryLevel());
@@ -263,11 +313,13 @@ export function createHud(events: HudControls): Hud {
         briefText.textContent = goal.text;
         briefPay.hidden = false;
         briefPay.textContent = `+${money.format(goal.reward)} €`;
+        mission.textContent = `${goal.title} · ${done + 1}/${GOALS.length}`;
       } else {
         briefKicker.textContent = `Aufträge ${GOALS.length}/${GOALS.length}`;
         briefTitle.textContent = "Die Stadt steht";
         briefText.textContent = "Alle Aufträge sind bezahlt. Bau weiter, worauf du Lust hast.";
         briefPay.hidden = true;
+        mission.textContent = "Stadt steht";
       }
       const previous = seenGoals;
       if (previous !== null && goals !== previous) {
@@ -293,20 +345,23 @@ export function createHud(events: HudControls): Hud {
     setContinueVisible(visible) { requiredButton("#solo-continue").hidden = !visible; },
     setLobbyBackVisible(visible) { requiredButton("#lobby-back").hidden = !visible; },
     setLevelUnlock(unlocked, current = null) {
-      for (const button of levelGrid.querySelectorAll<HTMLButtonElement>("button")) {
-        const id = Number(button.dataset.level);
+      for (const card of levelGrid.querySelectorAll<HTMLElement>(".level-card")) {
+        const id = Number(card.dataset.level);
         const def = LEVELS.find((entry) => entry.id === id);
         const locked = id > Math.min(unlocked, LEVELS.length);
         const cleared = id < unlocked;
-        button.disabled = locked;
-        button.classList.toggle("locked", locked);
-        button.classList.toggle("cleared", cleared);
-        button.classList.toggle("current", current === id);
-        const title = document.createElement("b");
-        title.textContent = `Level ${id}`;
-        const name = document.createElement("span");
-        name.textContent = locked ? "Gesperrt" : (def?.title ?? "");
-        button.replaceChildren(title, name);
+        card.classList.toggle("locked", locked);
+        card.classList.toggle("cleared", cleared);
+        card.classList.toggle("current", current === id);
+        for (const button of card.querySelectorAll("button")) button.disabled = locked;
+        const play = card.querySelector<HTMLButtonElement>("button[data-level]:not(.coop)");
+        if (play) {
+          const title = document.createElement("b");
+          title.textContent = `Level ${id}`;
+          const label = document.createElement("span");
+          label.textContent = locked ? "Gesperrt" : (def?.title ?? "");
+          play.replaceChildren(title, label);
+        }
       }
     },
     setPlayKind(kind) {
@@ -340,11 +395,54 @@ export function createHud(events: HudControls): Hud {
       }));
       if (status.remainingSeconds === null) {
         briefTime.hidden = true;
+        mission.textContent = `Level ${status.level.id} · ${done}/${status.objectives.length}`;
       } else {
         briefTime.hidden = false;
         briefTime.textContent = `Zeit ${formatClock(status.remainingSeconds)}`;
         briefTime.classList.toggle("late", status.remainingSeconds <= 60);
+        mission.textContent = `Level ${status.level.id} · ${done}/${status.objectives.length} · ${formatClock(status.remainingSeconds)}`;
       }
+    },
+    setMission(summary) { mission.textContent = summary; },
+    setBriefOpen(open) {
+      document.body.dataset.brief = open ? "open" : "closed";
+      brief.hidden = !open;
+    },
+    setRoster(players, note) {
+      rosterNote.textContent = note;
+      rosterList.replaceChildren(...players.map((player) => {
+        const row = document.createElement("div");
+        row.className = "roster-row";
+        const copy = document.createElement("div");
+        const who = document.createElement("b");
+        who.textContent = player.self ? `${player.name} (du)` : player.name;
+        const state = document.createElement("span");
+        state.textContent = player.present ? "verbunden" : "nicht da";
+        copy.append(who, state);
+        row.append(copy);
+        if (!player.self) {
+          const look = document.createElement("button");
+          look.type = "button";
+          look.textContent = "Anschauen";
+          look.addEventListener("click", () => events.onFocusPlayer(player.id));
+          row.append(look);
+        }
+        return row;
+      }));
+    },
+    setRosterOpen(open) {
+      roster.hidden = !open;
+      document.body.dataset.roster = open ? "on" : "off";
+    },
+    setInspecting(open) { document.body.dataset.inspect = open ? "on" : "off"; },
+    showNameGate(open, preset = "") {
+      nameGate.hidden = !open;
+      if (open && preset) gateName.value = preset;
+      if (open) gateName.focus();
+    },
+    setPlayerName(value) {
+      name.value = value;
+      gateName.value = value;
     },
     showLevelEnd(view) {
       levelEnd.hidden = false;
@@ -368,21 +466,27 @@ export function createHud(events: HudControls): Hud {
         row.className = "room-row";
         const button = document.createElement("button");
         button.type = "button";
-        button.innerHTML = `<span>${entry.code}</span><em>${entry.players}/2 · ${money.format(entry.population)} Einwohner</em>`;
+        const kind = entry.level ? `Level ${entry.level}` : `${money.format(entry.population)} Einwohner`;
+        button.innerHTML = `<span>${entry.code}</span><em>${entry.players}/2 · ${kind}</em>`;
         button.addEventListener("click", () => {
           room.value = entry.code;
           events.onJoin(entry.code, name.value);
         });
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "Löschen";
-        remove.addEventListener("click", () => events.onDelete(entry.code));
-        row.append(button, remove);
+        if (entry.level) {
+          row.append(button);
+        } else {
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "Löschen";
+          remove.addEventListener("click", () => events.onDelete(entry.code));
+          row.append(button, remove);
+        }
         list.append(row);
       }
     },
     showInspect(view) {
       inspector.hidden = false;
+      document.body.dataset.inspect = "on";
       inspector.dataset.kind = view.kind;
       required("#insp-mark").innerHTML = mark(view.kind);
       required("#insp-kicker").textContent = view.kicker;
@@ -400,7 +504,10 @@ export function createHud(events: HudControls): Hud {
         budgetLabel.textContent = `${view.budget}%`;
       }
     },
-    hideInspect() { inspector.hidden = true; },
+    hideInspect() {
+      inspector.hidden = true;
+      document.body.dataset.inspect = "off";
+    },
     playerName: () => name.value,
     roomName: () => room.value,
   };

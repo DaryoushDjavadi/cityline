@@ -1,4 +1,5 @@
 import { BUILDINGS, type BuildingId } from "./catalog.ts";
+import { createCity } from "./city.ts";
 import { BRIDGE_FLAG, ROAD_FLAG } from "./grid.ts";
 import { cityLedger } from "./sim.ts";
 import { POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
@@ -337,3 +338,32 @@ export function formatClock(seconds: number): string {
 
 /** Suppress freeplay contract payouts while a level is running. */
 export const LEVEL_GOALS_MASK = 0x7fffffff;
+
+const LEVEL_ROOM = /^l([1-9]|10)-([a-z0-9-]{2,20})$/;
+
+export function createLevelCity(level: LevelDef): CityState {
+  const city = createCity();
+  city.funds = level.funds;
+  city.goals = LEVEL_GOALS_MASK;
+  return city;
+}
+
+/** Coop rooms are `l{level}-{tag}`, e.g. `l1-hauptstadt`. */
+export function levelRoomCode(levelId: number, tag: string): string | null {
+  if (levelId < 1 || levelId > LEVEL_COUNT) return null;
+  const clean = tag.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^l\d{1,2}-/, "").slice(0, 18);
+  if (clean.length < 2) return null;
+  return `l${levelId}-${clean}`.slice(0, 24);
+}
+
+export function parseLevelRoom(code: string): { level: number; tag: string } | null {
+  const match = LEVEL_ROOM.exec(code);
+  if (!match) return null;
+  const level = Number(match[1]);
+  if (level < 1 || level > LEVEL_COUNT) return null;
+  return { level, tag: match[2] };
+}
+
+export function isLevelRoom(code: string): boolean {
+  return parseLevelRoom(code) !== null;
+}
