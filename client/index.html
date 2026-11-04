@@ -374,50 +374,57 @@
         </div>
         <label class="field name-field">Dein Name <input id="name" value="Bürgermeister" maxlength="18" autocomplete="nickname" /></label>
         <div class="lobby-actions">
-          <section class="lobby-block lobby-create">
-            <p class="lobby-kicker">Freies Spiel</p>
-            <h2>Neue Stadt</h2>
-            <p class="note">Biom und Landschaft wählen — die Vorschau zeigt die Karte vor dem Start.</p>
-            <label class="field">Stadtname <input id="room" value="" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Zufälliger Name" /></label>
-            <div class="row lobby-create-actions">
-              <button id="solo-new" type="button">Solo starten</button>
-              <button id="coop-new" type="button" class="coop">Koop starten</button>
-              <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
-            </div>
-            <div class="map-gen">
-              <canvas id="map-preview" width="256" height="256" aria-label="Kartenvorschau"></canvas>
-              <div class="map-gen-controls">
-                <label class="field">Biom
-                  <select id="map-biome">
-                    <option value="temperate">Gemäßigt</option>
-                    <option value="arid">Trocken</option>
-                    <option value="alpine">Alpin</option>
-                    <option value="tropical">Tropisch</option>
-                    <option value="archipelago">Archipel</option>
-                  </select>
-                </label>
-                <p id="map-biome-blurb" class="map-gen-blurb">Klassische Insel mit Fluss und Wald.</p>
-                <label class="field seed-field">Seed
-                  <span class="seed-row">
-                    <input id="map-seed" type="text" inputmode="numeric" maxlength="12" autocomplete="off" spellcheck="false" />
-                    <button id="map-seed-roll" type="button" title="Zufalls-Seed">Zufall</button>
-                  </span>
-                </label>
-                <label class="field map-slider"><span>Meer</span><b id="map-water-label">42</b>
-                  <input id="map-water" type="range" min="0" max="100" value="42" />
-                </label>
-                <label class="field map-slider"><span>Seen</span><b id="map-lakes-label">48</b>
-                  <input id="map-lakes" type="range" min="0" max="100" value="48" />
-                </label>
-                <label class="field map-slider"><span>Flüsse</span><b id="map-rivers-label">55</b>
-                  <input id="map-rivers" type="range" min="0" max="100" value="55" />
-                </label>
-                <label class="field map-slider"><span>Wald</span><b id="map-forest-label">50</b>
-                  <input id="map-forest" type="range" min="0" max="100" value="50" />
-                </label>
+          <details class="lobby-block lobby-create" id="lobby-create">
+            <summary class="lobby-create-toggle">
+              <span class="lobby-create-copy">
+                <p class="lobby-kicker">Freies Spiel</p>
+                <h2>Neue Stadt</h2>
+              </span>
+              <span class="lobby-create-state"></span>
+            </summary>
+            <div class="lobby-create-body">
+              <p class="note">Biom und Landschaft wählen — die Vorschau zeigt die Karte vor dem Start.</p>
+              <label class="field">Stadtname <input id="room" value="" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Zufälliger Name" /></label>
+              <div class="row lobby-create-actions">
+                <button id="solo-new" type="button">Solo starten</button>
+                <button id="coop-new" type="button" class="coop">Koop starten</button>
+                <button id="solo-continue" type="button" hidden>Gespeicherte Stadt öffnen</button>
+              </div>
+              <div class="map-gen">
+                <canvas id="map-preview" width="256" height="256" aria-label="Kartenvorschau"></canvas>
+                <div class="map-gen-controls">
+                  <label class="field">Biom
+                    <select id="map-biome">
+                      <option value="temperate">Gemäßigt</option>
+                      <option value="arid">Trocken</option>
+                      <option value="alpine">Alpin</option>
+                      <option value="tropical">Tropisch</option>
+                      <option value="archipelago">Archipel</option>
+                    </select>
+                  </label>
+                  <p id="map-biome-blurb" class="map-gen-blurb">Klassische Insel mit Fluss und Wald.</p>
+                  <label class="field seed-field">Seed
+                    <span class="seed-row">
+                      <input id="map-seed" type="text" inputmode="numeric" maxlength="12" autocomplete="off" spellcheck="false" />
+                      <button id="map-seed-roll" type="button" title="Zufalls-Seed">Zufall</button>
+                    </span>
+                  </label>
+                  <label class="field map-slider"><span>Meer</span><b id="map-water-label">42</b>
+                    <input id="map-water" type="range" min="0" max="100" value="42" />
+                  </label>
+                  <label class="field map-slider"><span>Seen</span><b id="map-lakes-label">48</b>
+                    <input id="map-lakes" type="range" min="0" max="100" value="48" />
+                  </label>
+                  <label class="field map-slider"><span>Flüsse</span><b id="map-rivers-label">55</b>
+                    <input id="map-rivers" type="range" min="0" max="100" value="55" />
+                  </label>
+                  <label class="field map-slider"><span>Wald</span><b id="map-forest-label">50</b>
+                    <input id="map-forest" type="range" min="0" max="100" value="50" />
+                  </label>
+                </div>
               </div>
             </div>
-          </section>
+          </details>
           <section class="lobby-block lobby-levels">
             <p class="lobby-kicker">Kampagne</p>
             <h2>Levels</h2>

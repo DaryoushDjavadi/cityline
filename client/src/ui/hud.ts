@@ -509,6 +509,10 @@ export function createHud(events: HudControls): Hud {
   }
   applyBiomeDefaults("temperate", false);
   refreshMapPreview();
+  const createPanel = required<HTMLDetailsElement>("#lobby-create");
+  createPanel.addEventListener("toggle", () => {
+    if (createPanel.open) refreshMapPreview();
+  });
 
   requiredButton("#solo-new").addEventListener("click", () => events.onNewSolo());
   requiredButton("#coop-new").addEventListener("click", () => events.onNewCoop());
