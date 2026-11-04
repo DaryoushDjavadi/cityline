@@ -111,6 +111,7 @@ export interface HudControls {
   onSendChat: (text: string) => void;
   onFocusPlayer: (id: string) => void;
   onNameReady: (name: string) => void;
+  onTogglePan: () => void;
 }
 
 const money = new Intl.NumberFormat("de-DE");
@@ -140,6 +141,8 @@ export interface Hud {
   setChatMessages: (messages: ChatMessage[], selfId: string) => void;
   setChatUnread: (count: number) => void;
   setChatEnabled: (enabled: boolean, note: string) => void;
+  setPanMode: (on: boolean) => void;
+  setPeerCursors: (cursors: { id: string; name: string; x: number; y: number }[]) => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
   setGateError: (text: string) => void;
@@ -153,7 +156,9 @@ export interface Hud {
 }
 
 export function createHud(events: HudControls): Hud {
-  const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button")];
+  const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool]")];
+  const togglePan = requiredButton("#toggle-pan");
+  const peerCursors = required("#peer-cursors");
   const funds = required("#funds");
   const pop = required("#pop");
   const jobs = required("#jobs");
@@ -266,6 +271,7 @@ export function createHud(events: HudControls): Hud {
   toolButtons.forEach((button) => {
     button.addEventListener("click", () => events.onTool(button.dataset.tool as ToolId));
   });
+  togglePan.addEventListener("click", () => events.onTogglePan());
   for (const overlay of ["zones", "power", "water"] as const) {
     const input = document.querySelector<HTMLInputElement>(`#ov-${overlay}`);
     input?.addEventListener("change", () => events.onOverlay(overlay, input.checked));
@@ -492,6 +498,35 @@ export function createHud(events: HudControls): Hud {
       chatNote.textContent = note;
       chatInput.disabled = !enabled;
       chatSend.disabled = !enabled;
+    },
+    setPanMode(on) {
+      togglePan.classList.toggle("active", on);
+      togglePan.setAttribute("aria-pressed", String(on));
+      document.body.dataset.pan = on ? "on" : "off";
+    },
+    setPeerCursors(cursors) {
+      const existing = new Map(
+        [...peerCursors.children].map((node) => [(node as HTMLElement).dataset.id ?? "", node as HTMLElement]),
+      );
+      const kept = new Set<string>();
+      for (const cursor of cursors) {
+        kept.add(cursor.id);
+        let mark = existing.get(cursor.id);
+        if (!mark) {
+          mark = document.createElement("div");
+          mark.className = "peer-cursor";
+          mark.dataset.id = cursor.id;
+          mark.append(document.createElement("i"), document.createElement("b"));
+          peerCursors.append(mark);
+        }
+        mark.style.left = `${Math.round(cursor.x)}px`;
+        mark.style.top = `${Math.round(cursor.y)}px`;
+        const label = mark.querySelector("b");
+        if (label) label.textContent = cursor.name;
+      }
+      for (const [id, node] of existing) {
+        if (!kept.has(id)) node.remove();
+      }
     },
     setInspecting(open) { document.body.dataset.inspect = open ? "on" : "off"; },
     showNameGate(open, preset = "") {

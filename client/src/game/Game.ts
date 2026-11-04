@@ -37,6 +37,7 @@ import {
   lineCells,
   packCells,
   parseChatMessage,
+  parseCursor,
   parseLevelRoom,
   refreshUtilities,
   saveToCity,
@@ -151,6 +152,7 @@ export class Game {
     onSendChat: (text) => this.sendChat(text),
     onFocusPlayer: (id) => this.focusPlayer(id),
     onNameReady: (value) => this.acceptName(value),
+    onTogglePan: () => this.setPanMode(!this.panMode),
     onSave: () => {
       void this.saveCurrentCity();
     },
@@ -198,6 +200,11 @@ export class Game {
   private rosterSig = "";
   private chatLog: ChatMessage[] = [];
   private chatUnread = 0;
+  private panMode = false;
+  private lastCursor = 0;
+  private readonly remoteCursors = new Map<string, { name: string; x: number; z: number }>();
+  private readonly cursorNdc = new THREE.Vector3();
+  private peerCursorsPainted = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.camera = new RtsCamera();
@@ -214,6 +221,8 @@ export class Game {
     this.hud.setChatOpen(false);
     this.hud.setChatUnread(0);
     this.hud.setChatEnabled(false, "Chat gibt es im Koop.");
+    this.hud.setPanMode(false);
+    this.hud.setPeerCursors([]);
     const storedName = loadPlayerName();
     if (storedName) {
       this.named = true;
@@ -243,6 +252,7 @@ export class Game {
     }
     this.view.update(dt, this.camera.target);
     this.view.render(this.camera.camera);
+    this.paintPeerCursors();
     requestAnimationFrame((next) => this.frame(next));
   }
 
@@ -256,8 +266,22 @@ export class Game {
   private setTool(tool: ToolId): void {
     this.tool = tool;
     this.hud.setTool(tool);
-    this.hud.setHint(`${HINTS[tool] ?? "Werkzeug gewählt."} Rechte Taste schaut um, mittlere Taste verschiebt, Mausrad zoomt, Q/E dreht, WASD fährt. Escape zurück zur Lupe.`);
+    this.refreshHint();
     this.cancelStroke(false);
+  }
+
+  private setPanMode(on: boolean): void {
+    this.panMode = on;
+    this.hud.setPanMode(on);
+    if (on) this.cancelStroke(false);
+    this.refreshHint();
+  }
+
+  private refreshHint(): void {
+    const camera = this.panMode
+      ? "Ziehen verschiebt die Karte ohne zu drehen. Nochmal Verschieben beendet den Modus. Mausrad zoomt, Q/E dreht, WASD fährt."
+      : "Rechte Taste schaut um, mittlere Taste oder Verschieben schiebt die Karte, Mausrad zoomt, Q/E dreht, WASD fährt. Escape zurück zur Lupe.";
+    this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."} ${camera}`);
   }
 
   private bindInput(): void {
@@ -307,7 +331,10 @@ export class Game {
   }
 
   private onPointerDown(event: PointerEvent): void {
-    if (this.camera.begin(event.button, event.clientX, event.clientY)) return;
+    if (this.camera.begin(event.button, event.clientX, event.clientY, this.panMode)) {
+      if (event.button === 0) this.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     if (event.button !== 0) return;
     const cell = this.pick(event);
     if (!cell) {
@@ -325,6 +352,7 @@ export class Game {
 
   private onPointerMove(event: PointerEvent): void {
     this.camera.move(event.clientX, event.clientY);
+    this.emitCursor(event);
     const cell = this.pick(event);
     this.view.setHover(this.city, cell ? cellIndex(this.city, cell.x, cell.y) : null);
     this.describe(cell);
@@ -332,7 +360,12 @@ export class Game {
   }
 
   private onPointerUp(event: PointerEvent): void {
-    if (event.button === 1 || event.button === 2) this.camera.end();
+    const cameraDrag = this.camera.isDragging();
+    this.camera.end();
+    if (cameraDrag && event.button === 0) {
+      this.cancelStroke(false);
+      return;
+    }
     if (event.button !== 0) return;
     if (this.tool === "inspect") {
       const car = this.view.pickCar(this.camera.camera, this.pointer.x, this.pointer.y);
@@ -513,6 +546,17 @@ export class Game {
       const message = parseChatMessage(payload);
       if (message) this.receiveChat(message, false);
     });
+    socket.on("cursor", (payload: unknown) => {
+      const cursor = parseCursor(payload);
+      if (!cursor || cursor.playerId === this.playerId) return;
+      this.remoteCursors.set(cursor.playerId, { name: cursor.name, x: cursor.x, z: cursor.z });
+    });
+    socket.on("cursorGone", (payload: unknown) => {
+      const playerId = typeof (payload as { playerId?: unknown })?.playerId === "string"
+        ? (payload as { playerId: string }).playerId
+        : "";
+      if (playerId) this.remoteCursors.delete(playerId);
+    });
     socket.on("locks", (payload: LockSnapshot) => {
       const foreign = payload.locks.filter((lock) => lock.playerId !== this.playerId).map((lock) => lock.cell);
       this.view.setLocks(this.city, foreign);
@@ -541,6 +585,8 @@ export class Game {
     this.hud.setPlayers("");
     this.peers = [];
     this.rosterSig = "";
+    this.remoteCursors.clear();
+    this.hud.setPeerCursors([]);
     this.view.setPeers([]);
     this.hud.setRoster([], "Du spielst allein.");
     this.resetChat();
@@ -560,6 +606,10 @@ export class Game {
 
   private renderPlayers(players: PublicPlayer[]): void {
     this.peers = players;
+    const living = new Set(players.map((player) => player.id));
+    for (const id of [...this.remoteCursors.keys()]) {
+      if (!living.has(id)) this.remoteCursors.delete(id);
+    }
     this.view.setPeers(
       players
         .filter((player) => player.id !== this.playerId)
@@ -648,6 +698,45 @@ export class Game {
   private flash(text: string): void {
     this.statusUntil = performance.now() + 2600;
     this.hud.setStatus(text);
+  }
+
+  private emitCursor(event: PointerEvent): void {
+    if (this.mode !== "multi" || !this.socket) return;
+    const now = performance.now();
+    if (now - this.lastCursor < 50) return;
+    this.lastCursor = now;
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera.camera);
+    const point = this.raycaster.ray.intersectPlane(this.ground, this.hit);
+    if (!point) return;
+    this.socket.emit("cursor", { x: point.x, z: point.z });
+  }
+
+  private paintPeerCursors(): void {
+    if (this.mode !== "multi" || this.remoteCursors.size === 0) {
+      if (this.peerCursorsPainted) {
+        this.hud.setPeerCursors([]);
+        this.peerCursorsPainted = false;
+      }
+      return;
+    }
+    this.peerCursorsPainted = true;
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    const marks: { id: string; name: string; x: number; y: number }[] = [];
+    for (const [id, cursor] of this.remoteCursors) {
+      this.cursorNdc.set(cursor.x, 6, cursor.z).project(this.camera.camera);
+      if (this.cursorNdc.z < -1 || this.cursorNdc.z > 1) continue;
+      marks.push({
+        id,
+        name: cursor.name,
+        x: (this.cursorNdc.x * 0.5 + 0.5) * width,
+        y: (-this.cursorNdc.y * 0.5 + 0.5) * height,
+      });
+    }
+    this.hud.setPeerCursors(marks);
   }
 
   private pick(event: PointerEvent): { x: number; y: number } | null {

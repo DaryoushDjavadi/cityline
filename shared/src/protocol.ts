@@ -76,6 +76,28 @@ export function cleanChat(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+export interface CursorPayload {
+  playerId: string;
+  name: string;
+  x: number;
+  z: number;
+}
+
+export function parseCursor(raw: unknown): CursorPayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const body = raw as { playerId?: unknown; name?: unknown; x?: unknown; z?: unknown };
+  const playerId = typeof body.playerId === "string" ? body.playerId.slice(0, 64) : "";
+  const x = Number(body.x);
+  const z = Number(body.z);
+  if (!playerId || !Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return {
+    playerId,
+    name: cleanName(body.name),
+    x: Math.max(-800, Math.min(800, x)),
+    z: Math.max(-800, Math.min(800, z)),
+  };
+}
+
 export function parseChatMessage(raw: unknown): ChatMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const body = raw as { id?: unknown; playerId?: unknown; name?: unknown; text?: unknown; at?: unknown };

@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.20",
+    at: "4. Nov 2026",
+    title: "Städtemenü, Verschieben, Koop-Zeiger",
+    items: [
+      "Im Städtemenü steht zuerst dein Name, dann eine neue Stadt erstellen, danach die vorgefertigten Levels.",
+      "Unter Schauen gibt es Verschieben: Ziehen bewegt die Karte, auch ohne rechte Maustaste.",
+      "Im Koop siehst du den Zeiger der anderen Person mit Namen auf der Karte.",
+    ],
+  },
+  {
     version: "0.19",
     at: "4. Nov 2026",
     title: "Chat, Städtemenü, Baumenü",

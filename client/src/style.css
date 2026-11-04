@@ -22,6 +22,45 @@ html, body {
 }
 
 body[data-tool="inspect"] #view { cursor: zoom-in; }
+body[data-pan="on"] #view { cursor: grab; }
+body[data-pan="on"] #view:active { cursor: grabbing; }
+
+#peer-cursors {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.peer-cursor {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  transform: translate(-2px, -2px);
+}
+.peer-cursor i {
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 7px solid #e2b15a;
+  border-right: 6px solid transparent;
+  border-bottom: 11px solid transparent;
+  filter: drop-shadow(0 1px 2px rgba(12, 16, 10, 0.55));
+}
+.peer-cursor b {
+  position: absolute;
+  left: 10px;
+  top: -14px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(20, 26, 18, 0.88);
+  border: 1px solid rgba(226, 177, 90, 0.55);
+  color: #f6f1e6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 
 #topbar, #dock, #demand, #inspector, #brief, #roster, #chat, #toast, footer, #lobby, #notes, #level-end, #name-gate {
   position: fixed;
@@ -129,7 +168,7 @@ button, input {
 
 button { padding: 8px 12px; cursor: pointer; }
 button:hover { border-color: #e2b15a; }
-#open-lobby, #open-notes, #connect, #solo-new, #solo-continue, #lobby-back, #level-end-next, #brief-retry, #gate-enter {
+#open-lobby, #open-notes, #connect, #solo-new, #solo-continue, #lobby-back, #level-end-next, #brief-retry, #gate-enter, #toggle-pan.active {
   background: #e2b15a;
   color: #241b10;
   border-color: transparent;
@@ -236,9 +275,11 @@ body[data-menu="closed"] #brief { left: 14px; top: 168px; }
 }
 #rail button:has(.tool-icon)::before { display: none; }
 #rail button[data-tool="fill"],
-#rail button[data-tool="bulldoze"] {
+#rail button[data-tool="bulldoze"],
+#toggle-pan {
   font-weight: 700;
 }
+#toggle-pan { --mark: #e2b15a; }
 #rail button[data-tool="road"] { --mark: #8d8478; }
 #rail button[data-tool="bridge"] { --mark: #c73e1d; }
 #rail button[data-tool="fill"] { --mark: #6d8f55; }
@@ -538,6 +579,22 @@ footer p { margin: 0; }
   font-size: 22px;
 }
 #lobby .notes-head { margin-bottom: 8px; }
+#lobby-resume:has(#lobby-back[hidden]) { display: none; }
+.name-field input { font-size: 18px; font-weight: 700; }
+.lobby-block {
+  margin: 14px 0 18px;
+  padding: 14px 16px 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(232, 205, 150, 0.16);
+  background: rgba(255, 248, 230, 0.04);
+}
+.lobby-create {
+  border-color: rgba(226, 177, 90, 0.75);
+  background: rgba(226, 177, 90, 0.1);
+}
+.lobby-create h2 { margin-bottom: 6px; }
+.lobby-levels { margin-top: 8px; }
+.lobby-levels .level-grid { margin-bottom: 8px; }
 .note-card {
   margin: 12px 0;
   padding: 12px 14px;

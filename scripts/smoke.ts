@@ -1,4 +1,4 @@
-import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseChatMessage, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
+import { applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -202,5 +202,7 @@ if (cleanChat("   ") !== null) throw new Error("empty chat");
 if ((cleanChat("x".repeat(200)) ?? "").length !== 180) throw new Error("chat cap");
 if (!parseChatMessage({ id: "a", playerId: "p", name: "Anna", text: "hi", at: 1 })) throw new Error("chat parse");
 if (parseChatMessage({ id: "a", name: "Anna", text: "hi", at: 1 })) throw new Error("chat needs player");
+if (!parseCursor({ playerId: "p", name: "Anna", x: 12, z: -4 })) throw new Error("cursor parse");
+if (parseCursor({ name: "Anna", x: 1, z: 1 })) throw new Error("cursor needs player");
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);
