@@ -925,26 +925,28 @@ export class CityRenderer {
     const day = climate.daylight;
     const rainy = climate.weather === "rain";
     const cloudy = climate.weather === "cloud" || rainy;
+    const night = climate.isNight;
     const golden = (climate.hour > 5.5 && climate.hour < 7.5) || (climate.hour > 17.5 && climate.hour < 19.5);
     const sky = new THREE.Color().setHSL(
-      rainy ? 0.58 : golden ? 0.08 : climate.isNight ? 0.64 : 0.57,
-      cloudy ? 0.12 : golden ? 0.45 : climate.isNight ? 0.22 : 0.22 + day * 0.15,
-      climate.isNight ? 0.015 + day * 0.04 : 0.1 + day * (cloudy ? 0.4 : 0.55),
+      rainy ? 0.58 : golden ? 0.08 : night ? 0.62 : 0.57,
+      cloudy ? 0.12 : golden ? 0.45 : night ? 0.16 : 0.22 + day * 0.15,
+      night ? 0.24 + day * 0.1 : 0.1 + day * (cloudy ? 0.4 : 0.55),
     );
     this.scene.background = sky;
     this.fog.color.copy(sky);
-    this.fog.near = rainy ? 160 : climate.isNight ? 80 : 320 + day * 100;
-    this.fog.far = rainy ? 850 : climate.isNight ? 520 : 1200 + day * 400;
-    this.hemi.intensity = climate.isNight ? 0.035 + day * 0.08 : 0.28 + day * 0.85;
-    this.hemi.color.set(climate.isNight ? 0x2a3348 : day > 0.35 ? 0xf4f7fb : 0x8fa0c0);
-    this.hemi.groundColor.set(climate.isNight ? 0x05070c : day > 0.35 ? 0x3d6470 : 0x1a2430);
-    this.sun.intensity = (climate.isNight ? 0.012 : 0.15 + day * 1.45) * (rainy ? 0.55 : cloudy ? 0.75 : 1);
-    this.sun.color.set(golden ? 0xffb078 : day > 0.25 ? 0xfff4df : climate.isNight ? 0x6a7a9a : 0x9bb0d8);
+    this.fog.near = rainy ? 160 : night ? 220 : 320 + day * 100;
+    this.fog.far = rainy ? 850 : night ? 1100 : 1200 + day * 400;
+    this.hemi.intensity = night ? 0.34 + day * 0.16 : 0.28 + day * 0.85;
+    this.hemi.color.set(night ? 0x9aa6c0 : day > 0.35 ? 0xf4f7fb : 0x8fa0c0);
+    this.hemi.groundColor.set(night ? 0x2a3842 : day > 0.35 ? 0x3d6470 : 0x1a2430);
+    this.sun.intensity = (night ? 0.28 + day * 0.12 : 0.15 + day * 1.45) * (rainy ? 0.55 : cloudy ? 0.75 : 1);
+    this.sun.color.set(golden ? 0xffb078 : day > 0.25 ? 0xfff4df : night ? 0x8ea0bc : 0x9bb0d8);
+    this.seaMaterial.uniforms.uShade.value = night ? 0.58 + day * 0.12 : rainy ? 0.78 : 1;
     this.rain.visible = rainy;
     this.paintLocalLights();
   }
 
-  /** Built lamps + powered buildings cast local night light; without them the map stays dark. */
+  /** Built lamps + powered buildings add a warm night glow; the map itself stays readable. */
   private paintLocalLights(): void {
     if (!this.shown) {
       this.finish(this.lampPoles, 0);
@@ -1314,7 +1316,7 @@ function neighborIndex(city: CityState, x: number, y: number, dx: number, dy: nu
 
 function seaMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uShade: { value: 1 } },
     vertexShader: `
       uniform float uTime;
       varying float vWave;
@@ -1329,6 +1331,7 @@ function seaMaterial(): THREE.ShaderMaterial {
       }
     `,
     fragmentShader: `
+      uniform float uShade;
       varying float vWave;
       void main() {
         vec3 deep = vec3(0.10, 0.34, 0.55);
@@ -1337,6 +1340,7 @@ function seaMaterial(): THREE.ShaderMaterial {
         float crest = smoothstep(0.02, 0.07, vWave);
         vec3 color = mix(deep, mid, clamp(vWave * 6.0 + 0.45, 0.0, 1.0));
         color = mix(color, foam, crest * 0.55);
+        color *= uShade;
         gl_FragColor = vec4(color, 1.0);
       }
     `,

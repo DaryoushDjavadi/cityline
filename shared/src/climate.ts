@@ -116,10 +116,10 @@ function weatherAt(tick: number): WeatherKind {
   return "clear";
 }
 
-/** Smooth daylight for lighting (peaks at noon). */
+/** Smooth daylight for lighting (peaks at noon). Night stays dim, never zero. */
 function daylightCurve(hour: number): number {
   const noon = 1 - Math.abs(hour - 12) / 12;
-  return Math.max(0, Math.min(1, noon ** 1.15));
+  return Math.max(0.14, Math.min(1, noon ** 1.15));
 }
 
 function climateHash(value: number): number {

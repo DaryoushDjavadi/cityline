@@ -450,6 +450,7 @@ if (DAY_TICKS !== 600) throw new Error("day length should stay 5 minutes");
 const noon = climateAt(Math.floor(DAY_TICKS * 0.5));
 const midnight = climateAt(0);
 if (noon.daylight <= midnight.daylight) throw new Error("noon should be brighter than midnight");
+if (midnight.daylight < 0.1) throw new Error("night lighting must stay readable, not pitch black");
 if (!/^\d{2}:\d{2}$/.test(noon.clock)) throw new Error(`bad clock ${noon.clock}`);
 {
   const dawn = climateAt(createCity().tick);
