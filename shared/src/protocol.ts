@@ -1,4 +1,4 @@
-import { buildingInfo, serviceInfo } from "./catalog.ts";
+import { buildingInfo, serviceInfo, tradeDeal } from "./catalog.ts";
 import { Zone, type Command, type PublicPlayer, type ServiceId, type SimMeta, type ZoneId } from "./types.ts";
 
 export interface JoinPayload {
@@ -123,7 +123,7 @@ export function parseChatMessage(raw: unknown): ChatMessage | null {
 
 export function parseCommand(raw: unknown): Command | null {
   if (!raw || typeof raw !== "object") return null;
-  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown };
+  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown; deal?: unknown };
   if (command.type === "road" || command.type === "bridge" || command.type === "fill" || command.type === "bulldoze" || command.type === "line" || command.type === "pipe") {
     if (!Array.isArray(command.cells)) return null;
     return { type: command.type, cells: command.cells.filter((cell) => Number.isInteger(cell)) as number[] };
@@ -164,11 +164,15 @@ export function parseCommand(raw: unknown): Command | null {
     if ((command.slot as number) < 0 || (command.slot as number) > 7) return null;
     return { type: "hire", workplace: command.workplace as number, home: command.home as number, slot: command.slot as number };
   }
+  if (command.type === "trade") {
+    if (!Number.isInteger(command.index) || typeof command.deal !== "string" || !tradeDeal(command.deal)) return null;
+    return { type: "trade", index: command.index as number, deal: command.deal };
+  }
   return null;
 }
 
 export function commandCells(command: Command): number[] {
-  if (command.type === "service" || command.type === "budget" || command.type === "gift") return [command.index];
+  if (command.type === "service" || command.type === "budget" || command.type === "gift" || command.type === "trade") return [command.index];
   if (command.type === "hire") return [command.workplace, command.home];
   return command.cells;
 }

@@ -302,6 +302,7 @@ body[data-menu="closed"] #brief { left: 14px; top: 168px; }
 #rail button[data-tool="workshop"] { --mark: #c48a62; }
 #rail button[data-tool="factory"] { --mark: #b86b3c; }
 #rail button[data-tool="plant"] { --mark: #8d5a48; }
+#rail button[data-tool="farm"] { --mark: #c4b44a; }
 #rail button[data-tool="power"] { --mark: #e2b33a; }
 #rail button[data-tool="water"] { --mark: #3d88b5; }
 #rail button[data-tool="school"] { --mark: #c46a4a; }
@@ -310,6 +311,7 @@ body[data-menu="closed"] #brief { left: 14px; top: 168px; }
 #rail button[data-tool="police"] { --mark: #355f86; }
 #rail button[data-tool="fire"] { --mark: #c44732; }
 #rail button[data-tool="park"] { --mark: #3f8f4a; }
+#rail button[data-tool="airport"] { --mark: #b7c3c8; }
 #rail button.active {
   background: rgba(226, 177, 90, 0.2);
   border-color: #e2b15a;
@@ -509,6 +511,8 @@ body[data-play="level"] #brief {
 #inspector[data-kind="car"] #insp-mark { background: #8a6a32; }
 #inspector[data-kind="power"] #insp-mark { background: #a6842a; }
 #inspector[data-kind="water"] #insp-mark { background: #2d6f98; }
+#inspector[data-kind="farm"] #insp-mark { background: #6d8f3c; }
+#inspector[data-kind="airport"] #insp-mark { background: #4e5960; }
 #insp-kicker { margin: 0; }
 #inspector h2 { margin: 0; font-family: Palatino, "Palatino Linotype", serif; font-size: 26px; line-height: 1; }
 #insp-close, #roster-close, #chat-close {
@@ -581,6 +585,27 @@ body[data-play="level"] #brief {
 .insp-hire b { display: block; }
 .insp-hire span { color: #cbbfa6; font-size: 12px; }
 .insp-hire button { padding: 6px 10px; background: #e2b15a; color: #241b10; font-weight: 700; }
+.insp-trade { padding: 0 14px; margin-top: 8px; }
+.insp-trade[hidden] { display: none; }
+.insp-trade h3 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbbfa6;
+}
+.insp-trade-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid rgba(232, 205, 150, 0.12);
+}
+.insp-trade-row b { display: block; }
+.insp-trade-row span { color: #cbbfa6; font-size: 12px; line-height: 1.35; }
+.insp-trade-row button { padding: 6px 10px; background: #e2b15a; color: #241b10; font-weight: 700; flex: none; }
+.insp-trade-row button:disabled { opacity: 0.45; cursor: not-allowed; }
 .insp-actions { margin-top: 12px; }
 #insp-budget { width: 100%; accent-color: #e2b15a; }
 #insp-gift { width: 100%; margin-top: 8px; }

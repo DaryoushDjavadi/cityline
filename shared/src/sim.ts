@@ -1,7 +1,8 @@
-import { serviceInfo } from "./catalog.ts";
+import { AIRPORT_INCOME, FOOD_PER_WORKER, FOOD_STOCK_MAX, foodNeed, serviceInfo } from "./catalog.ts";
 import { claimGoals } from "./goals.ts";
 import { cellBudget, isLink, isRoad } from "./city.ts";
 import { DIRS, ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
+import { isWorkplace } from "./people.ts";
 import { computeTraffic } from "./traffic.ts";
 import {
   POST_SLOTS,
@@ -46,6 +47,7 @@ export function computeStats(city: CityState): CityStats {
   let waterUsed = 0;
 
   const count = city.width * city.height;
+  const staff = staffCounts(city);
   for (let index = 0; index < count; index += 1) {
     if (city.services[index] === ServiceKind.Power) powerCapacity += Math.round(POWER_CAPACITY * (cellBudget(city, index) / 100));
     if (city.services[index] === ServiceKind.Water) waterCapacity += Math.round(WATER_CAPACITY * (cellBudget(city, index) / 100));
@@ -60,9 +62,9 @@ export function computeStats(city: CityState): CityStats {
   for (let index = 0; index < city.posts.length; index += 1) {
     const workplace = city.posts[index] - 1;
     if (workplace < 0) continue;
-    const zone = city.zones[workplace];
-    if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial)) jobs += 1;
+    if (isWorkplace(city, workplace)) jobs += 1;
   }
+  const produced = foodProductionFromStaff(city, staff);
 
   return {
     population,
@@ -73,6 +75,9 @@ export function computeStats(city: CityState): CityStats {
     waterUsed,
     traffic: computeTraffic(city).score,
     funds: city.funds,
+    foodCapacity: produced,
+    foodUsed: foodNeed(population),
+    foodStock: city.food,
   };
 }
 
@@ -86,6 +91,7 @@ export function buildMeta(city: CityState): SimMeta {
     stats: computeStats(city),
     ledger: cityLedger(city),
     goals: city.goals >>> 0,
+    food: city.food,
   };
 }
 
@@ -108,7 +114,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
   const queue: number[] = [];
   for (const source of sources) {
     const { x, y } = cellCoords(city, source);
-    for (const dir of LINK_NEIGHBORS) {
+    for (const dir of DIRS) {
       const nx = x + dir.dx;
       const ny = y + dir.dy;
       if (!inBounds(city, nx, ny)) continue;
@@ -124,7 +130,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
     const current = queue[head];
     const { x, y } = cellCoords(city, current);
     city.utility[current] |= bit;
-    for (const dir of LINK_NEIGHBORS) {
+    for (const dir of DIRS) {
       const nx = x + dir.dx;
       const ny = y + dir.dy;
       if (!inBounds(city, nx, ny)) continue;
@@ -152,7 +158,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
       const current = pending[cursor];
       cells.push(current);
       if (city.levels[current] > 0) use += utilityUse(city.zones[current], city.levels[current]);
-      const touch = carrierDistance(city, current, layer, distance);
+      const touch = carrierDistance(city, current, layer, distance, kind);
       if (touch >= 0) reach = Math.min(reach, touch);
       const spot = cellCoords(city, current);
       for (const dir of DIRS) {
@@ -176,15 +182,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
   }
 }
 
-const LINK_NEIGHBORS = [
-  ...DIRS,
-  { dx: 1, dy: -1 },
-  { dx: 1, dy: 1 },
-  { dx: -1, dy: 1 },
-  { dx: -1, dy: -1 },
-];
-
-function carrierDistance(city: CityState, index: number, layer: Uint8Array, distance: Int16Array): number {
+function carrierDistance(city: CityState, index: number, layer: Uint8Array, distance: Int16Array, kind: number): number {
   const { x, y } = cellCoords(city, index);
   let best = 9999;
   for (let dy = -1; dy <= 1; dy += 1) {
@@ -193,12 +191,62 @@ function carrierDistance(city: CityState, index: number, layer: Uint8Array, dist
       const ny = y + dy;
       if (!inBounds(city, nx, ny)) continue;
       const carrier = cellIndex(city, nx, ny);
+      if (city.services[carrier] === kind) best = Math.min(best, 0);
       if ((layer[carrier] & ROAD_FLAG) !== 0 && distance[carrier] >= 0) {
         best = Math.min(best, distance[carrier] + Math.max(Math.abs(dx), Math.abs(dy)));
       }
     }
   }
   return best === 9999 ? -1 : best;
+}
+
+export function staffCounts(city: CityState): Uint16Array {
+  const filled = new Uint16Array(city.levels.length);
+  for (let index = 0; index < city.posts.length; index += 1) {
+    const workplace = city.posts[index] - 1;
+    if (workplace >= 0 && workplace < filled.length) filled[workplace] += 1;
+  }
+  return filled;
+}
+
+export function farmYield(city: CityState, index: number, workers: number): number {
+  if (city.zones[index] !== Zone.Farm || city.levels[index] <= 0 || workers <= 0) return 0;
+  const bits = city.utility[index] & (POWER_BIT | WATER_BIT);
+  const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : bits === 0 ? 0.4 : 0.7;
+  return Math.max(0, Math.round(workers * FOOD_PER_WORKER * utility * (cellBudget(city, index) / 100)));
+}
+
+export function foodProduction(city: CityState): number {
+  return foodProductionFromStaff(city, staffCounts(city));
+}
+
+function foodProductionFromStaff(city: CityState, staff: Uint16Array): number {
+  let total = 0;
+  for (let index = 0; index < city.levels.length; index += 1) {
+    total += farmYield(city, index, staff[index] ?? 0);
+  }
+  return total;
+}
+
+export function foodRatio(city: CityState): number {
+  let population = 0;
+  for (let index = 0; index < city.levels.length; index += 1) {
+    if (city.zones[index] === Zone.Residential && city.levels[index] > 0) population += city.levels[index] * 12;
+  }
+  const need = foodNeed(population);
+  if (need <= 0) return 1;
+  return Math.max(0, Math.min(1, (foodProduction(city) + city.food) / need));
+}
+
+function settleFood(city: CityState): void {
+  const produced = foodProduction(city);
+  let population = 0;
+  for (let index = 0; index < city.levels.length; index += 1) {
+    if (city.zones[index] === Zone.Residential && city.levels[index] > 0) population += city.levels[index] * 12;
+  }
+  const need = foodNeed(population);
+  const available = city.food + produced;
+  city.food = Math.max(0, Math.min(FOOD_STOCK_MAX, available - need));
 }
 
 function coverage(city: CityState, kind: number): { x: number; y: number; radius: number }[] {
@@ -223,6 +271,7 @@ function updateDemand(city: CityState): void {
   let commercial = 0;
   let industrial = 0;
   let parks = 0;
+  let farms = 0;
   const count = city.width * city.height;
   for (let index = 0; index < count; index += 1) {
     if (city.services[index] === ServiceKind.Park) parks += 1;
@@ -231,9 +280,10 @@ function updateDemand(city: CityState): void {
     if (city.zones[index] === Zone.Residential) population += level * 12;
     if (city.zones[index] === Zone.Commercial) commercial += level;
     if (city.zones[index] === Zone.Industrial) industrial += level;
+    if (city.zones[index] === Zone.Farm) farms += 1;
   }
 
-  const residentialTarget = clampDemand(72 - population * 0.12 + commercial * 2 + industrial * 3 + parks * 4);
+  const residentialTarget = clampDemand(72 - population * 0.12 + commercial * 2 + industrial * 3 + parks * 4 + farms * 3);
   const commercialTarget = clampDemand(48 + population * 0.05 - commercial * 5);
   const industrialTarget = clampDemand(42 + population * 0.03 + commercial * 0.4 - industrial * 4);
   city.demand.residential = clampDemand(city.demand.residential * 0.75 + residentialTarget * 0.25);
@@ -251,7 +301,7 @@ export function maintenanceCost(city: CityState): number {
     const level = city.levels[index];
     if (level <= 0) continue;
     const zone = city.zones[index];
-    const rate = zone === Zone.Industrial ? 3 : zone === Zone.Commercial ? 2 : zone === Zone.Residential ? 1.5 : 0;
+    const rate = zone === Zone.Industrial ? 3 : zone === Zone.Commercial ? 2 : zone === Zone.Residential ? 1.5 : zone === Zone.Farm ? 2 : 0;
     if (rate === 0) continue;
     let factor = insideCoverage(city, index, police) ? 0.75 : 1;
     if (zone === Zone.Industrial && insideCoverage(city, index, fires)) factor *= 0.8;
@@ -264,7 +314,12 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
   const clinics = coverage(city, ServiceKind.Clinic);
   const parks = coverage(city, ServiceKind.Park);
   const fires = coverage(city, ServiceKind.Fire);
+  const meals = foodRatio(city);
   let income = 0;
+  for (let index = 0; index < city.services.length; index += 1) {
+    if (city.services[index] !== ServiceKind.Airport) continue;
+    income += Math.round(AIRPORT_INCOME * (cellBudget(city, index) / 100));
+  }
   for (let index = 0; index < city.levels.length; index += 1) {
     if (city.zones[index] !== Zone.Residential || city.levels[index] <= 0) continue;
     const bits = city.utility[index] & (POWER_BIT | WATER_BIT);
@@ -273,19 +328,23 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
     if (insideCoverage(city, index, clinics)) district += 0.25;
     if (insideCoverage(city, index, parks)) district += 0.15;
     const education = 1 + (city.skills[index] & 3) * 0.22;
-    income += city.levels[index] * 12 * 1.5 * utility * district * education * (cellBudget(city, index) / 100);
+    income += city.levels[index] * 12 * 1.5 * utility * district * education * (0.72 + 0.28 * meals) * (cellBudget(city, index) / 100);
   }
   for (let index = 0; index < city.posts.length; index += 1) {
     const workplace = city.posts[index] - 1;
-    if (workplace < 0 || city.levels[workplace] <= 0) continue;
+    if (workplace < 0 || !isWorkplace(city, workplace)) continue;
     const zone = city.zones[workplace];
-    if (zone !== Zone.Commercial && zone !== Zone.Industrial) continue;
     const bits = city.utility[workplace] & (POWER_BIT | WATER_BIT);
-    if (bits === 0) continue;
-    const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : 0.4;
     const home = Math.floor(index / POST_SLOTS);
     const education = city.skills[home] & 3;
     const skill = zone === Zone.Commercial ? 1 + education * 0.45 : 1 + education * 0.12;
+    if (zone === Zone.Farm) {
+      const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : bits === 0 ? 0.5 : 0.75;
+      income += 9 * skill * utility * (cellBudget(city, workplace) / 100);
+      continue;
+    }
+    if (bits === 0) continue;
+    const utility = bits === (POWER_BIT | WATER_BIT) ? 1 : 0.4;
     const trade = zone === Zone.Industrial && insideCoverage(city, workplace, fires) ? 1.2 : 1;
     const base = zone === Zone.Industrial ? 16 : 12;
     income += base * skill * utility * trade * (cellBudget(city, workplace) / 100);
@@ -316,6 +375,7 @@ export function stepSimulation(city: CityState): void {
     educate(city);
     const ledger = cityLedger(city);
     city.funds = Math.max(0, Math.min(5_000_000, city.funds + ledger.income - ledger.upkeep));
+    settleFood(city);
   }
   city.revision += 1;
 }

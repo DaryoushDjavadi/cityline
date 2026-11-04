@@ -134,6 +134,7 @@ export function jobCapacity(zone: number, level: number): number {
   if (level <= 0) return 0;
   if (zone === Zone.Commercial) return level * 3;
   if (zone === Zone.Industrial) return level * 4;
+  if (zone === Zone.Farm) return 4;
   return 0;
 }
 
@@ -217,7 +218,7 @@ export function helpBadges(city: CityState): { homes: number[]; workplaces: numb
     if (city.levels[index] <= 0) continue;
     const zone = city.zones[index];
     if (zone === Zone.Residential && listAdults(city, index).some((adult) => adult.workplace === null)) homes.push(index);
-    if (zone === Zone.Commercial || zone === Zone.Industrial) {
+    if (isWorkplace(city, index)) {
       const openings = jobCapacity(zone, city.levels[index]) - filled[index];
       if (openings > 0) workplaces.push(index);
     }
@@ -235,9 +236,10 @@ export function jobOpenings(city: CityState, workplace: number): number {
   return Math.max(0, jobCapacity(city.zones[workplace], city.levels[workplace]) - filled);
 }
 
-function isWorkplace(city: CityState, index: number): boolean {
+export function isWorkplace(city: CityState, index: number): boolean {
+  if (index < 0 || index >= city.levels.length || city.levels[index] <= 0) return false;
   const zone = city.zones[index];
-  return city.levels[index] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial);
+  return zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm;
 }
 
 function adultSlot(city: CityState, home: number, family: number, person: number): number {
@@ -260,8 +262,9 @@ function adultSlot(city: CityState, home: number, family: number, person: number
 function jobTitle(city: CityState, workplace: number, education: number, person: number): string {
   const { x, y } = cellCoords(city, workplace);
   const title = JOBS[education]?.[hash(person + workplace) % 3] ?? "Aushilfe";
-  const place = city.zones[workplace] === Zone.Industrial ? "Industrie" : "Gewerbe";
-  return `${title}, ${place} Feld ${x}, ${y}`;
+  const place = city.zones[workplace] === Zone.Industrial ? "Industrie" : city.zones[workplace] === Zone.Farm ? "Bauernhof" : "Gewerbe";
+  const farmJob = city.zones[workplace] === Zone.Farm ? "Feldarbeit" : title;
+  return `${farmJob}, ${place} Feld ${x}, ${y}`;
 }
 
 function educationLabel(level: number): string {

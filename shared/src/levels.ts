@@ -214,6 +214,7 @@ const EMPTY_BUILDINGS: Record<BuildingId, number> = {
   workshop: 0,
   factory: 0,
   plant: 0,
+  farm: 0,
 };
 
 export function levelById(id: number): LevelDef | null {
@@ -252,7 +253,7 @@ export function tallyCity(city: CityState): CityTally {
     const workplace = city.posts[index] - 1;
     if (workplace < 0) continue;
     const zone = city.zones[workplace];
-    if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial)) jobs += 1;
+    if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm)) jobs += 1;
   }
   const ledger = cityLedger(city);
   return {

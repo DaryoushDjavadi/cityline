@@ -20,7 +20,7 @@ import {
   type CityState,
 } from "../../../shared/src/index.ts";
 import { streetCars, type StreetCar } from "../../../shared/src/people.ts";
-import { buildModels, modelForService, modelForZone } from "./models.ts";
+import { buildModels, buildPlaneGeometry, modelForService, modelForZone } from "./models.ts";
 
 const CORNER_ROT: Record<number, number> = {
   3: 0,
@@ -51,6 +51,15 @@ interface Overlays {
   zones: boolean;
   power: boolean;
   water: boolean;
+}
+
+interface Flight {
+  cell: number;
+  phase: number;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
 }
 
 export class CityRenderer {
@@ -98,6 +107,9 @@ export class CityRenderer {
   private walkers: Walker[] = [];
   private roadStamp = "";
   private traffic: Uint8Array<ArrayBufferLike> = new Uint8Array(CAP);
+  private readonly planes: THREE.InstancedMesh;
+  private flights: Flight[] = [];
+  private flightTime = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -154,6 +166,7 @@ export class CityRenderer {
     this.preview = mesh(plane, flat(0xffffff, 0.72));
     this.locks = mesh(plane, flat(0xff9a3c, 0.45));
     this.cars = mesh(new THREE.BoxGeometry(1, 1, 1), lit);
+    this.planes = mesh(buildPlaneGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.12 }), 24);
     this.cornerCurbs = mesh(cornerGeometry(0.04, 0.96, 0.02, 0.1), lit);
     this.corners = mesh(cornerGeometry(0.11, 0.89, 0.1, 0.18), lit);
     this.cables = mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.45 }), CAP * 6);
@@ -196,6 +209,7 @@ export class CityRenderer {
       this.preview,
       this.locks,
       this.cars,
+      this.planes,
     );
 
     const loop = new THREE.BufferGeometry().setFromPoints([
@@ -236,6 +250,7 @@ export class CityRenderer {
     this.traffic = computeTraffic(city).load;
     if (this.roadsChanged(city)) this.rebuildGraph(city);
     this.syncCars(city);
+    this.syncFlights(city);
     this.rebuildGround(city);
 
     let curbs = 0;
@@ -295,7 +310,7 @@ export class CityRenderer {
         const raised = isBridge(city, index) ? bridgeCrest(city, index) + 3.4 : isWater(city, index) ? 4.6 : 2.45;
         this.put(this.poles, poles, world.x, raised / 2, world.z, 0.35, raised, 0.35, 0, 0x6d6458);
         poles += 1;
-        cables = this.layConductor(this.cables, cables, city, index, city.lines, world.x, world.z, raised, 0.16, color);
+        cables = this.layConductor(this.cables, cables, index, city.lines, world.x, world.z, raised, 0.16, color);
         if (overlays.power && live) {
           this.put(this.power, powerCount, world.x, 0.22, world.z, CELL_SIZE * 0.4, 1, CELL_SIZE * 0.4, 0, 0x8ad8ff);
           powerCount += 1;
@@ -305,7 +320,7 @@ export class CityRenderer {
         const live = (city.utility[index] & WATER_BIT) !== 0;
         const color = live ? 0x3d88c8 : 0x6a7c86;
         const pipeY = isBridge(city, index) ? bridgeCrest(city, index) + 0.45 : isWater(city, index) ? 0.55 : 0.22;
-        pipes = this.layConductor(this.pipeMesh, pipes, city, index, city.pipes, world.x, world.z, pipeY, 0.35, color);
+        pipes = this.layConductor(this.pipeMesh, pipes, index, city.pipes, world.x, world.z, pipeY, 0.35, color);
         if (overlays.water && live) {
           this.put(this.water, waterCount, world.x, 0.24, world.z, CELL_SIZE * 0.36, 1, CELL_SIZE * 0.36, 0, 0x3f86d8);
           waterCount += 1;
@@ -313,7 +328,11 @@ export class CityRenderer {
       }
 
       if (overlays.zones && city.zones[index] !== Zone.None && !isRoad(city, index)) {
-        const color = city.zones[index] === Zone.Residential ? 0x3f9d55 : city.zones[index] === Zone.Commercial ? 0x2f86c6 : 0xd0892b;
+        const color =
+          city.zones[index] === Zone.Residential ? 0x3f9d55
+          : city.zones[index] === Zone.Commercial ? 0x2f86c6
+          : city.zones[index] === Zone.Farm ? 0xc4b44a
+          : 0xd0892b;
         this.put(this.zones, zoneCount, world.x, 0.08, world.z, CELL_SIZE * 0.92, 1, CELL_SIZE * 0.92, 0, color);
         zoneCount += 1;
       }
@@ -367,6 +386,7 @@ export class CityRenderer {
     this.placeBadges(this.idleBadges, this.idleMaterial, badges.homes, city);
     this.placeBadges(this.jobBadges, this.jobMaterial, badges.workplaces, city);
     this.paintCars();
+    this.paintPlanes();
   }
 
   setPreview(city: CityState, cells: number[], legal: boolean[]): void {
@@ -410,6 +430,8 @@ export class CityRenderer {
       if (!sprite.visible) continue;
       sprite.position.y = Number(sprite.userData.baseY) + bob;
     }
+    this.flightTime += dt;
+    if (this.flights.length > 0) this.paintPlanes();
     if (this.walkers.length === 0) return;
     for (const walker of this.walkers) {
       walker.t += dt * walker.speed;
@@ -527,6 +549,38 @@ export class CityRenderer {
       this.put(this.cars, slot, x, y, z, 2.1, 1.25, 4.3, Math.atan2(to.x - from.x, to.z - from.z), walker.color);
     });
     this.finish(this.cars, this.walkers.length);
+  }
+
+  private syncFlights(city: CityState): void {
+    const airports: number[] = [];
+    for (let index = 0; index < city.services.length; index += 1) {
+      if (city.services[index] === ServiceKind.Airport) airports.push(index);
+    }
+    const kept = new Map(this.flights.map((flight) => [`${flight.cell}:${flight.phase}`, flight]));
+    this.flights = [];
+    for (const cell of airports) {
+      for (const phase of [0, 11.5]) {
+        const key = `${cell}:${phase}`;
+        this.flights.push(kept.get(key) ?? { cell, phase, x: 0, y: 0, z: 0, rotY: 0 });
+      }
+    }
+    if (this.flights.length === 0) this.finish(this.planes, 0);
+  }
+
+  private paintPlanes(): void {
+    if (!this.shown) {
+      this.finish(this.planes, 0);
+      return;
+    }
+    this.flights.forEach((flight, slot) => {
+      const pose = planePose(this.shown!, flight.cell, this.flightTime + flight.phase);
+      flight.x = pose.x;
+      flight.y = pose.y;
+      flight.z = pose.z;
+      flight.rotY = pose.rotY;
+      this.put(this.planes, slot, pose.x, pose.y, pose.z, 1, 1, 1, pose.rotY, 0xffffff);
+    });
+    this.finish(this.planes, this.flights.length);
   }
 
   private point(index: number): { x: number; z: number } {
@@ -667,7 +721,6 @@ export class CityRenderer {
   private layConductor(
     target: THREE.InstancedMesh,
     slot: number,
-    city: CityState,
     index: number,
     layer: Uint8Array,
     x: number,
@@ -676,30 +729,18 @@ export class CityRenderer {
     thickness: number,
     color: number,
   ): number {
+    this.put(target, slot, x, y, z, thickness * 1.8, thickness * 1.8, thickness * 1.8, 0, color);
+    slot += 1;
     const mask = layer[index] & 0b1111;
     const arms = [
-      { bit: 1, ox: 0, oz: -0.25, sx: thickness, sz: CELL_SIZE * 0.5, rot: 0 },
-      { bit: 2, ox: 0.25, oz: 0, sx: CELL_SIZE * 0.5, sz: thickness, rot: 0 },
-      { bit: 4, ox: 0, oz: 0.25, sx: thickness, sz: CELL_SIZE * 0.5, rot: 0 },
-      { bit: 8, ox: -0.25, oz: 0, sx: CELL_SIZE * 0.5, sz: thickness, rot: 0 },
+      { bit: 1, ox: 0, oz: -0.25, sx: thickness, sz: CELL_SIZE * 0.5 },
+      { bit: 2, ox: 0.25, oz: 0, sx: CELL_SIZE * 0.5, sz: thickness },
+      { bit: 4, ox: 0, oz: 0.25, sx: thickness, sz: CELL_SIZE * 0.5 },
+      { bit: 8, ox: -0.25, oz: 0, sx: CELL_SIZE * 0.5, sz: thickness },
     ];
     for (const arm of arms) {
       if ((mask & arm.bit) === 0) continue;
-      this.put(target, slot, x + arm.ox * CELL_SIZE, y, z + arm.oz * CELL_SIZE, arm.sx, thickness, arm.sz, arm.rot, color);
-      slot += 1;
-    }
-    const { x: cx, y: cy } = cellCoords(city, index);
-    const diagonals = [
-      { dx: 1, dy: -1, ox: 0.25, oz: -0.25, rot: Math.PI * 0.75 },
-      { dx: 1, dy: 1, ox: 0.25, oz: 0.25, rot: Math.PI * 0.25 },
-    ];
-    for (const diag of diagonals) {
-      const nx = cx + diag.dx;
-      const ny = cy + diag.dy;
-      if (!inBounds(city, nx, ny)) continue;
-      const next = ny * city.width + nx;
-      if ((layer[next] & 16) === 0) continue;
-      this.put(target, slot, x + diag.ox * CELL_SIZE, y, z + diag.oz * CELL_SIZE, thickness, thickness, CELL_SIZE * 0.72, diag.rot, color);
+      this.put(target, slot, x + arm.ox * CELL_SIZE, y, z + arm.oz * CELL_SIZE, arm.sx, thickness, arm.sz, 0, color);
       slot += 1;
     }
     return slot;
@@ -966,6 +1007,42 @@ function hashCode(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash, 31) + value.charCodeAt(index);
   return Math.abs(hash);
+}
+
+function planePose(city: CityState, cell: number, time: number): { x: number; y: number; z: number; rotY: number } {
+  const { x, y } = cellCoords(city, cell);
+  const origin = cellToWorld(city, x, y);
+  const cycle = 22;
+  const t = ((time % cycle) + cycle) % cycle;
+  let px = origin.x;
+  let py = 2.2;
+  let pz = origin.z;
+  let vx = 1;
+  let vz = 0;
+  if (t < 8) {
+    const u = t / 8;
+    px = origin.x - 90 + u * 90;
+    py = 2.2 + (1 - u) * (1 - u) * 22;
+    vx = 1;
+  } else if (t < 11) {
+    const u = (t - 8) / 3;
+    px = origin.x + u * 6;
+    py = 2.15;
+    vx = 1;
+  } else if (t < 18) {
+    const u = (t - 11) / 7;
+    px = origin.x + 6 + u * 100;
+    py = 2.2 + u * u * 30;
+    vx = 1;
+  } else {
+    const u = (t - 18) / 4;
+    px = origin.x + 106 - u * 196;
+    py = 32;
+    pz = origin.z - 18;
+    vx = -1;
+    vz = 0;
+  }
+  return { x: px, y: py, z: pz, rotY: Math.atan2(vx, vz) };
 }
 
 const GROUND_Y = 0.02;

@@ -50,7 +50,7 @@ export function goalMask(city: CityState): number {
     const workplace = city.posts[index] - 1;
     if (workplace < 0) continue;
     const zone = city.zones[workplace];
-    if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial)) jobs += 1;
+    if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm)) jobs += 1;
   }
   let mask = 0;
   if (roads >= 6) mask |= 1;

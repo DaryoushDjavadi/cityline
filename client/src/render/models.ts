@@ -303,6 +303,34 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
       { shape: "cyl", x: 0, y: 8.3, z: 0, sx: 0.1, sy: 1.5, sz: 0.1, color: 0xe2b15a },
     ],
   },
+  farm: {
+    height: 7.2,
+    parts: [
+      box(0, 0.1, 0, 9.2, 0.2, 8.6, 0x6d8f3c),
+      box(-2.2, 0.16, 1.8, 3.6, 0.12, 4.2, 0xc2a24a),
+      box(2.4, 0.16, 1.6, 3.2, 0.12, 3.6, 0xb7c45a),
+      box(-2.1, 1.7, -2.1, 4.4, 2.8, 3.4, 0xc48a4a),
+      box(-2.1, 3.55, -2.1, 4.8, 0.28, 3.8, 0x8a4a32, { rx: 0.42 }),
+      box(0.2, 1.1, -2.1, 1.4, 1.8, 0.12, 0x5c3a2a),
+      { shape: "cyl", x: 2.6, y: 2.4, z: -2.2, sx: 1.05, sy: 4.4, sz: 1.05, color: 0xd9c7a2 },
+      { shape: "cone", x: 2.6, y: 4.9, z: -2.2, sx: 1.2, sy: 0.9, sz: 1.2, color: 0x8a4a32 },
+      box(2.2, 0.55, 2.4, 1.6, 0.7, 1.1, 0x6e6258),
+    ],
+  },
+  airport: {
+    height: 8.4,
+    parts: [
+      box(0, 0.08, 0, 9.4, 0.16, 8.6, 0x4e7d43),
+      box(0, 0.14, 0, 9.2, 0.12, 2.2, 0x5c5550),
+      box(0, 0.16, 0, 8.4, 0.04, 0.18, 0xe7d7a1),
+      box(-2.8, 1.3, 2.8, 3.6, 2.2, 2.6, 0xb7c3c8),
+      box(-2.8, 2.5, 2.8, 3.9, 0.22, 2.9, 0x6a7378),
+      box(3.1, 2.4, 2.9, 1.3, 4.4, 1.3, 0xd9d3c8),
+      box(3.1, 4.8, 2.9, 1.7, 0.28, 1.7, 0xe2b15a),
+      { shape: "cyl", x: 3.1, y: 6.8, z: 2.9, sx: 0.08, sy: 2.2, sz: 0.08, color: 0xc44732 },
+      box(2.4, 0.45, -0.2, 1.8, 0.5, 1.1, 0xf4efe4),
+    ],
+  },
 };
 
 export function buildModels(): BuiltModel[] {
@@ -324,6 +352,7 @@ export function modelForZone(zone: number, level: number): { key: string; height
   if (zone === Zone.Industrial && level <= 2) return { key: "workshop", height: CATALOG.workshop.height };
   if (zone === Zone.Industrial && level <= 4) return { key: "factory", height: CATALOG.factory.height };
   if (zone === Zone.Industrial) return { key: "plant", height: CATALOG.plant.height };
+  if (zone === Zone.Farm) return { key: "farm", height: CATALOG.farm.height };
   return null;
 }
 
@@ -336,5 +365,16 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.Fire) return { key: "fire", height: CATALOG.fire.height };
   if (kind === ServiceKind.Park) return { key: "park", height: CATALOG.park.height };
   if (kind === ServiceKind.University) return { key: "university", height: CATALOG.university.height };
+  if (kind === ServiceKind.Airport) return { key: "airport", height: CATALOG.airport.height };
   return null;
+}
+
+export function buildPlaneGeometry(): THREE.BufferGeometry {
+  return compose([
+    box(0, 0.18, 0, 3.2, 0.38, 0.7, 0xf4efe4),
+    box(0.2, 0.22, 0, 1.1, 0.12, 3.8, 0xd7dde2),
+    box(-1.35, 0.55, 0, 0.7, 0.7, 0.12, 0xc44732),
+    box(1.2, 0.42, 0, 0.7, 0.28, 0.55, 0x6e7c86),
+    { shape: "cyl", x: 0.4, y: 0.42, z: 0, sx: 0.22, sy: 0.28, sz: 0.22, color: 0x9fd4e4 },
+  ]);
 }

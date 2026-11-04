@@ -1,4 +1,4 @@
-import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, createCity, evaluateLevel, formatClock, isBridge, isLevelRoom, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, stepSimulation, writeCitySlot } from "../shared/src/index.ts";
+import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, createCity, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 let dryInterior = false;
@@ -70,6 +70,7 @@ same("skills", restored.skills[zoned[0]], 6);
 same("plant", restored.services[cellIndex(city, 20, 31)], 1);
 same("waterworks", restored.services[cellIndex(city, 22, 31)], 2);
 same("goals", restored.goals, city.goals);
+same("food", restored.food, city.food);
 if ((city.goals & (1 | 2 | 4 | 16)) !== (1 | 2 | 4 | 16)) throw new Error(`goals ${city.goals}`);
 
 const fed = createCity();
@@ -84,10 +85,19 @@ if (!applyCommand(fed, { type: "line", cells: [cellIndex(fed, 0, 3)] }).ok) thro
 if (!applyCommand(fed, { type: "pipe", cells: [cellIndex(fed, 2, 3)] }).ok) throw new Error("pipe");
 if (!applyCommand(fed, { type: "road", cells: [cellIndex(fed, 8, 8)] }).ok) throw new Error("bend road");
 if (!applyCommand(fed, { type: "service", index: cellIndex(fed, 8, 7), kind: 1 }).ok) throw new Error("bend plant");
-if (!applyCommand(fed, { type: "line", cells: [cellIndex(fed, 8, 8), cellIndex(fed, 9, 9)] }).ok) throw new Error("bend line");
+if (!applyCommand(fed, { type: "line", cells: lineCells(fed, 8, 8, 9, 9) }).ok) throw new Error("bend line");
 fed.levels[row[0]] = 1;
 refreshUtilities(fed);
-if ((fed.utility[cellIndex(fed, 9, 9)] & 1) === 0) throw new Error("diagonal line did not conduct");
+const elbowLine = cellIndex(fed, 9, 8);
+if ((fed.lines[elbowLine] & 0b1111) !== 0b1100) throw new Error(`line corner mask ${fed.lines[elbowLine]}`);
+if ((fed.utility[cellIndex(fed, 9, 9)] & 1) === 0) throw new Error("orthogonal corner line did not conduct");
+const ghost = createCity();
+ghost.terrain.fill(0);
+if (!applyCommand(ghost, { type: "road", cells: [cellIndex(ghost, 4, 4)] }).ok) throw new Error("ghost road");
+if (!applyCommand(ghost, { type: "service", index: cellIndex(ghost, 4, 3), kind: 1 }).ok) throw new Error("ghost plant");
+if (!applyCommand(ghost, { type: "line", cells: [cellIndex(ghost, 5, 3), cellIndex(ghost, 6, 4)] }).ok) throw new Error("diagonal skip");
+refreshUtilities(ghost);
+if ((ghost.utility[cellIndex(ghost, 6, 4)] & 1) !== 0) throw new Error("diagonal skip should not conduct");
 if ((fed.utility[row[0]] & 1) === 0 || (fed.utility[row[1]] & 1) === 0 || (fed.utility[row[2]] & 1) === 0) {
   throw new Error(`power group ${fed.utility[row[0]]} ${fed.utility[row[1]]} ${fed.utility[row[2]]}`);
 }
@@ -242,5 +252,65 @@ const merged = mergeRoomLists(
 if (merged.length !== 2 || merged.find((row) => row.code === "alpha")?.players !== 1) throw new Error("lobby merge");
 if (loadOrCreateClientId(store, () => "aaaaaaaa") !== "aaaaaaaa") throw new Error("new client id");
 if (loadOrCreateClientId(store, () => "bbbbbbbb") !== "aaaaaaaa") throw new Error("stable client id");
+
+if (foodNeed(12) !== 0 || foodNeed(24) !== 0 || foodNeed(48) !== 0) throw new Error("early city should not need food");
+if (foodNeed(49) !== 1) throw new Error("growing city should start needing a little food");
+if (foodNeed(84) !== 1 || foodNeed(120) !== 2) throw new Error("food demand should ramp slowly with population");
+
+const newTown = createCity();
+newTown.terrain.fill(0);
+if (!applyCommand(newTown, { type: "road", cells: [cellIndex(newTown, 8, 8), cellIndex(newTown, 12, 8)] }).ok) throw new Error("new town road");
+for (const x of [8, 9, 10, 11]) {
+  if (!applyCommand(newTown, { type: "build", kind: "cottage", cells: [cellIndex(newTown, x, 9)] }).ok) throw new Error("new town cottage");
+}
+if (buildMeta(newTown).stats.population !== 48) throw new Error("four cottages should still be the free food tier");
+if (foodRatio(newTown) !== 1) throw new Error("new city without a farm should stay fed");
+
+const nextDoor = createCity();
+nextDoor.terrain.fill(0);
+if (!applyCommand(nextDoor, { type: "road", cells: [cellIndex(nextDoor, 4, 4), cellIndex(nextDoor, 6, 4)] }).ok) throw new Error("adj road");
+if (!applyCommand(nextDoor, { type: "service", index: cellIndex(nextDoor, 4, 3), kind: ServiceKind.Power }).ok) throw new Error("adj plant");
+if (!applyCommand(nextDoor, { type: "service", index: cellIndex(nextDoor, 6, 3), kind: ServiceKind.Water }).ok) throw new Error("adj water");
+if (!applyCommand(nextDoor, { type: "build", kind: "cottage", cells: [cellIndex(nextDoor, 5, 3)] }).ok) throw new Error("adj house");
+refreshUtilities(nextDoor);
+if ((nextDoor.utility[cellIndex(nextDoor, 5, 3)] & 3) !== 3) throw new Error("house next to plants should be supplied");
+if (!applyCommand(nextDoor, { type: "build", kind: "cottage", cells: [cellIndex(nextDoor, 4, 6)] }).ok) throw new Error("far house");
+refreshUtilities(nextDoor);
+if ((nextDoor.utility[cellIndex(nextDoor, 4, 6)] & 1) !== 0) throw new Error("distant house should stay unpowered without a line");
+
+const farmTown = createCity();
+farmTown.terrain.fill(0);
+if (!applyCommand(farmTown, { type: "road", cells: [cellIndex(farmTown, 5, 5)] }).ok) throw new Error("farm road");
+if (!applyCommand(farmTown, { type: "build", kind: "cottage", cells: [cellIndex(farmTown, 5, 6)] }).ok) throw new Error("farm cottage");
+if (!applyCommand(farmTown, { type: "build", kind: "farm", cells: [cellIndex(farmTown, 6, 5)] }).ok) throw new Error("farm");
+const farmCell = cellIndex(farmTown, 6, 5);
+if (farmYield(farmTown, farmCell, 0) !== 0 || foodProduction(farmTown) !== 0) throw new Error("empty farm should produce nothing");
+const grown = listAdults(farmTown, cellIndex(farmTown, 5, 6));
+if (grown.length === 0) throw new Error("farm needs a worker");
+if (!applyCommand(farmTown, { type: "hire", workplace: farmCell, home: grown[0].home, slot: grown[0].slot }).ok) throw new Error("farm hire");
+if (foodProduction(farmTown) <= 0) throw new Error("staffed farm should produce food");
+if (farmYield(farmTown, farmCell, 1) < foodNeed(96)) throw new Error("one farm worker should feed a small growing city");
+if (foodRatio(farmTown) < 1) throw new Error("starter farm town should stay fed");
+
+const air = createCity();
+air.terrain.fill(0);
+air.funds = 100_000;
+if (!applyCommand(air, { type: "road", cells: [cellIndex(air, 10, 10)] }).ok) throw new Error("air road");
+const airportPurse = air.funds;
+const airCell = cellIndex(air, 10, 9);
+if (!applyCommand(air, { type: "service", index: airCell, kind: ServiceKind.Airport }).ok) throw new Error("airport");
+if (airportPurse - air.funds !== 48000) throw new Error(`airport cost ${airportPurse - air.funds}`);
+const booksAir = cityLedger(air);
+if (booksAir.income < 200) throw new Error(`airport should pay ${booksAir.income}`);
+const beforeFood = air.food;
+const bought = applyCommand(air, { type: "trade", index: airCell, deal: "grain" });
+if (!bought.ok || air.food !== beforeFood + 2) throw new Error("grain import");
+if (!applyCommand(air, { type: "trade", index: airCell, deal: "food_in" }).ok || air.food !== 6) throw new Error("food import");
+const sold = applyCommand(air, { type: "trade", index: airCell, deal: "food_out" });
+if (!sold.ok || air.food !== 2) throw new Error("food export");
+if (applyCommand(air, { type: "trade", index: airCell, deal: "wares" }).ok) throw new Error("wares need commercial");
+
+const restoredFood = saveToCity(cityToSave(farmTown, "food"));
+if (!restoredFood || restoredFood.food !== farmTown.food) throw new Error("food did not save");
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

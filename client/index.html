@@ -21,6 +21,7 @@
         <div><em>Jobs</em><b id="jobs">0</b></div>
         <div><em>Strom</em><b id="power">0/0</b></div>
         <div><em>Wasser</em><b id="water">0/0</b></div>
+        <div><em>Nahrung</em><b id="food">0/0</b><i id="food-stock">Lager 0</i></div>
         <div><em>Verkehr</em><b id="traffic">0</b></div>
       </div>
       <div class="top-actions">
@@ -130,6 +131,12 @@
           </div>
         </section>
         <section>
+          <p>Landwirtschaft</p>
+          <div class="tools">
+            <button type="button" data-tool="farm">Bauernhof</button>
+          </div>
+        </section>
+        <section>
           <p>Versorgung</p>
           <div class="tools">
             <button type="button" data-tool="power">Kraftwerk</button>
@@ -147,6 +154,7 @@
             <button type="button" data-tool="police">Polizei</button>
             <button type="button" data-tool="fire">Feuerwehr</button>
             <button type="button" data-tool="park">Park</button>
+            <button type="button" data-tool="airport">Flughafen</button>
           </div>
         </section>
       </aside>
@@ -159,7 +167,7 @@
       <label>Wohnen <b id="dem-r">0</b><i id="bar-r"></i></label>
       <label>Gewerbe <b id="dem-c">0</b><i id="bar-c"></i></label>
       <label>Industrie <b id="dem-i">0</b><i id="bar-i"></i></label>
-      <p id="dem-note">Ab 25 Nachfrage gibt es beim Bauen bis zu 40 % zurück.</p>
+      <p id="dem-note">Ab 25 Nachfrage gibt es beim Bauen bis zu 40 % zurück. Nahrung kommt vom Bauernhof mit Arbeitern. Neue Städte brauchen kaum welche; ein Hof mit ein oder zwei Leuten reicht am Anfang.</p>
       <div class="overlays">
         <label><input id="ov-zones" type="checkbox" checked /> Zonen</label>
         <label><input id="ov-power" type="checkbox" /> Stromnetz</label>
@@ -178,6 +186,7 @@
       <div id="insp-stats" class="insp-stats"></div>
       <div id="insp-families" class="insp-families"></div>
       <div id="insp-hires" class="insp-hires"></div>
+      <div id="insp-trade" class="insp-trade" hidden></div>
       <p id="insp-note" class="insp-note" hidden></p>
       <div class="insp-actions">
         <label id="insp-budget-wrap">
@@ -238,7 +247,7 @@
       <section class="sheet notes-sheet">
         <header class="notes-head">
           <div>
-            <p class="eyebrow">Version <b id="notes-version">0.23</b></p>
+            <p class="eyebrow">Version <b id="notes-version">0.24</b></p>
             <h1>Was ist neu</h1>
           </div>
           <button id="notes-close" type="button" aria-label="Schließen">×</button>

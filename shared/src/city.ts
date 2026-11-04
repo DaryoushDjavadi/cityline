@@ -1,4 +1,4 @@
-import { buildingInfo, readBudget, refundForLevel, serviceInfo } from "./catalog.ts";
+import { buildingInfo, FOOD_STOCK_MAX, readBudget, refundForLevel, serviceInfo, tradeDeal } from "./catalog.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
 import {
@@ -48,6 +48,7 @@ export function createCity(width = GRID_SIZE, height = GRID_SIZE): CityState {
     posts: new Uint16Array(count * POST_SLOTS),
     demand: { residential: 70, commercial: 62, industrial: 58 },
     goals: 0,
+    food: 0,
   };
   pourTerrain(city);
   return city;
@@ -199,6 +200,13 @@ export function nearRoad(city: CityState, index: number): boolean {
       if (!inBounds(city, nx, ny)) continue;
       if (isRoad(city, cellIndex(city, nx, ny))) return true;
     }
+  }
+  return false;
+}
+
+function zonePresent(city: CityState, zone: number): boolean {
+  for (let index = 0; index < city.zones.length; index += 1) {
+    if (city.zones[index] === zone && city.levels[index] > 0) return true;
   }
   return false;
 }
@@ -363,6 +371,34 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     return { ok: true, spent, applied: [index], rejected };
   }
 
+  if (command.type === "trade") {
+    const index = command.index;
+    if (city.services[index] !== ServiceKind.Airport) {
+      return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
+    }
+    const deal = tradeDeal(command.deal);
+    if (!deal) return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
+    if (deal.side === "import") {
+      if (!pay(deal.price)) return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };
+      if (deal.food) city.food = Math.min(FOOD_STOCK_MAX, city.food + deal.food);
+      city.funds -= spent;
+      city.revision += 1;
+      return { ok: true, spent, applied: [index], rejected };
+    }
+    if (deal.requires === "food") {
+      const take = Math.abs(deal.food ?? 0);
+      if (city.food < take) return { ok: false, reason: "no_stock", spent: 0, applied, rejected: [index] };
+      city.food -= take;
+    } else if (deal.requires === "commercial" && !zonePresent(city, Zone.Commercial)) {
+      return { ok: false, reason: "no_market", spent: 0, applied, rejected: [index] };
+    } else if (deal.requires === "industrial" && !zonePresent(city, Zone.Industrial)) {
+      return { ok: false, reason: "no_market", spent: 0, applied, rejected: [index] };
+    }
+    city.funds = Math.min(5_000_000, city.funds + deal.price);
+    city.revision += 1;
+    return { ok: true, spent: 0, applied: [index], rejected, bonus: deal.price };
+  }
+
   if (command.type === "hire") {
     const { workplace, home, slot } = command;
     const openings = jobOpenings(city, workplace);
@@ -432,7 +468,11 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
       city.levels[index] = info.level;
       city.budget[index] = 100;
       city.skills[index] = 0;
-      const demand = info.zone === Zone.Residential ? city.demand.residential : info.zone === Zone.Commercial ? city.demand.commercial : city.demand.industrial;
+      const demand =
+        info.zone === Zone.Residential ? city.demand.residential
+        : info.zone === Zone.Commercial ? city.demand.commercial
+        : info.zone === Zone.Industrial ? city.demand.industrial
+        : 0;
       bonus += demandRebate(demand, info.cost);
     } else if (command.type === "fill") {
       city.terrain[index] = 0;
