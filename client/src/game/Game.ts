@@ -19,6 +19,7 @@ import {
   applyCommand,
   asUint8Array,
   cleanChat,
+  goalProgress,
   brushCells,
   buildMeta,
   canPlace,
@@ -279,7 +280,7 @@ export class Game {
     window.addEventListener("resize", () => this.resize());
     this.hud.setContinueVisible(listCitySlots(localStorage).length > 0);
     this.hud.setLevelUnlock(loadUnlockedLevel());
-    this.setBriefOpen(!isCompactHud());
+    this.setBriefOpen(false);
     this.hud.setRosterOpen(false);
     this.hud.setChatOpen(false);
     this.hud.setChatUnread(0);
@@ -306,7 +307,7 @@ export class Game {
         this.setBriefOpen(false);
         this.setRosterOpen(false);
         this.setChatOpen(false);
-      } else {
+      } else if (this.playKind === "level") {
         this.setBriefOpen(true);
       }
       this.refreshHint();
@@ -970,7 +971,7 @@ export class Game {
       this.renderPlayers(payload.players);
       this.loadChat(payload.chat);
       this.rememberWorker(false);
-      this.setBriefOpen(!isCompactHud());
+      this.beginSession(Boolean(payload.level));
       this.flash(payload.level ? "Level-Koop verbunden. Ihr baut an derselben Aufgabe." : "Verbunden. Bauaktionen laufen über den Server.");
     });
     socket.on("state", (payload: StatePayload) => {
@@ -1104,7 +1105,7 @@ export class Game {
   }
 
   private publish(meta: SimMeta = buildMeta(this.city)): void {
-    this.hud.setStats(meta);
+    this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
     this.view.sync(this.city, this.overlays);
     if (this.playKind === "level") this.syncLevel();
     else this.maybeAutoSave();
@@ -1260,7 +1261,7 @@ export class Game {
     this.hud.setPlayers("");
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
-    this.setBriefOpen(!isCompactHud());
+    this.beginSession(false);
     const fresh = createCity(undefined, undefined, this.hud.mapGenOptions());
     writeCity(this.city, packCells(fresh), buildMeta(fresh));
     this.city.gen = fresh.gen ? { ...fresh.gen } : undefined;
@@ -1295,7 +1296,7 @@ export class Game {
     this.hud.setPlayers("");
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
-    this.setBriefOpen(!isCompactHud());
+    this.beginSession(false);
     writeCity(this.city, packCells(loaded), buildMeta(loaded));
     this.city.gen = loaded.gen ? { ...loaded.gen } : undefined;
     refreshUtilities(this.city);
@@ -1438,7 +1439,7 @@ export class Game {
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
     this.hud.setLevelUnlock(loadUnlockedLevel(), id);
-    this.setBriefOpen(!isCompactHud());
+    this.beginSession(true);
   }
 
   private applyLevelSync(sync: LevelSync): void {
@@ -1530,6 +1531,12 @@ export class Game {
     this.hud.hideLevelEnd();
   }
 
+  private beginSession(level: boolean): void {
+    this.hud.resetQuests();
+    this.setBriefOpen(level && !isCompactHud());
+    this.hud.showQuestIntro();
+  }
+
   private setBriefOpen(open: boolean): void {
     this.briefOpen = open;
     this.hud.setBriefOpen(open);
@@ -1584,7 +1591,7 @@ export class Game {
       this.briefOpen = false;
       this.hud.setBriefOpen(false);
     }
-    if (keep === "chat" || keep === "roster" || keep === "inspect") this.hud.setMenuOpen(false);
+    this.hud.setMenuOpen(false);
   }
 
   private sendChat(value: string): void {
