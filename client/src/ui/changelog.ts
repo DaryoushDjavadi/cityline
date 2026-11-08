@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.39",
+    at: "8. Nov 2026",
+    title: "Aufträge im Blick & neues Baumenü",
+    items: [
+      "Der aktuelle Auftrag steht jetzt immer oben im Bild — mit Fortschritt, Belohnung und kurzem Hinweis beim Start. Auf dem Handy lässt er sich einklappen.",
+      "Erledigte Aufträge werden groß gefeiert, inklusive Belohnung und dem nächsten Auftrag.",
+      "Das Baumenü ist nach Kategorien sortiert (Gebäude, Verkehr, Versorgung, Dienste, Nahrung, Gelände) und zeigt kompakte Kacheln mit Preis. Details per Maus oder langem Tippen.",
+    ],
+  },
+  {
     version: "0.38",
     at: "4. Nov 2026",
     title: "Stabiler Bau & Handy",
