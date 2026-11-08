@@ -22,7 +22,26 @@ export const GOALS: CityGoal[] = [
   { bit: 512, title: "Richtige Stadt", text: "120 Einwohner und acht besetzte Jobs.", reward: 20_000 },
 ];
 
-export function goalMask(city: CityState): number {
+export interface GoalProgress {
+  /** 0..1 */
+  ratio: number;
+  label: string;
+}
+
+interface GoalCounts {
+  roads: number;
+  homes: number;
+  lit: boolean;
+  jobs: number;
+  population: number;
+  commercial: boolean;
+  industrial: boolean;
+  park: boolean;
+  school: boolean;
+  bridge: boolean;
+}
+
+function countGoals(city: CityState): GoalCounts {
   let roads = 0;
   let homes = 0;
   let lit = false;
@@ -53,6 +72,11 @@ export function goalMask(city: CityState): number {
     const zone = city.zones[workplace];
     if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm)) jobs += 1;
   }
+  return { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge };
+}
+
+export function goalMask(city: CityState): number {
+  const { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge } = countGoals(city);
   let mask = 0;
   if (roads >= 6) mask |= 1;
   if (homes >= 1) mask |= 2;
@@ -65,6 +89,36 @@ export function goalMask(city: CityState): number {
   if (bridge) mask |= 256;
   if (population >= 120 && jobs >= 8) mask |= 512;
   return mask;
+}
+
+/** Live progress toward one city contract, for the quest tracker. */
+export function goalProgress(city: CityState, bit: number): GoalProgress {
+  const c = countGoals(city);
+  const count = (current: number, target: number): GoalProgress => ({
+    ratio: Math.max(0, Math.min(1, current / target)),
+    label: `${Math.min(current, target)}/${target}`,
+  });
+  const flag = (done: boolean): GoalProgress => ({ ratio: done ? 1 : 0, label: done ? "fertig" : "0/1" });
+  switch (bit) {
+    case 1: return count(c.roads, 6);
+    case 2: return count(c.homes, 1);
+    case 4: return flag(c.lit);
+    case 8: return count(c.jobs, 1);
+    case 16: return count(c.population, 48);
+    case 32: return count(Number(c.commercial) + Number(c.industrial), 2);
+    case 64: return flag(c.park);
+    case 128: return flag(c.school);
+    case 256: return flag(c.bridge);
+    case 512: {
+      const pop = Math.min(1, c.population / 120);
+      const jobs = Math.min(1, c.jobs / 8);
+      return {
+        ratio: (pop + jobs) / 2,
+        label: `${Math.min(c.population, 120)}/120 EW · ${Math.min(c.jobs, 8)}/8 Jobs`,
+      };
+    }
+    default: return { ratio: 0, label: "" };
+  }
 }
 
 export function claimGoals(city: CityState): number {

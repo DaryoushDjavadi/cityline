@@ -1,4 +1,4 @@
-import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
+import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 {
@@ -219,6 +219,20 @@ if (!applyCommand(muted, { type: "road", cells: spineRoad }).ok) throw new Error
 const beforeGoals = muted.funds;
 claimGoals(muted);
 if (muted.funds !== beforeGoals) throw new Error("level mask must block freeplay payouts");
+
+{
+  const fresh = createCity();
+  fresh.terrain.fill(0);
+  const empty = goalProgress(fresh, 1);
+  if (empty.ratio !== 0 || empty.label !== "0/6") throw new Error(`road progress start ${empty.label}`);
+  const three = [];
+  for (let x = 20; x <= 22; x += 1) three.push(cellIndex(fresh, x, 32));
+  if (!applyCommand(fresh, { type: "road", cells: three }).ok) throw new Error("progress road");
+  const half = goalProgress(fresh, 1);
+  if (half.label !== "3/6" || Math.abs(half.ratio - 0.5) > 1e-9) throw new Error(`road progress half ${half.label}`);
+  if (goalProgress(muted, 1).label !== "6/6" || goalProgress(muted, 1).ratio !== 1) throw new Error("road progress capped");
+  if (!/\/120 EW · \d+\/8 Jobs$/.test(goalProgress(fresh, 512).label)) throw new Error("final goal progress label");
+}
 
 if (levelRoomCode(1, "Hauptstadt") !== "l1-hauptstadt") throw new Error("level room code");
 if (levelRoomCode(3, "l3-hauptstadt") !== "l3-hauptstadt") throw new Error("level room strips prefix");
