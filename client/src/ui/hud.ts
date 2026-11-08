@@ -12,12 +12,14 @@ import {
   randomSeed,
   type BiomeId,
   type ChatMessage,
+  type GoalProgress,
   type LevelStatus,
   type MapGenOptions,
   type SimMeta,
 } from "../../../shared/src/index.ts";
 import { playSfx } from "../audio/sfx.ts";
 import { paintMapPreview } from "../render/mapPreview.ts";
+import { mountBuildMenu } from "./buildMenu.ts";
 import { CHANGELOG, type PatchNote } from "./changelog.ts";
 import { isCompactHud, onCompactHudChange } from "./layout.ts";
 
@@ -159,6 +161,7 @@ export interface HudControls {
 }
 
 const money = new Intl.NumberFormat("de-DE");
+const QUEST_HINT_KEY = "cityline-quest-hint";
 
 function compactMoney(value: number): string {
   const abs = Math.abs(value);
@@ -167,9 +170,14 @@ function compactMoney(value: number): string {
   return money.format(value);
 }
 
+export type QuestProgress = (bit: number) => GoalProgress;
+
 export interface Hud {
   setTool: (tool: ToolId) => void;
-  setStats: (meta: SimMeta) => void;
+  setStats: (meta: SimMeta, progress?: QuestProgress) => void;
+  /** New city or room: forget seen quests so loading a save does not celebrate old ones. */
+  resetQuests: () => void;
+  showQuestIntro: () => void;
   setStatus: (text: string) => void;
   setHint: (text: string) => void;
   setMode: (text: string) => void;
@@ -219,6 +227,7 @@ export interface Hud {
 }
 
 export function createHud(events: HudControls): Hud {
+  const buildMenu = mountBuildMenu(required("#build-tabs"), required("#build-grids"), required("#build-detail"));
   const toolButtons = [...document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool], #tool-inspect-hud")];
   const togglePan = requiredButton("#toggle-pan");
   const togglePanHud = requiredButton("#toggle-pan-hud");
@@ -298,6 +307,25 @@ export function createHud(events: HudControls): Hud {
   const levelEnd = required("#level-end");
   const levelEndSheet = required(".level-sheet");
   const toast = required("#toast");
+  const toastKicker = required("#toast-kicker");
+  const toastTitle = required("#toast-title");
+  const toastPay = required("#toast-pay");
+  const toastNext = required("#toast-next");
+  const quest = required("#quest");
+  const questMain = requiredButton("#open-brief");
+  const questCollapse = requiredButton("#quest-collapse");
+  const questKicker = required("#quest-kicker");
+  const questTitle = required("#quest-title");
+  const questText = required("#quest-text");
+  const questPay = required("#quest-pay");
+  const questFill = required<HTMLElement>("#quest-fill");
+  const questRing = required<SVGCircleElement>("#quest-ring");
+  const questCount = required("#quest-count");
+  const questHint = required("#quest-hint");
+  let questKey = "";
+  let questStateTimer = 0;
+  let questHintTimer = 0;
+  let seenLevelDone: number | null = null;
   const saveToast = required("#save-toast");
   const rank = required("#rank");
   let seenGoals: number | null = null;
@@ -368,6 +396,7 @@ export function createHud(events: HudControls): Hud {
     event.stopPropagation();
     menuOpen = !menuOpen;
     paintMenu();
+    if (menuOpen && isCompactHud()) hideQuestHint(false);
     if (menuOpen) events.onCompactPanel("menu");
   });
   toggleDemand.addEventListener("click", () => {
@@ -525,7 +554,43 @@ export function createHud(events: HudControls): Hud {
   requiredButton("#lobby-back").addEventListener("click", () => events.onLobbyBack());
   requiredButton("#lobby-close").addEventListener("click", () => events.onLobbyBack());
   requiredButton("#open-lobby").addEventListener("click", () => events.onOpenLobby());
-  requiredButton("#open-brief").addEventListener("click", () => events.onToggleBrief());
+  const setQuestCollapsed = (collapsed: boolean) => {
+    quest.dataset.collapsed = collapsed ? "on" : "off";
+    document.body.dataset.quest = collapsed ? "collapsed" : "open";
+    const label = collapsed ? "Auftrag ausklappen" : "Auftrag einklappen";
+    questCollapse.setAttribute("aria-label", label);
+    questCollapse.title = label;
+  };
+  questMain.addEventListener("click", () => {
+    hideQuestHint(false);
+    if (quest.dataset.collapsed === "on" && isCompactHud()) {
+      setQuestCollapsed(false);
+      return;
+    }
+    events.onToggleBrief();
+  });
+  questCollapse.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setQuestCollapsed(quest.dataset.collapsed !== "on");
+    hideQuestHint(false);
+  });
+  onCompactHudChange((compact) => {
+    if (!compact) setQuestCollapsed(false);
+  });
+  requiredButton("#quest-hint-ok").addEventListener("click", () => hideQuestHint(true));
+  const topbar = required("#topbar");
+  const syncHudEdges = () => {
+    const root = document.documentElement.style;
+    root.setProperty("--hud-bottom", `${Math.round(topbar.getBoundingClientRect().bottom)}px`);
+    root.setProperty("--quest-bottom", `${Math.round(quest.getBoundingClientRect().bottom)}px`);
+  };
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(syncHudEdges);
+    observer.observe(topbar);
+    observer.observe(quest);
+  }
+  window.addEventListener("resize", syncHudEdges);
+  syncHudEdges();
   requiredButton("#brief-close").addEventListener("click", () => events.onCloseBrief());
   requiredButton("#open-players").addEventListener("click", () => events.onToggleRoster());
   requiredButton("#roster-close").addEventListener("click", () => events.onToggleRoster());
@@ -571,7 +636,79 @@ export function createHud(events: HudControls): Hud {
     events.onBudget(Number(budget.value));
   });
 
+  function hideQuestHint(remember: boolean): void {
+    window.clearTimeout(questHintTimer);
+    questHint.hidden = true;
+    if (!remember) return;
+    try {
+      localStorage.setItem(QUEST_HINT_KEY, "1");
+    } catch {
+      // Without storage the hint simply shows again next time.
+    }
+  }
+
+  function paintQuest(view: { key: string; kicker: string; title: string; text: string; pay: string; ratio: number; count: string; mini: string }): void {
+    questKicker.textContent = view.kicker;
+    questTitle.textContent = view.title;
+    questText.textContent = view.text;
+    questPay.textContent = view.pay;
+    questPay.hidden = !view.pay;
+    const pct = Math.round(Math.max(0, Math.min(1, view.ratio)) * 100);
+    questFill.style.width = `${pct}%`;
+    questRing.style.strokeDasharray = `${pct} 100`;
+    questCount.textContent = view.count;
+    questCount.hidden = !view.count;
+    mission.textContent = view.mini;
+    questMain.setAttribute("aria-label", `${view.kicker}: ${view.title}${view.count ? `, ${view.count}` : ""}${view.pay ? `, Belohnung ${view.pay}` : ""}`);
+    if (questKey && view.key !== questKey) flashQuest("new");
+    questKey = view.key;
+  }
+
+  function flashQuest(state: "new" | "done"): void {
+    quest.dataset.state = "idle";
+    void quest.offsetWidth;
+    quest.dataset.state = state;
+    window.clearTimeout(questStateTimer);
+    questStateTimer = window.setTimeout(() => { quest.dataset.state = "idle"; }, state === "new" ? 2600 : 1400);
+  }
+
+  function celebrate(view: { kicker: string; title: string; pay: string; next: string }): void {
+    toastKicker.textContent = view.kicker;
+    toastTitle.textContent = view.title;
+    toastPay.textContent = view.pay;
+    toastPay.hidden = !view.pay;
+    toastNext.textContent = view.next;
+    toastNext.hidden = !view.next;
+    toast.hidden = false;
+    toast.classList.remove("pop");
+    void toast.offsetWidth;
+    toast.classList.add("pop");
+    playSfx("goal");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      toast.hidden = true;
+      toast.classList.remove("pop");
+    }, 4600);
+  }
+
   return {
+    resetQuests() {
+      seenGoals = null;
+      seenLevelDone = null;
+      questKey = "";
+    },
+    showQuestIntro() {
+      let seen = false;
+      try {
+        seen = localStorage.getItem(QUEST_HINT_KEY) === "1";
+      } catch {
+        seen = false;
+      }
+      if (seen) return;
+      questHint.hidden = false;
+      window.clearTimeout(questHintTimer);
+      questHintTimer = window.setTimeout(() => hideQuestHint(false), 12_000);
+    },
     setTool(tool) {
       document.body.dataset.tool = tool;
       toolButtons.forEach((button) => {
@@ -579,8 +716,9 @@ export function createHud(events: HudControls): Hud {
         button.classList.toggle("active", on);
         if (button === inspectHud) button.setAttribute("aria-pressed", String(on));
       });
+      buildMenu.showTool(tool);
     },
-    setStats(meta) {
+    setStats(meta, progress) {
       const climate = climateAt(meta.tick);
       clock.textContent = climate.clock;
       weather.dataset.weather = climate.weather;
@@ -620,36 +758,51 @@ export function createHud(events: HudControls): Hud {
         briefTitle.textContent = goal.title;
         briefText.textContent = goal.text;
         briefPay.hidden = false;
-        briefPay.textContent = `+${money.format(goal.reward)} €`;
-        mission.textContent = `${goal.title} · ${done + 1}/${GOALS.length}`;
+        briefPay.textContent = `Belohnung +${money.format(goal.reward)} €`;
+        const live = progress?.(goal.bit) ?? { ratio: 0, label: "" };
+        paintQuest({
+          key: `goal:${goal.bit}`,
+          kicker: `Auftrag ${done + 1}/${GOALS.length}`,
+          title: goal.title,
+          text: goal.text,
+          pay: `+${money.format(goal.reward)} €`,
+          ratio: live.ratio,
+          count: live.label,
+          mini: `${done + 1}/${GOALS.length}`,
+        });
       } else {
         briefKicker.textContent = `Aufträge ${GOALS.length}/${GOALS.length}`;
         briefTitle.textContent = "Die Stadt steht";
         briefText.textContent = "Alle Aufträge sind bezahlt. Bau weiter, worauf du Lust hast.";
         briefPay.hidden = true;
-        mission.textContent = "Stadt steht";
+        paintQuest({
+          key: "goal:done",
+          kicker: `Aufträge ${GOALS.length}/${GOALS.length}`,
+          title: "Die Stadt steht",
+          text: "Alle Aufträge sind bezahlt. Bau weiter, worauf du Lust hast.",
+          pay: "",
+          ratio: 1,
+          count: "fertig",
+          mini: "✓",
+        });
       }
       const previous = seenGoals;
       if (previous !== null && goals !== previous) {
         const fresh = GOALS.filter((entry) => (goals & entry.bit) !== 0 && (previous & entry.bit) === 0);
         if (fresh.length > 0) {
           const pay = fresh.reduce((sum, entry) => sum + entry.reward, 0);
-          toast.textContent = fresh.length === 1 ? `${fresh[0].title} erledigt, +${money.format(pay)} €` : `${fresh.length} Aufträge erledigt, +${money.format(pay)} €`;
-          toast.hidden = false;
-          toast.classList.remove("pop");
-          void toast.offsetWidth;
-          toast.classList.add("pop");
-          playSfx("goal");
+          celebrate({
+            kicker: fresh.length === 1 ? "Auftrag erledigt" : `${fresh.length} Aufträge erledigt`,
+            title: fresh.length === 1 ? fresh[0].title : fresh.map((entry) => entry.title).join(" · "),
+            pay: `Belohnung +${money.format(pay)} €`,
+            next: goal ? `Neuer Auftrag: ${goal.title} – ${goal.text}` : "Alle Aufträge geschafft. Die Stadt steht!",
+          });
+          flashQuest("done");
           funds.classList.remove("pulse-good", "pulse-bad");
           void funds.offsetWidth;
           funds.classList.add("pulse-good");
           window.clearTimeout(fundsPulseTimer);
           fundsPulseTimer = window.setTimeout(() => funds.classList.remove("pulse-good", "pulse-bad"), 700);
-          window.clearTimeout(toastTimer);
-          toastTimer = window.setTimeout(() => {
-            toast.hidden = true;
-            toast.classList.remove("pop");
-          }, 3400);
         }
       }
       seenGoals = goals;
@@ -706,6 +859,7 @@ export function createHud(events: HudControls): Hud {
     setPlayKind(kind) {
       levelMode = kind === "level";
       document.body.dataset.play = kind;
+      if (!levelMode) quest.classList.remove("late");
       briefGoals.hidden = !levelMode;
       briefTime.hidden = true;
       briefRetry.hidden = !levelMode;
@@ -732,20 +886,43 @@ export function createHud(events: HudControls): Hud {
         row.append(label, value);
         return row;
       }));
+      const open = status.objectives.find((entry) => !entry.done);
+      const clock = status.remainingSeconds === null ? "" : `Zeit ${formatClock(status.remainingSeconds)}`;
       if (status.remainingSeconds === null) {
         briefTime.hidden = true;
-        mission.textContent = `Level ${status.level.id} · ${done}/${status.objectives.length}`;
       } else {
         briefTime.hidden = false;
-        briefTime.textContent = `Zeit ${formatClock(status.remainingSeconds)}`;
+        briefTime.textContent = clock;
         briefTime.classList.toggle("late", status.remainingSeconds <= 60);
-        mission.textContent = `Level ${status.level.id} · ${done}/${status.objectives.length} · ${formatClock(status.remainingSeconds)}`;
       }
+      quest.classList.toggle("late", status.remainingSeconds !== null && status.remainingSeconds <= 60);
+      paintQuest({
+        key: `level:${status.level.id}:${open?.text ?? "done"}`,
+        kicker: `Level ${status.level.id} · Ziel ${Math.min(done + 1, status.objectives.length)}/${status.objectives.length}`,
+        title: open ? open.text : status.level.title,
+        text: status.level.blurb,
+        pay: clock,
+        ratio: open ? open.current / Math.max(1, open.target) : 1,
+        count: open ? `${money.format(Math.min(open.current, open.target))}/${money.format(open.target)}` : "fertig",
+        mini: `${done}/${status.objectives.length}`,
+      });
+      if (seenLevelDone !== null && done > seenLevelDone && !status.won) {
+        const finished = status.objectives.filter((entry) => entry.done).map((entry) => entry.text);
+        celebrate({
+          kicker: "Ziel erreicht",
+          title: finished[finished.length - 1] ?? status.level.title,
+          pay: "",
+          next: open ? `Nächstes Ziel: ${open.text}` : "",
+        });
+        flashQuest("done");
+      }
+      seenLevelDone = done;
     },
     setMission(summary) { mission.textContent = summary; },
     setBriefOpen(open) {
       document.body.dataset.brief = open ? "open" : "closed";
       brief.hidden = !open;
+      questMain.setAttribute("aria-expanded", String(open));
     },
     setRoster(players, note) {
       rosterNote.textContent = note;
@@ -844,6 +1021,7 @@ export function createHud(events: HudControls): Hud {
     clearToast() {
       toast.hidden = true;
       window.clearTimeout(toastTimer);
+      hideQuestHint(false);
     },
     setPanMode(on) {
       togglePan.classList.toggle("active", on);

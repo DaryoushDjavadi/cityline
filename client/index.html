@@ -6,7 +6,7 @@
     <title>Cityline</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-tool="inspect" data-menu="open" data-brief="open" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-orbit="off" data-demand="closed" data-stats="open">
+  <body data-tool="inspect" data-menu="open" data-brief="closed" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-orbit="off" data-demand="closed" data-stats="open">
     <canvas id="view"></canvas>
     <header id="topbar">
       <div class="brand">
@@ -89,17 +89,38 @@
         <strong id="stat-tip-title"></strong>
         <p id="stat-tip-text"></p>
       </div>
+      <div id="quest" data-state="idle" data-collapsed="off">
+        <button id="open-brief" class="quest-main" type="button" aria-controls="brief" aria-expanded="false" title="Auftrag anzeigen">
+          <span class="quest-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 4h11l-2 4 2 4H6"/></svg>
+            <svg class="quest-ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" pathLength="100"/><circle id="quest-ring" cx="18" cy="18" r="15.5" pathLength="100"/></svg>
+          </span>
+          <span class="quest-copy">
+            <span class="quest-line">
+              <em id="quest-kicker">Auftrag 1/10</em>
+              <b id="quest-pay">+2.000 €</b>
+            </span>
+            <strong id="quest-title">Erste Straße</strong>
+            <span id="quest-text">Leg mindestens sechs Straßenfelder.</span>
+            <span class="quest-progress">
+              <span class="quest-bar"><i id="quest-fill"></i></span>
+              <span id="quest-count">0/6</span>
+            </span>
+          </span>
+          <span id="mission-summary" class="quest-mini">1/10</span>
+        </button>
+        <button id="quest-collapse" class="quest-collapse" type="button" aria-label="Auftrag einklappen" title="Auftrag einklappen">
+          <span class="quest-chevron" aria-hidden="true"></span>
+        </button>
+        <div id="quest-hint" class="quest-hint" hidden role="status">
+          <p><b>Aufträge</b> Hier steht immer dein aktueller Auftrag. Jeder erledigte Auftrag bringt Geld. Tippe für Details.</p>
+          <button id="quest-hint-ok" type="button">Verstanden</button>
+        </div>
+      </div>
       <div class="top-actions">
         <button id="toggle-stats" class="hud-btn" type="button" aria-expanded="true" aria-controls="city-stats" aria-label="Werte ausblenden" title="Werte ausblenden">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="12" r="3"/><path d="M5 12h3M16 12h3"/></svg>
           <span class="hud-text">Werte</span>
-        </button>
-        <button id="open-brief" type="button" aria-label="Aufgabe">
-          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9l1.5 2H20v14H5Z"/><path d="M5 4v16"/></svg>
-          <span class="brief-copy">
-            <em>Aufgabe</em>
-            <span id="mission-summary">1/10</span>
-          </span>
         </button>
         <button id="open-players" class="hud-btn" type="button" aria-label="Spieler">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9" r="2"/><path d="M4 19c.8-2.6 2.4-4 5-4s4.2 1.4 5 4"/><path d="M13 19c.6-2 1.8-3.2 3.8-3.2 1.6 0 2.8.8 3.4 2.2"/></svg>
@@ -156,108 +177,28 @@
           <span id="toggle-label">Menü zuklappen</span>
         </button>
       </div>
-      <aside id="rail">
-        <section>
-          <p>Schauen</p>
-          <div class="tools">
-            <button type="button" data-tool="inspect" class="active">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
-              Lupe
-            </button>
-            <button id="toggle-pan" type="button" aria-pressed="false">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
-              Verschieben
-            </button>
-            <button id="toggle-orbit" type="button" aria-pressed="false">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.3 4"/><path d="M5.5 5.5v3.8h3.8"/></svg>
-              Drehen
-            </button>
-          </div>
-        </section>
-        <section data-build-inspect>
-          <p>Bauen</p>
-          <div class="tools">
-            <button type="button" data-tool="inspect" class="active">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
-              Lupe
-            </button>
-          </div>
-        </section>
-        <section>
-          <p>Straßen</p>
-          <div class="tools">
-            <button type="button" data-tool="road">Straße</button>
-            <button type="button" data-tool="bridge">Brücke</button>
-            <button type="button" data-tool="lamp">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 1.4-.8 2.2-1.5 3.2-.5.7-.8 1.3-.9 2.3h-1.2c-.1-1-.4-1.6-.9-2.3-.7-1-1.5-1.8-1.5-3.2Z"/><path d="M11 14h2v7h-2z"/><path d="M9 21h6"/></svg>
-              Laterne
-            </button>
-          </div>
-        </section>
-        <section>
-          <p>Gelände</p>
-          <div class="tools">
-            <button type="button" data-tool="fill">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19h18L14.5 8.5 12 12 8.5 7Z"/><path d="M5 19v2M19 19v2"/></svg>
-              Aufschütten
-            </button>
-            <button type="button" data-tool="bulldoze">
-              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13v-3h3l2-3h7v6"/><rect x="8" y="13" width="11" height="4" rx="1"/><path d="M3 10v5h5"/><circle cx="10" cy="19" r="2"/><circle cx="17" cy="19" r="2"/></svg>
-              Abriss
-            </button>
-          </div>
-        </section>
-        <section>
-          <p>Wohnhäuser</p>
-          <div class="tools">
-            <button type="button" data-tool="cottage">Kleines Haus</button>
-            <button type="button" data-tool="apartments">Mehrfamilienhaus</button>
-            <button type="button" data-tool="tower">Hochhaus</button>
-          </div>
-        </section>
-        <section>
-          <p>Gewerbe</p>
-          <div class="tools">
-            <button type="button" data-tool="shop">Laden</button>
-            <button type="button" data-tool="office">Bürohaus</button>
-            <button type="button" data-tool="mall">Kaufhaus</button>
-          </div>
-        </section>
-        <section>
-          <p>Industrie</p>
-          <div class="tools">
-            <button type="button" data-tool="workshop">Werkstatt</button>
-            <button type="button" data-tool="factory">Fabrik</button>
-            <button type="button" data-tool="plant">Industrieanlage</button>
-          </div>
-        </section>
-        <section>
-          <p>Landwirtschaft</p>
-          <div class="tools">
-            <button type="button" data-tool="farm">Bauernhof</button>
-          </div>
-        </section>
-        <section>
-          <p>Versorgung</p>
-          <div class="tools">
-            <button type="button" data-tool="power">Kraftwerk</button>
-            <button type="button" data-tool="water">Wasserwerk</button>
-            <button type="button" data-tool="line">Strom</button>
-            <button type="button" data-tool="pipe">Wasser</button>
-          </div>
-        </section>
-        <section>
-          <p>Öffentlich</p>
-          <div class="tools">
-            <button type="button" data-tool="school">Schule</button>
-            <button type="button" data-tool="university">Universität</button>
-            <button type="button" data-tool="clinic">Klinik</button>
-            <button type="button" data-tool="police">Polizei</button>
-            <button type="button" data-tool="fire">Feuerwehr</button>
-            <button type="button" data-tool="park">Park</button>
-            <button type="button" data-tool="airport">Flughafen</button>
-          </div>
-        </section>
+      <aside id="rail" aria-label="Baumenü">
+        <div class="rail-quick">
+          <button type="button" data-tool="inspect" class="quick-tool active" title="Lupe">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15.5 15.5 4 4"/></svg>
+            <span>Lupe</span>
+          </button>
+          <button id="toggle-pan" type="button" class="quick-tool" aria-pressed="false" title="Verschieben">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.2V7.4a1.4 1.4 0 0 1 2.8 0V11"/><path d="M10.8 10.6V6.6a1.4 1.4 0 0 1 2.8 0V11"/><path d="M13.6 11V8.3a1.4 1.4 0 0 1 2.8 0V13.2c0 3.2-1.9 5.6-5.2 5.6S6 16.4 6 13.2v-2.4a1.4 1.4 0 0 1 2.8 0V11.2"/></svg>
+            <span>Verschieben</span>
+          </button>
+          <button id="toggle-orbit" type="button" class="quick-tool" aria-pressed="false" title="Drehen">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.3 4"/><path d="M5.5 5.5v3.8h3.8"/></svg>
+            <span>Drehen</span>
+          </button>
+          <button type="button" data-tool="bulldoze" class="quick-tool" title="Abriss">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13v-3h3l2-3h7v6"/><rect x="8" y="13" width="11" height="4" rx="1"/><path d="M3 10v5h5"/><circle cx="10" cy="19" r="2"/><circle cx="17" cy="19" r="2"/></svg>
+            <span>Abriss</span>
+          </button>
+        </div>
+        <div id="build-tabs" class="build-tabs"></div>
+        <div id="build-grids" class="build-grids"></div>
+        <div id="build-detail" class="build-detail" aria-live="polite"></div>
       </aside>
     </div>
     <aside id="demand">
@@ -346,7 +287,13 @@
         <em id="build-cursor-hint">Doppelklick beendet</em>
       </span>
     </div>
-    <div id="toast" hidden></div>
+    <div id="toast" hidden role="status" aria-live="polite">
+      <span class="toast-burst" aria-hidden="true"></span>
+      <em id="toast-kicker">Auftrag erledigt</em>
+      <strong id="toast-title"></strong>
+      <b id="toast-pay"></b>
+      <span id="toast-next"></span>
+    </div>
     <div id="save-toast" hidden>Stadt gespeichert</div>
     <footer>
       <p id="status">Lupe wählen und ein Feld anklicken.</p>
