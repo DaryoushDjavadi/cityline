@@ -8,6 +8,7 @@
   </head>
   <body data-tool="inspect" data-menu="open" data-brief="closed" data-inspect="off" data-roster="off" data-chat="off" data-pan="off" data-orbit="off" data-demand="closed" data-stats="open">
     <canvas id="view"></canvas>
+    <div id="view-vignette" aria-hidden="true"></div>
     <header id="topbar">
       <div class="brand">
         <strong>Cityline</strong>
@@ -214,6 +215,14 @@
         <label><input id="ov-zones" type="checkbox" checked /> Zonen</label>
         <label><input id="ov-power" type="checkbox" /> Stromnetz</label>
         <label><input id="ov-water" type="checkbox" /> Wassernetz</label>
+        <label class="gfx-field">Grafik
+          <select id="gfx-quality">
+            <option value="auto">Auto</option>
+            <option value="high">Hoch</option>
+            <option value="medium">Mittel</option>
+            <option value="low">Schonend</option>
+          </select>
+        </label>
       </div>
     </aside>
     <aside id="inspector" hidden data-kind="field">

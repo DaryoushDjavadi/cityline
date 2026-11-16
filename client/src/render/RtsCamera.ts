@@ -5,11 +5,12 @@ const HALF = (GRID_SIZE * CELL_SIZE) / 2;
 const ROTATE_TAP = 0.18;
 
 export class RtsCamera {
-  readonly camera = new THREE.PerspectiveCamera(48, 1, 0.5, 2800);
+  readonly camera = new THREE.PerspectiveCamera(56, 1, 0.5, 3200);
   readonly target = new THREE.Vector3(0, 0, 0);
   azimuth = 0.7;
   polar = 0.9;
   distance = 420;
+  lookLift = 0;
 
   private readonly keys = new Set<string>();
   private dragging: "pan" | "orbit" | null = null;
@@ -73,7 +74,7 @@ export class RtsCamera {
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1) this.dragMoved = true;
     if (this.dragging === "orbit") {
       this.azimuth -= dx * 0.005;
-      this.polar = clamp(this.polar - dy * 0.003, 0.38, 1.22);
+      this.polar = clamp(this.polar - dy * 0.003, 0.38, 1.28);
       return;
     }
     this.pan(dx, dy);
@@ -125,9 +126,10 @@ export class RtsCamera {
   resetOverview(): void {
     this.focusEase = null;
     this.target.set(0, 0, 0);
-    this.azimuth = 0.7;
-    this.polar = 0.95;
-    this.distance = 480;
+    this.azimuth = 0.58;
+    this.polar = 1.04;
+    this.lookLift = 6;
+    this.distance = 205;
   }
 
   update(dt: number): void {
@@ -183,7 +185,7 @@ export class RtsCamera {
     const limit = HALF - 40;
     this.target.x = clamp(this.target.x, -limit, limit);
     this.target.z = clamp(this.target.z, -limit, limit);
-    this.polar = clamp(this.polar, 0.38, 1.22);
+    this.polar = clamp(this.polar, 0.38, 1.28);
 
     const height = Math.cos(this.polar);
     const ring = Math.sin(this.polar);
@@ -192,7 +194,7 @@ export class RtsCamera {
       this.distance * height,
       this.target.z + this.distance * ring * Math.cos(this.azimuth),
     );
-    this.camera.lookAt(this.target);
+    this.camera.lookAt(this.target.x, this.lookLift, this.target.z);
   }
 
   private groundPoint(clientX: number, clientY: number, rect: DOMRect): { x: number; z: number } | null {

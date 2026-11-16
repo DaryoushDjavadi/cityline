@@ -21,6 +21,33 @@ html, body {
   display: block;
   touch-action: none;
 }
+#view-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(42, 24, 14, 0.22) 100%);
+}
+body[data-vignette="on"] #view-vignette { opacity: 1; }
+body[data-look="shot"] #topbar,
+body[data-look="shot"] #dock,
+body[data-look="shot"] #demand,
+body[data-look="shot"] #inspector,
+body[data-look="shot"] #brief,
+body[data-look="shot"] #roster,
+body[data-look="shot"] #chat,
+body[data-look="shot"] footer,
+body[data-look="shot"] #lobby,
+body[data-look="shot"] #name-gate,
+body[data-look="shot"] #notes,
+body[data-look="shot"] #quest,
+body[data-look="shot"] #toast,
+body[data-look="shot"] #save-toast,
+body[data-look="shot"] #peer-cursors,
+body[data-look="shot"] #build-cursor {
+  display: none !important;
+}
 
 body[data-tool="inspect"] #view { cursor: zoom-in; }
 body[data-pan="on"] #view { cursor: grab; }
@@ -1066,6 +1093,21 @@ body[data-play="level"] #brief {
 #demand label { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin-bottom: 8px; font-size: 13px; }
 #demand i { grid-column: 1 / -1; display: block; height: 7px; width: 0; border-radius: 99px; background: #7dbe6a; }
 .overlays { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; font-size: 13px; }
+.gfx-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+.gfx-field select {
+  background: #1c2418;
+  color: #f6f1e6;
+  border: 1px solid rgba(226, 177, 90, 0.45);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+}
 
 #inspector, #roster, #chat {
   right: 14px;
