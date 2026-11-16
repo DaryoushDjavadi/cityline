@@ -32,8 +32,14 @@ import {
   createCity,
   suggestCityName,
   createLevelCity,
+  deleteCityAuth,
   deleteCitySlot,
+  forgetCoopJoined,
   getActiveCityId,
+  loadCityAuth,
+  markCoopJoined,
+  rememberCityPush,
+  wasCoopJoined,
   listCitySlots,
   loadCitySlot,
   loadOrCreateClientId,
@@ -47,6 +53,7 @@ import {
   foodRatio,
   isFarmAction,
   houseReport,
+  inBounds,
   isLine,
   isWorkplace,
   jobOpenings,
@@ -71,6 +78,7 @@ import {
   worldToCell,
   writeCity,
   type ChatMessage,
+  type CityPushReply,
   type CitySave,
   type CityState,
   type Command,
@@ -242,6 +250,10 @@ export class Game {
   private joinRetries = 0;
   private lastRoomCodes: string[] = [];
   private lastRooms: { code: string; players: number }[] = [];
+  /** Cities whose local copy must not be uploaded this session (left coop, or server said stale/forbidden). */
+  private readonly serverSyncBlocked = new Set<string>();
+  /** Uploads run one after another so each one carries the rev the previous one returned. */
+  private pushQueue: Promise<unknown> = Promise.resolve();
   private overlays = loadOverlays();
   private strokeComplete = true;
   private statusUntil = 0;
@@ -319,6 +331,85 @@ export class Game {
     }, 4000);
     this.publish();
     requestAnimationFrame((time) => this.frame(time));
+    if (new URLSearchParams(location.search).has("e2e")) this.attachE2e();
+  }
+
+  /** Browser-test helper: project buildable cells so Playwright can click the real canvas. */
+  private attachE2e(): void {
+    const self = this;
+    (window as unknown as { __citylineE2E: unknown }).__citylineE2E = {
+      snapshot() {
+        let roads = 0;
+        let homes = 0;
+        for (let i = 0; i < self.city.roads.length; i += 1) if (self.city.roads[i]) roads += 1;
+        for (let i = 0; i < self.city.levels.length; i += 1) {
+          if (self.city.levels[i] > 0 && self.city.zones[i] === Zone.Residential) homes += 1;
+        }
+        return {
+          mode: self.mode,
+          room: self.room,
+          funds: self.city.funds,
+          roads,
+          homes,
+          playing: self.playing,
+        };
+      },
+      roadRun(): { cells: { x: number; y: number }[]; screens: { x: number; y: number }[] } | null {
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+        const width = self.canvas.clientWidth || window.innerWidth;
+        const height = self.canvas.clientHeight || window.innerHeight;
+        const rect = self.canvas.getBoundingClientRect();
+        const project = (cx: number, cy: number) => {
+          const world = cellToWorld(self.city, cx, cy);
+          self.cursorNdc.set(world.x, 0.2, world.z).project(self.camera.camera);
+          if (self.cursorNdc.z < -1 || self.cursorNdc.z > 1) return null;
+          const x = (self.cursorNdc.x * 0.5 + 0.5) * width;
+          const y = (-self.cursorNdc.y * 0.5 + 0.5) * height;
+          if (x < 8 || y < 8 || x > width - 8 || y > height - 8) return null;
+          return { x: rect.left + x, y: rect.top + y };
+        };
+        for (let y = 8; y < self.city.height - 8; y += 1) {
+          let run: { x: number; y: number }[] = [];
+          for (let x = 8; x < self.city.width - 8; x += 1) {
+            const index = cellIndex(self.city, x, y);
+            if (canPlace(self.city, index, "road")) run.push({ x, y });
+            else run = [];
+            if (run.length >= 6) {
+              const screens = run.map((cell) => project(cell.x, cell.y));
+              if (screens.every(Boolean)) return { cells: run, screens: screens as { x: number; y: number }[] };
+              run = run.slice(-3);
+            }
+          }
+        }
+        return null;
+      },
+      cottageSpot(): { x: number; y: number; screen: { x: number; y: number } } | null {
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+        const width = self.canvas.clientWidth || window.innerWidth;
+        const height = self.canvas.clientHeight || window.innerHeight;
+        const rect = self.canvas.getBoundingClientRect();
+        for (let i = 0; i < self.city.roads.length; i += 1) {
+          if (!self.city.roads[i]) continue;
+          const { x, y } = cellCoords(self.city, i);
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (!inBounds(self.city, nx, ny)) continue;
+            if (!canPlace(self.city, cellIndex(self.city, nx, ny), "build")) continue;
+            const world = cellToWorld(self.city, nx, ny);
+            self.cursorNdc.set(world.x, 0.2, world.z).project(self.camera.camera);
+            if (self.cursorNdc.z < -1 || self.cursorNdc.z > 1) continue;
+            const sx = (self.cursorNdc.x * 0.5 + 0.5) * width;
+            const sy = (-self.cursorNdc.y * 0.5 + 0.5) * height;
+            if (sx < 8 || sy < 8 || sx > width - 8 || sy > height - 8) continue;
+            return { x: nx, y: ny, screen: { x: rect.left + sx, y: rect.top + sy } };
+          }
+        }
+        return null;
+      },
+    };
   }
 
   private frame(time: number): void {
@@ -965,6 +1056,8 @@ export class Game {
       } else {
         this.clearLevel();
         this.activeCityId = payload.room;
+        // From now on the server owns this city; a local copy is only a fork of it.
+        markCoopJoined(payload.room, localStorage);
         this.hud.setMode(`Koop · ${payload.room}`);
         this.lastSave = performance.now();
       }
@@ -1015,6 +1108,8 @@ export class Game {
 
   private leave(): void {
     const wasMulti = this.mode === "multi";
+    // The city keeps running locally; its autosave must never be posted over the coop room.
+    if (wasMulti && this.activeCityId) this.serverSyncBlocked.add(this.activeCityId);
     this.joinIntent = null;
     this.joinRetries = 0;
     this.leaveSocket();
@@ -1322,9 +1417,13 @@ export class Game {
       return;
     }
     const save = loadCitySlot(code, localStorage);
-    if (save) {
+    const onServer = this.lastRoomCodes.includes(code);
+    // Upload only to create a city the server does not have yet, or as its owner. The server
+    // additionally rejects stale revisions, so an older local save never replaces the room.
+    const upload = save && !this.serverSyncBlocked.has(code) && (!onServer || loadCityAuth(code, localStorage) !== null);
+    if (upload) {
       const pushed = await this.pushCityToServer(save);
-      if (!pushed) {
+      if (!pushed.code && !pushed.reason) {
         this.flash(isDevServer
           ? "Koop-Server nicht erreichbar. Starte ihn auf Port 8787."
           : "Koop-Server nicht erreichbar. Versuch es gleich noch einmal.");
@@ -1353,7 +1452,7 @@ export class Game {
       return;
     }
     const save = loadCitySlot(id, localStorage);
-    const code = save ? await this.pushCityToServer(save) : null;
+    const code = save ? (await this.pushCityToServer(save)).code : null;
     if (!code) {
       this.flash(isDevServer
         ? "Koop-Server nicht erreichbar (Port 8787). Die Stadt liegt lokal bereit — Solo starten geht."
@@ -1376,22 +1475,43 @@ export class Game {
     const save = cityToSave(this.city, name, id);
     if (!writeCitySlot(id, save, localStorage)) return false;
     this.hud.setContinueVisible(true);
-    if (this.mode === "single") void this.pushCityToServer(save);
+    if (this.mode === "single" && this.mayAutoPush(id)) void this.pushCityToServer(save);
     return true;
   }
 
-  private async pushCityToServer(save: CitySave): Promise<string | null> {
+  /** Background sync only for cities this device owns, or never played in coop here. */
+  private mayAutoPush(id: string): boolean {
+    if (this.serverSyncBlocked.has(id)) return false;
+    return loadCityAuth(id, localStorage) !== null || !wasCoopJoined(id, localStorage);
+  }
+
+  /** `code` on success; `reason` when the server refused; neither when it was unreachable. */
+  private pushCityToServer(save: CitySave): Promise<{ code: string | null; reason?: string }> {
+    const run = this.pushQueue.then(() => this.sendCityToServer(save));
+    this.pushQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async sendCityToServer(save: CitySave): Promise<{ code: string | null; reason?: string }> {
+    const id = save.id ?? "";
+    const auth = id ? loadCityAuth(id, localStorage) : null;
     try {
       const response = await fetch(apiUrl("/api/cities"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(save),
+        body: JSON.stringify(auth ? { ...save, ownerKey: auth.key, rev: auth.rev } : save),
       });
-      const body = (await response.json()) as { ok?: boolean; code?: string };
-      if (!response.ok || !body.ok || !body.code) return null;
-      return body.code;
+      const body = (await response.json()) as CityPushReply;
+      if (!response.ok || !body.ok || !body.code) {
+        const reason = body.reason ?? "rejected";
+        // The server has a newer or foreign city under this code: stop syncing over it.
+        if (id && reason !== "bad_city") this.serverSyncBlocked.add(id);
+        return { code: null, reason };
+      }
+      rememberCityPush(body.code, body, localStorage);
+      return { code: body.code };
     } catch {
-      return null;
+      return { code: null };
     }
   }
 
@@ -1720,6 +1840,9 @@ export class Game {
     // Stop autosave from recreating the slot before the server delete finishes (B5).
     if (this.activeCityId === code) this.activeCityId = null;
     deleteCitySlot(code, localStorage);
+    deleteCityAuth(code, localStorage);
+    forgetCoopJoined(code, localStorage);
+    this.serverSyncBlocked.delete(code);
     try {
       const response = await fetch(apiUrl(`/api/cities/${encodeURIComponent(code)}`), { method: "DELETE" });
       const body = (await response.json()) as { ok?: boolean; reason?: string };
@@ -1768,9 +1891,16 @@ export class Game {
       return;
     }
     const save = loadCitySlot(this.activeCityId, localStorage);
-    const code = save ? await this.pushCityToServer(save) : null;
+    const pushed = save && this.mode === "single" && !this.serverSyncBlocked.has(this.activeCityId)
+      ? await this.pushCityToServer(save)
+      : { code: null, reason: this.mode === "multi" ? "multi" : "stale" };
+    const code = pushed.code;
     if (!code) {
-      this.hud.setSaveNote("Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
+      this.hud.setSaveNote(pushed.reason === "multi"
+        ? "Lokal gesichert. Im Koop speichert der Server die Stadt selbst."
+        : pushed.reason
+          ? "Lokal gesichert. Auf dem Server liegt ein neuerer oder fremder Stand dieser Stadt; er wurde nicht überschrieben."
+          : "Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
       await this.refreshLobby();
       return;
     }
