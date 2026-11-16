@@ -136,8 +136,8 @@ export function seaMaterial(): THREE.ShaderMaterial {
       void main() {
         float dist = length(vWorld.xz);
         float near = smoothstep(420.0, 140.0, dist);
-        vec3 color = mix(uDeep, uMid, 0.45 + near * 0.25);
-        color = mix(color, uShallow, near * 0.28);
+        vec3 color = mix(uDeep, uMid, 0.38 + near * 0.28);
+        color = mix(color, uShallow, near * 0.16);
         vec3 n = normalize(vNormalW);
         vec3 view = normalize(cameraPosition - vWorld);
         vec3 sun = normalize(uSunDir);
@@ -146,13 +146,14 @@ export function seaMaterial(): THREE.ShaderMaterial {
         vec2 sunXZ = normalize(sun.xz + vec2(0.0001));
         float along = dot(normalize(vWorld.xz + vec2(0.0001)), sunXZ);
         vec2 acrossV = vWorld.xz - sunXZ * dot(vWorld.xz, sunXZ);
-        float streak = exp(-dot(acrossV, acrossV) * 0.000055) * smoothstep(-0.15, 0.55, along);
+        float streak = exp(-dot(acrossV, acrossV) * 0.000055) * smoothstep(-0.15, 0.55, along)
+          * (1.0 - smoothstep(380.0, 1200.0, dist));
         vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
-        color += glitter * (spec * 0.12 + streak * mix(0.22, 0.08, uNight));
+        color += glitter * (spec * 0.12 * (1.0 - smoothstep(320.0, 980.0, dist)) + streak * mix(0.22, 0.08, uNight));
         vec3 ray = normalize(vWorld - cameraPosition);
-        float horizonFade = smoothstep(0.018, -0.012, ray.y) * smoothstep(380.0, 1100.0, dist);
-        vec3 hazeCol = mix(uHorizon, uDeep, uNight);
-        color = mix(color, hazeCol, horizonFade * mix(0.28, 0.12, uNight));
+        float horizonFade = smoothstep(0.002, -0.003, ray.y) * smoothstep(1500.0, 2800.0, dist);
+        vec3 hazeCol = mix(uMid, uHorizon, mix(0.32, 0.1, uNight));
+        color = mix(color, hazeCol, horizonFade * mix(0.12, 0.06, uNight));
         float fresnel = pow(1.0 - max(dot(n, view), 0.0), 5.0);
         color = mix(color, uMid, fresnel * 0.06 * (1.0 - uNight));
         color *= uShade;
@@ -209,9 +210,9 @@ export function applyLook(
   const sunDir = sunPos.clone().sub(target).normalize();
   skyMaterial.uniforms.uSunDir.value.copy(sunDir);
 
-  fog.color.copy(zenith);
-  fog.near = rainy ? 280 : 2400;
-  fog.far = rainy ? 1200 : 5200;
+  fog.color.copy(night || rainy ? zenith : tmp.set(0x17608c));
+  fog.near = rainy ? 280 : 4200;
+  fog.far = rainy ? 1200 : 9000;
 
   hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
   hemi.groundColor.set(night ? 0x3a4a42 : 0x5a7a38);
@@ -239,7 +240,7 @@ export function applyLook(
     seaMaterial.uniforms.uDeep.value.set(0x17608c);
     seaMaterial.uniforms.uMid.value.set(0x2176a4);
     seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
-    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xf0c48a : 0xb7d4e6);
+    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8);
   }
 
   clouds.visible = quality.clouds && !night;
@@ -350,16 +351,16 @@ function skyGradient(): THREE.ShaderMaterial {
       void main() {
         vec3 ray = normalize(vWorld - cameraPosition);
         float h = ray.y;
-        float band = smoothstep(-0.06, 0.16, h);
+        float band = smoothstep(-0.002, 0.012, h);
         vec3 color = mix(uHorizon, uZenith, band);
         vec3 sun = normalize(uSunDir);
         float sunDot = max(dot(ray, sun), 0.0);
         float glow = pow(sunDot, 8.0) * uGlow * (1.0 - uNight);
-        float halo = pow(sunDot, 2.2) * 0.22 * uGlow * (1.0 - uNight);
-        float low = pow(1.0 - clamp(h + 0.04, 0.0, 1.0), 2.8);
+        float halo = pow(sunDot, 3.4) * 0.16 * uGlow * (1.0 - uNight);
+        float low = pow(1.0 - clamp(h + 0.008, 0.0, 1.0), 6.5);
         color += vec3(1.0, 0.74, 0.34) * glow * 0.85;
-        color += vec3(1.0, 0.84, 0.55) * halo * low;
-        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.28);
+        color += vec3(1.0, 0.82, 0.5) * halo * low;
+        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.06);
         color = mix(color, vec3(0.07, 0.12, 0.24), uNight * 0.72);
         gl_FragColor = vec4(color, 1.0);
       }

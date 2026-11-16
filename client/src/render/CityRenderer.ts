@@ -1687,7 +1687,37 @@ function groundPalette(biome: BiomeId): [number, number, number] {
   if (biome === "alpine") return [0x6a9a58, 0x74a462, 0x5e8e4e];
   if (biome === "tropical") return [0x5eaa56, 0x6ab860, 0x529e4c];
   if (biome === "archipelago") return [0x74b056, 0x80bc62, 0x68a44c];
-  return [0x7fb04a, 0x8cbf55, 0x74a442];
+  return [0x90c256, 0x97c85e, 0x90c256];
+}
+
+function oceanReach(city: CityState): Uint8Array {
+  const ocean = new Uint8Array(city.width * city.height);
+  const queue: number[] = [];
+  const enqueue = (x: number, y: number) => {
+    if (!inBounds(city, x, y)) return;
+    const index = y * city.width + x;
+    if (ocean[index] || !isWater(city, index)) return;
+    ocean[index] = 1;
+    queue.push(index);
+  };
+  for (let x = 0; x < city.width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, city.height - 1);
+  }
+  for (let y = 0; y < city.height; y += 1) {
+    enqueue(0, y);
+    enqueue(city.width - 1, y);
+  }
+  for (let head = 0; head < queue.length; head += 1) {
+    const index = queue[head]!;
+    const x = index % city.width;
+    const y = (index / city.width) | 0;
+    enqueue(x - 1, y);
+    enqueue(x + 1, y);
+    enqueue(x, y - 1);
+    enqueue(x, y + 1);
+  }
+  return ocean;
 }
 
 function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: THREE.LineSegments["geometry"] } {
@@ -1698,6 +1728,7 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const half = (city.width * CELL_SIZE) / 2;
   const biome = city.gen?.biome ?? "temperate";
   const palette = groundPalette(biome);
+  const ocean = oceanReach(city);
   const landHere = (x: number, y: number) => inBounds(city, x, y) && !isWater(city, y * city.width + x);
   for (let y = 0; y < rows; y += 1) {
     for (let x = 0; x < cols; x += 1) {
@@ -1712,9 +1743,9 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const normals: number[] = [];
   const colors: number[] = [];
   const grass = new THREE.Color();
-  const earth = new THREE.Color(biome === "arid" ? 0xb08650 : 0xb06c38);
-  const earthDeep = new THREE.Color(biome === "arid" ? 0x8a6438 : 0x7a4a24);
-  const water = new THREE.Color(0x2a82b0);
+  const earth = new THREE.Color(biome === "arid" ? 0xb08650 : 0xc48442);
+  const earthDeep = new THREE.Color(biome === "arid" ? 0x8a6438 : 0x9a5a28);
+  const water = new THREE.Color(0x17608c);
   const paint = (x: number, y: number) => {
     const checker = (x + y) & 1;
     grass.set(palette[checker] ?? palette[0]);
@@ -1752,7 +1783,7 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
       nx = -nx;
       nz = -nz;
     }
-    const out = 1.35;
+    const out = 5.2;
     const bx0 = x0 + nx * out;
     const bz0 = z0 + nz * out;
     const bx1 = x1 + nx * out;
@@ -1765,14 +1796,7 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   for (let y = 0; y < city.height; y += 1) {
     for (let x = 0; x < city.width; x += 1) {
       if (!landHere(x, y)) {
-        let landN = 0;
-        for (let dy = -1; dy <= 1; dy += 1) {
-          for (let dx = -1; dx <= 1; dx += 1) {
-            if (!dx && !dy) continue;
-            if (landHere(x + dx, y + dy)) landN += 1;
-          }
-        }
-        if (landN > 0) {
+        if (!ocean[y * city.width + x]) {
           const i0 = y * cols + x;
           const i1 = i0 + 1;
           const i2 = i0 + cols + 1;
