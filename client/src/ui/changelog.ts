@@ -7,6 +7,16 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.40",
+    at: "16. Nov 2026",
+    title: "Stadt im Konzeptlicht",
+    items: [
+      "Beleuchtung, Himmel, Meer und Gelände folgen der Key-Art: warmes Sonnenlicht, weiche Schatten, klareres Blau im Wasser, helleres Gras und Sand am Ufer.",
+      "Nachts bleibt die Karte nur etwas dunkler, mit warmen Fenstern, Laternen und einem blauen Himmel — nicht pechschwarz.",
+      "Grafikqualität unter Nachfrage: Auto, Hoch, Mittel, Schonend. Handys und schwache Geräte gehen von allein auf Schonend, ohne die Simulation jedes Bild neu zu bauen.",
+    ],
+  },
+  {
     version: "0.39",
     at: "8. Nov 2026",
     title: "Aufträge im Blick & neues Baumenü",

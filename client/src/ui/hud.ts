@@ -158,6 +158,7 @@ export interface HudControls {
   onToggleOrbit: () => void;
   onCompactPanel: (panel: "menu" | "demand" | "stats") => void;
   onRoomNameChange?: (name: string) => void;
+  onQuality: (preset: "auto" | "high" | "medium" | "low") => void;
 }
 
 const money = new Intl.NumberFormat("de-DE");
@@ -219,6 +220,7 @@ export interface Hud {
   setPlayerName: (name: string) => void;
   setRoomName: (name: string) => void;
   setOverlays: (overlays: { zones: boolean; power: boolean; water: boolean }) => void;
+  setQuality: (preset: "auto" | "high" | "medium" | "low") => void;
   closeOverlays: () => boolean;
   clearToast: () => void;
   playerName: () => string;
@@ -460,6 +462,11 @@ export function createHud(events: HudControls): Hud {
     const input = document.querySelector<HTMLInputElement>(`#ov-${overlay}`);
     input?.addEventListener("change", () => events.onOverlay(overlay, input.checked));
   }
+  const gfx = document.querySelector<HTMLSelectElement>("#gfx-quality");
+  gfx?.addEventListener("change", () => {
+    const value = gfx.value;
+    if (value === "auto" || value === "high" || value === "medium" || value === "low") events.onQuality(value);
+  });
   const mapPreview = required<HTMLCanvasElement>("#map-preview");
   const mapBiome = required<HTMLSelectElement>("#map-biome");
   const mapBiomeBlurb = required("#map-biome-blurb");
@@ -1005,6 +1012,9 @@ export function createHud(events: HudControls): Hud {
       if (zones) zones.checked = overlays.zones;
       if (power) power.checked = overlays.power;
       if (water) water.checked = overlays.water;
+    },
+    setQuality(preset) {
+      if (gfx) gfx.value = preset;
     },
     closeOverlays() {
       let closed = false;

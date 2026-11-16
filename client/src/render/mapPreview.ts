@@ -1,19 +1,19 @@
 import { cellCoords, vegetationRoll, type CityState } from "../../../shared/src/index.ts";
 
 const LAND: Record<string, [number, number, number]> = {
-  temperate: [82, 122, 64],
-  arid: [168, 148, 92],
-  alpine: [74, 110, 78],
-  tropical: [48, 128, 62],
-  archipelago: [86, 126, 70],
+  temperate: [116, 172, 72],
+  arid: [196, 176, 110],
+  alpine: [96, 138, 96],
+  tropical: [72, 158, 82],
+  archipelago: [108, 168, 88],
 };
 
 const TREE: Record<string, [number, number, number]> = {
-  temperate: [42, 86, 48],
-  arid: [110, 118, 72],
-  alpine: [36, 72, 58],
-  tropical: [28, 102, 48],
-  archipelago: [40, 90, 52],
+  temperate: [70, 140, 68],
+  arid: [130, 138, 82],
+  alpine: [56, 108, 78],
+  tropical: [48, 132, 62],
+  archipelago: [62, 128, 70],
 };
 
 /** Top-down PNG-like paint of terrain for the lobby preview. */
@@ -49,9 +49,9 @@ export function paintMapPreview(canvas: HTMLCanvasElement, city: CityState): voi
       }
     } else {
       const deep = ((x + y) % 4) === 0;
-      r = deep ? 28 : 46;
-      g = deep ? 78 : 108;
-      b = deep ? 128 : 158;
+      r = deep ? 22 : 42;
+      g = deep ? 88 : 128;
+      b = deep ? 160 : 196;
     }
     for (let py = 0; py < scale; py += 1) {
       for (let px = 0; px < scale; px += 1) {

@@ -10,6 +10,7 @@ export class RtsCamera {
   azimuth = 0.7;
   polar = 0.9;
   distance = 420;
+  lookLift = 0;
 
   private readonly keys = new Set<string>();
   private dragging: "pan" | "orbit" | null = null;
@@ -192,7 +193,7 @@ export class RtsCamera {
       this.distance * height,
       this.target.z + this.distance * ring * Math.cos(this.azimuth),
     );
-    this.camera.lookAt(this.target);
+    this.camera.lookAt(this.target.x, this.lookLift, this.target.z);
   }
 
   private groundPoint(clientX: number, clientY: number, rect: DOMRect): { x: number; z: number } | null {

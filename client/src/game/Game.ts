@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { io, type Socket } from "socket.io-client";
 import { apiUrl, isDevServer, socketUrl } from "./serverUrl.ts";
 import { CityRenderer } from "../render/CityRenderer.ts";
+import { buildLookCity, hourToTick } from "../render/lookCity.ts";
+import { loadGfxPreset, saveGfxPreset, type GfxPreset } from "../render/quality.ts";
 import { RtsCamera } from "../render/RtsCamera.ts";
 import { createHud, type ToolId } from "../ui/hud.ts";
 import { playSfx, unlockAudio } from "../audio/sfx.ts";
@@ -200,6 +202,7 @@ export class Game {
     onToggleOrbit: () => this.setOrbitMode(!this.orbitMode),
     onCompactPanel: (panel) => this.onCompactPanel(panel),
     onRoomNameChange: (value) => saveLastRoomName(value),
+    onQuality: (preset) => this.setQuality(preset),
     onSave: () => {
       void this.saveCurrentCity();
     },
@@ -289,6 +292,8 @@ export class Game {
     this.hud.setOrbitMode(false);
     this.hud.setPeerCursors([]);
     this.hud.setOverlays(this.overlays);
+    this.hud.setQuality(loadGfxPreset());
+    this.paintVignette();
     this.hud.setRoomName(suggestCityName(this.knownCodes()));
     const storedName = loadPlayerName();
     if (storedName) {
@@ -318,6 +323,7 @@ export class Game {
       if (!this.playing || !document.getElementById("lobby")?.hidden) void this.refreshLobby();
     }, 4000);
     this.publish();
+    this.bootLookPreview();
     requestAnimationFrame((time) => this.frame(time));
   }
 
@@ -332,6 +338,12 @@ export class Game {
     this.view.update(dt, this.camera.target);
     this.view.render(this.camera.camera);
     this.paintPeerCursors();
+    const stats = window as Window & { __cityline?: { frameMs: number; quality: string; ready: boolean } };
+    stats.__cityline = {
+      frameMs: this.view.lastFrameMs,
+      quality: this.view.gfxLevel().level,
+      ready: true,
+    };
     requestAnimationFrame((next) => this.frame(next));
   }
 
@@ -371,6 +383,59 @@ export class Game {
       this.hideBuildCursor();
     }
     this.refreshHint();
+  }
+
+  private setQuality(preset: GfxPreset): void {
+    saveGfxPreset(preset);
+    this.view.setQuality(preset);
+    this.hud.setQuality(preset);
+    this.paintVignette();
+    this.resize();
+    this.publish();
+  }
+
+  private paintVignette(): void {
+    document.body.dataset.vignette = this.view.gfxLevel().vignette ? "on" : "off";
+  }
+
+  private bootLookPreview(): void {
+    const params = new URLSearchParams(location.search);
+    if (params.get("preview") !== "look") return;
+    const hour = Number(params.get("hour") ?? 16);
+    const gfx = params.get("gfx");
+    if (gfx === "auto" || gfx === "high" || gfx === "medium" || gfx === "low") this.setQuality(gfx);
+    if (params.get("hud") === "0") document.body.dataset.look = "shot";
+    this.hud.showNameGate(false);
+    this.hud.setLobby(false);
+    this.joinIntent = null;
+    this.leaveSocket();
+    this.clearLevel();
+    this.mode = "single";
+    this.playing = true;
+    this.activeCityId = "look";
+    this.resetUiForCityChange();
+    this.hud.setJoined(false);
+    this.hud.setMode("Vorschau");
+    this.hud.setLobbyBackVisible(false);
+    this.beginSession(false);
+    const showcase = buildLookCity(Number.isFinite(hour) ? hour : 16);
+    writeCity(this.city, packCells(showcase.city), buildMeta(showcase.city));
+    this.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
+    this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 16);
+    refreshUtilities(this.city);
+    this.view.setWeatherOverride("clear");
+    this.view.setDecorations(false);
+    this.overlays.zones = false;
+    this.hud.setOverlays(this.overlays);
+    this.rememberWorker(false);
+    this.setTool("inspect");
+    this.camera.resetOverview();
+    this.camera.lookAt(showcase.focusX, showcase.focusZ);
+    this.camera.azimuth = 0.62;
+    this.camera.polar = 1.18;
+    this.camera.lookLift = 52;
+    this.camera.setDistance(236);
+    this.publish();
   }
 
   private setOrbitMode(on: boolean): void {
