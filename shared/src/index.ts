@@ -14,3 +14,4 @@ export * from "./climate.ts";
 export * from "./farm.ts";
 export * from "./goals.ts";
 export * from "./levels.ts";
+export * from "./cityAuth.ts";

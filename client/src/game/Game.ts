@@ -32,8 +32,14 @@ import {
   createCity,
   suggestCityName,
   createLevelCity,
+  deleteCityAuth,
   deleteCitySlot,
+  forgetCoopJoined,
   getActiveCityId,
+  loadCityAuth,
+  markCoopJoined,
+  rememberCityPush,
+  wasCoopJoined,
   listCitySlots,
   loadCitySlot,
   loadOrCreateClientId,
@@ -71,6 +77,7 @@ import {
   worldToCell,
   writeCity,
   type ChatMessage,
+  type CityPushReply,
   type CitySave,
   type CityState,
   type Command,
@@ -242,6 +249,10 @@ export class Game {
   private joinRetries = 0;
   private lastRoomCodes: string[] = [];
   private lastRooms: { code: string; players: number }[] = [];
+  /** Cities whose local copy must not be uploaded this session (left coop, or server said stale/forbidden). */
+  private readonly serverSyncBlocked = new Set<string>();
+  /** Uploads run one after another so each one carries the rev the previous one returned. */
+  private pushQueue: Promise<unknown> = Promise.resolve();
   private overlays = loadOverlays();
   private strokeComplete = true;
   private statusUntil = 0;
@@ -965,6 +976,8 @@ export class Game {
       } else {
         this.clearLevel();
         this.activeCityId = payload.room;
+        // From now on the server owns this city; a local copy is only a fork of it.
+        markCoopJoined(payload.room, localStorage);
         this.hud.setMode(`Koop · ${payload.room}`);
         this.lastSave = performance.now();
       }
@@ -1015,6 +1028,8 @@ export class Game {
 
   private leave(): void {
     const wasMulti = this.mode === "multi";
+    // The city keeps running locally; its autosave must never be posted over the coop room.
+    if (wasMulti && this.activeCityId) this.serverSyncBlocked.add(this.activeCityId);
     this.joinIntent = null;
     this.joinRetries = 0;
     this.leaveSocket();
@@ -1322,9 +1337,13 @@ export class Game {
       return;
     }
     const save = loadCitySlot(code, localStorage);
-    if (save) {
+    const onServer = this.lastRoomCodes.includes(code);
+    // Upload only to create a city the server does not have yet, or as its owner. The server
+    // additionally rejects stale revisions, so an older local save never replaces the room.
+    const upload = save && !this.serverSyncBlocked.has(code) && (!onServer || loadCityAuth(code, localStorage) !== null);
+    if (upload) {
       const pushed = await this.pushCityToServer(save);
-      if (!pushed) {
+      if (!pushed.code && !pushed.reason) {
         this.flash(isDevServer
           ? "Koop-Server nicht erreichbar. Starte ihn auf Port 8787."
           : "Koop-Server nicht erreichbar. Versuch es gleich noch einmal.");
@@ -1353,7 +1372,7 @@ export class Game {
       return;
     }
     const save = loadCitySlot(id, localStorage);
-    const code = save ? await this.pushCityToServer(save) : null;
+    const code = save ? (await this.pushCityToServer(save)).code : null;
     if (!code) {
       this.flash(isDevServer
         ? "Koop-Server nicht erreichbar (Port 8787). Die Stadt liegt lokal bereit — Solo starten geht."
@@ -1376,22 +1395,43 @@ export class Game {
     const save = cityToSave(this.city, name, id);
     if (!writeCitySlot(id, save, localStorage)) return false;
     this.hud.setContinueVisible(true);
-    if (this.mode === "single") void this.pushCityToServer(save);
+    if (this.mode === "single" && this.mayAutoPush(id)) void this.pushCityToServer(save);
     return true;
   }
 
-  private async pushCityToServer(save: CitySave): Promise<string | null> {
+  /** Background sync only for cities this device owns, or never played in coop here. */
+  private mayAutoPush(id: string): boolean {
+    if (this.serverSyncBlocked.has(id)) return false;
+    return loadCityAuth(id, localStorage) !== null || !wasCoopJoined(id, localStorage);
+  }
+
+  /** `code` on success; `reason` when the server refused; neither when it was unreachable. */
+  private pushCityToServer(save: CitySave): Promise<{ code: string | null; reason?: string }> {
+    const run = this.pushQueue.then(() => this.sendCityToServer(save));
+    this.pushQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async sendCityToServer(save: CitySave): Promise<{ code: string | null; reason?: string }> {
+    const id = save.id ?? "";
+    const auth = id ? loadCityAuth(id, localStorage) : null;
     try {
       const response = await fetch(apiUrl("/api/cities"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(save),
+        body: JSON.stringify(auth ? { ...save, ownerKey: auth.key, rev: auth.rev } : save),
       });
-      const body = (await response.json()) as { ok?: boolean; code?: string };
-      if (!response.ok || !body.ok || !body.code) return null;
-      return body.code;
+      const body = (await response.json()) as CityPushReply;
+      if (!response.ok || !body.ok || !body.code) {
+        const reason = body.reason ?? "rejected";
+        // The server has a newer or foreign city under this code: stop syncing over it.
+        if (id && reason !== "bad_city") this.serverSyncBlocked.add(id);
+        return { code: null, reason };
+      }
+      rememberCityPush(body.code, body, localStorage);
+      return { code: body.code };
     } catch {
-      return null;
+      return { code: null };
     }
   }
 
@@ -1720,6 +1760,9 @@ export class Game {
     // Stop autosave from recreating the slot before the server delete finishes (B5).
     if (this.activeCityId === code) this.activeCityId = null;
     deleteCitySlot(code, localStorage);
+    deleteCityAuth(code, localStorage);
+    forgetCoopJoined(code, localStorage);
+    this.serverSyncBlocked.delete(code);
     try {
       const response = await fetch(apiUrl(`/api/cities/${encodeURIComponent(code)}`), { method: "DELETE" });
       const body = (await response.json()) as { ok?: boolean; reason?: string };
@@ -1768,9 +1811,16 @@ export class Game {
       return;
     }
     const save = loadCitySlot(this.activeCityId, localStorage);
-    const code = save ? await this.pushCityToServer(save) : null;
+    const pushed = save && this.mode === "single" && !this.serverSyncBlocked.has(this.activeCityId)
+      ? await this.pushCityToServer(save)
+      : { code: null, reason: this.mode === "multi" ? "multi" : "stale" };
+    const code = pushed.code;
     if (!code) {
-      this.hud.setSaveNote("Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
+      this.hud.setSaveNote(pushed.reason === "multi"
+        ? "Lokal gesichert. Im Koop speichert der Server die Stadt selbst."
+        : pushed.reason
+          ? "Lokal gesichert. Auf dem Server liegt ein neuerer oder fremder Stand dieser Stadt; er wurde nicht überschrieben."
+          : "Lokal gesichert. Der Koop-Server hat die Stadt nicht übernommen.");
       await this.refreshLobby();
       return;
     }

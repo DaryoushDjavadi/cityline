@@ -42,8 +42,10 @@ app.get("/api/rooms", (_request, response) => {
   response.json(city.listRooms());
 });
 
+const REJECT_STATUS = { in_use: 409, stale: 409, forbidden: 403, bad_city: 400 } as const;
+
 app.post("/api/cities", (request, response) => {
-  const body = request.body as { name?: unknown; id?: unknown } | undefined;
+  const body = request.body as { name?: unknown; id?: unknown; ownerKey?: unknown; rev?: unknown } | undefined;
   const loaded = saveToCity(request.body);
   const code = cleanRoom(body?.id) ?? cleanRoom(body?.name);
   if (!code || !loaded || isLevelRoom(code)) {
@@ -51,8 +53,15 @@ app.post("/api/cities", (request, response) => {
     return;
   }
   const label = typeof body?.name === "string" && body.name.trim() ? body.name.trim().slice(0, 48) : code;
-  city.importCity(code, loaded, label);
-  response.json({ ok: true, code });
+  const result = city.importCity(code, loaded, label, {
+    key: typeof body?.ownerKey === "string" ? body.ownerKey.slice(0, 128) : undefined,
+    rev: typeof body?.rev === "string" ? body.rev.slice(0, 64) : undefined,
+  });
+  if (!result.ok) {
+    response.status(REJECT_STATUS[result.reason]).json({ ok: false, reason: result.reason, code });
+    return;
+  }
+  response.json({ ok: true, code, rev: result.rev, ...(result.key ? { key: result.key } : {}) });
 });
 
 app.delete("/api/cities/:code", (request, response) => {

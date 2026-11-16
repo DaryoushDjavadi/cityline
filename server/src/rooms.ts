@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server, Socket } from "socket.io";
 import { applyCommand, createCity } from "../../shared/src/city.ts";
 import { uniqueCells } from "../../shared/src/grid.ts";
@@ -6,7 +6,7 @@ import { createLevelCity, evaluateLevel, isLevelRoom, levelById, levelRoomCode, 
 import { CHAT_HISTORY, cleanChat, cleanClientId, cleanName, cleanRoom, commandCells, parseCommand, type ChatMessage, type LevelSync } from "../../shared/src/protocol.ts";
 import { buildMeta, refreshUtilities, stepSimulation } from "../../shared/src/sim.ts";
 import { packCells, writeCity, type CityState, type Command, type PublicPlayer } from "../../shared/src/types.ts";
-import { deleteCity, loadCity, peekSave, saveCity, savedRooms, type RoomListing } from "./persist.ts";
+import { deleteCity, loadCity, peekAuth, peekSave, saveCity, savedRooms, type RoomListing } from "./persist.ts";
 
 const MAX_PLAYERS = 2;
 const TICK_MS = 500;
@@ -35,9 +35,29 @@ interface Room {
   emptyAt: number | null;
 }
 
+export interface ImportAuth {
+  key?: string;
+  rev?: string;
+}
+
+export type ImportResult =
+  | { ok: true; rev: string; key?: string }
+  | { ok: false; reason: "in_use" | "forbidden" | "stale" | "bad_city" };
+
+export function hashKey(key: string): string {
+  return createHash("sha256").update(key).digest("hex");
+}
+
+function sameHash(key: string | undefined, owner: string): boolean {
+  if (!key) return false;
+  const left = Buffer.from(hashKey(key), "hex");
+  const right = Buffer.from(owner, "hex");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
 export function attachCityServer(io: Server): {
   listRooms: () => RoomListing[];
-  importCity: (code: string, city: CityState, name?: string) => void;
+  importCity: (code: string, city: CityState, name?: string, auth?: ImportAuth) => ImportResult;
   removeCity: (code: string) => "ok" | "missing" | "in_use";
 } {
   const rooms = new Map<string, Room>();
@@ -47,7 +67,7 @@ export function attachCityServer(io: Server): {
     for (const [code, room] of rooms) {
       if (room.players.length === 0) {
         if (room.emptyAt !== null && now - room.emptyAt > EMPTY_ROOM_MS) {
-          if (!room.level) saveCity(room.code, room.city, room.name);
+          if (!room.level) saveCity(room.code, room.city, room.name, { keepRev: true });
           rooms.delete(code);
         }
         continue;
@@ -248,21 +268,42 @@ export function attachCityServer(io: Server): {
       if (live) rooms.delete(code);
       return deleteCity(code) ? "ok" : "missing";
     },
-    importCity(code, next, name) {
-      if (isLevelRoom(code)) return;
+    importCity(code, next, name, auth = {}) {
+      if (isLevelRoom(code)) return { ok: false, reason: "bad_city" };
       const live = rooms.get(code);
+      if (live?.level) return { ok: false, reason: "bad_city" };
+      // Never replace a city while someone is playing in it; coop edits go through the socket.
+      if (live && live.players.length > 0) return { ok: false, reason: "in_use" };
+      const stored = peekAuth(code);
       const label = name?.trim() || live?.name || peekSave(code)?.name || code;
+      let issued: string | undefined;
+      let owner: string | undefined;
+      if (!stored) {
+        // Only an idle in-memory room without a file (should not happen) blocks a create.
+        if (live) return { ok: false, reason: "forbidden" };
+        issued = randomBytes(24).toString("base64url");
+        owner = hashKey(issued);
+      } else if (stored.legacy) {
+        // Migration: saves from before this fix have no owner. The first non-older upload claims it.
+        if (next.tick < stored.tick) return { ok: false, reason: "stale" };
+        issued = randomBytes(24).toString("base64url");
+        owner = hashKey(issued);
+      } else {
+        // Rooms born from a coop join have no owner: they change only through the socket.
+        if (!stored.owner || !sameHash(auth.key, stored.owner)) return { ok: false, reason: "forbidden" };
+        // Optimistic concurrency: the uploader must have seen the current server revision.
+        if (!auth.rev || auth.rev !== stored.rev) return { ok: false, reason: "stale" };
+      }
       if (live) {
-        if (live.level) return;
         writeCity(live.city, packCells(next), buildMeta(next));
         refreshUtilities(live.city);
         live.name = label;
-        emitState(live);
-        saveCity(code, live.city, live.name);
-        return;
+      } else {
+        refreshUtilities(next);
       }
-      refreshUtilities(next);
-      saveCity(code, next, label);
+      const rev = saveCity(code, live?.city ?? next, label, owner ? { owner } : {});
+      if (!rev) return { ok: false, reason: "bad_city" };
+      return issued ? { ok: true, rev, key: issued } : { ok: true, rev };
     },
     listRooms() {
       const listed: RoomListing[] = savedRooms().filter((entry) => !isLevelRoom(entry.code));
