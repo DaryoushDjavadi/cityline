@@ -28,8 +28,9 @@ import { streetCars, streetPedestrians, type StreetCar, type StreetPedestrian } 
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { applyLook, createAtmosphere, nightWindowCompile, seaMaterial, type Atmosphere } from "./look.ts";
+import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
 import { gfxProfile, loadGfxPreset, type GfxPreset, type GfxProfile } from "./quality.ts";
 import { buildCarModels, buildModels, buildPlaneGeometry, buildTreeModels, modelForFarm, modelForService, modelForZone } from "./models.ts";
 
@@ -202,9 +203,9 @@ export class CityRenderer {
 
     const sea = new THREE.PlaneGeometry(5200, 5200, this.quality.seaSegments, this.quality.seaSegments);
     sea.rotateX(-Math.PI / 2);
-    this.seaMaterial = seaMaterial(this.quality.seaSegments);
+    this.seaMaterial = seaMaterial();
     const ocean = new THREE.Mesh(sea, this.seaMaterial);
-    ocean.position.y = -0.85;
+    ocean.position.y = -2.15;
     ocean.frustumCulled = false;
     ocean.receiveShadow = this.quality.shadows;
     this.scene.add(ocean);
@@ -217,7 +218,7 @@ export class CityRenderer {
     this.ground.receiveShadow = true;
     this.plot = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0x31442c, transparent: true, opacity: 0.28 }),
+      new THREE.LineBasicMaterial({ color: 0x6a7a48, transparent: true, opacity: 0.08 }),
     );
     this.plot.frustumCulled = false;
     this.scene.add(this.ground, this.plot);
@@ -301,7 +302,7 @@ export class CityRenderer {
     this.pipeMesh = mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55 }), CAP * 6);
     this.roofs = mesh(new THREE.ConeGeometry(0.5, 1, 4), lit);
     this.stones = mesh(new THREE.DodecahedronGeometry(0.55, 0), lit);
-    this.lakes = mesh(plane, flat(0xffffff, 0.92));
+    this.lakes = mesh(plane, new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
     const litBuildings = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.06 });
     litBuildings.onBeforeCompile = (shader) => {
       nightWindowCompile(shader);
@@ -513,6 +514,22 @@ export class CityRenderer {
         }
       }
 
+      if (isWater(city, index) && x > 2 && y > 2 && x < city.width - 3 && y < city.height - 3) {
+        let landN = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            if (!dx && !dy) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (inBounds(city, nx, ny) && !isWater(city, ny * city.width + nx)) landN += 1;
+          }
+        }
+        if (landN >= 4) {
+          this.put(this.lakes, lakes, world.x, -0.18, world.z, CELL_SIZE, 1, CELL_SIZE, 0, 0x2a6e94);
+          lakes += 1;
+        }
+      }
+
       if (overlays.zones && city.zones[index] !== Zone.None && !isRoad(city, index)) {
         const color =
           city.zones[index] === Zone.Residential ? 0x3f9d55
@@ -556,7 +573,7 @@ export class CityRenderer {
         const stoneChance = biome === "arid" ? 28 : biome === "alpine" ? 18 : 10;
         if (canopy < forest * 0.72) {
           const tall = (biome === "alpine" ? 2.6 : biome === "tropical" ? 2.8 : 2.1) + (scatter(x, y) % 5) * 0.35;
-          const key = `tree${scatter(x, y) % 3}`;
+          const key = biome === "alpine" ? `tree${3 + (scatter(x, y) % 3)}` : `tree${scatter(x, y) % 6}`;
           const mesh = this.treeMeshes.get(key) ?? this.treeMeshes.get("tree0");
           const slot = this.treeSlots.get(key) ?? this.treeSlots.get("tree0") ?? 0;
           if (mesh && slot < CAP) {
@@ -1001,14 +1018,14 @@ export class CityRenderer {
     const lookClimate = weather === climate.weather ? climate : { ...climate, weather, weatherLabel: weather === "rain" ? "Regen" : weather === "cloud" ? "Bewölkt" : "Klar" };
     this.streetActivity = lookClimate.streetActivity;
     this.rainyPace = lookClimate.weather === "rain" ? 0.72 : 1;
-    const az = lookClimate.phase * Math.PI * 2;
     const day = lookClimate.daylight;
-    this.sun.position.set(target.x + Math.cos(az) * (90 + (1 - day) * 40), lookClimate.isNight ? 55 : 48 + day * 130, target.z + Math.sin(az) * (90 + (1 - day) * 40));
+    const sunPos = poseSun(lookClimate.hour, target);
+    this.sun.position.copy(sunPos);
     this.sun.target.position.copy(target);
     this.sun.target.updateMatrixWorld();
-    this.fill.position.set(target.x - Math.cos(az) * 70, 40, target.z - Math.sin(az) * 70);
+    this.fill.position.set(target.x * 2 - sunPos.x, 36, target.z * 2 - sunPos.z);
     this.fill.target.position.copy(target);
-    this.seaMaterial.uniforms.uSunDir.value.copy(this.sun.position).sub(target).normalize();
+    this.seaMaterial.uniforms.uSunDir.value.copy(sunPos).sub(target).normalize();
     this.atmosphere.sky.position.copy(target);
     this.atmosphere.stars.position.copy(target);
     const stamp = `${lookClimate.clock}:${lookClimate.weather}:${day.toFixed(2)}:${this.quality.level}`;
@@ -1030,9 +1047,9 @@ export class CityRenderer {
       this.quality,
     );
     this.nightLit = stamped.nightLit;
-    this.windowNight.value = this.nightLit ? 1 : 0;
+    this.windowNight.value = this.nightLit ? 1 : goldenAmount(lookClimate.hour) * 0.42;
     this.renderer.toneMappingExposure = stamped.exposure;
-    this.scene.background = this.fog.color;
+    this.scene.background = this.atmosphere.skyMaterial.uniforms.uZenith.value;
     this.rain.visible = lookClimate.weather === "rain";
     if (this.bloom) this.bloom.strength = this.nightLit ? 0.1 : 0.05;
     this.paintLocalLights();
@@ -1042,14 +1059,15 @@ export class CityRenderer {
     this.sun.castShadow = this.quality.shadows;
     if (!this.quality.shadows) return;
     this.sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
-    this.sun.shadow.camera.near = 20;
-    this.sun.shadow.camera.far = 420;
-    this.sun.shadow.camera.left = -160;
-    this.sun.shadow.camera.right = 160;
-    this.sun.shadow.camera.top = 160;
-    this.sun.shadow.camera.bottom = -160;
-    this.sun.shadow.bias = -0.001;
-    this.sun.shadow.normalBias = 0.8;
+    this.sun.shadow.camera.near = 8;
+    this.sun.shadow.camera.far = 720;
+    this.sun.shadow.camera.left = -240;
+    this.sun.shadow.camera.right = 240;
+    this.sun.shadow.camera.top = 240;
+    this.sun.shadow.camera.bottom = -240;
+    this.sun.shadow.bias = -0.0008;
+    this.sun.shadow.normalBias = 0.7;
+    this.sun.shadow.radius = 4;
   }
 
   private applyShadowFlags(): void {
@@ -1084,6 +1102,7 @@ export class CityRenderer {
     composer.addPass(pass);
     const bloom = new UnrealBloomPass(new THREE.Vector2(Math.max(size.x, 1), Math.max(size.y, 1)), 0.12, 0.4, 0.86);
     composer.addPass(bloom);
+    composer.addPass(new ShaderPass(COLOR_GRADE));
     composer.addPass(new OutputPass());
     this.composer = composer;
     this.bloom = bloom;
@@ -1676,14 +1695,14 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
 }
 
 const GROUND_Y = 0.02;
-const SKIRT_Y = -1.8;
+const SKIRT_Y = -3.9;
 
 function groundPalette(biome: BiomeId): [number, number, number] {
   if (biome === "arid") return [0xc4b486, 0xd0c094, 0xb6a678];
-  if (biome === "alpine") return [0x6a8a64, 0x789a70, 0x5d7a58];
-  if (biome === "tropical") return [0x4c9a52, 0x58aa5c, 0x3f8a48];
-  if (biome === "archipelago") return [0x7aa264, 0x88b070, 0x6d9258];
-  return [0x7eb24c, 0x8bc456, 0x6ea044];
+  if (biome === "alpine") return [0x6a8a64, 0x748e6c, 0x5d7a58];
+  if (biome === "tropical") return [0x5a9458, 0x649e60, 0x4e8650];
+  if (biome === "archipelago") return [0x6e945c, 0x789e66, 0x648854];
+  return [0x8fbc62, 0x84b258, 0x99c66c];
 }
 
 function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: THREE.LineSegments["geometry"] } {
@@ -1732,7 +1751,8 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const positions: number[] = [];
   const colors: number[] = [];
   const grass = new THREE.Color();
-  const earth = new THREE.Color(biome === "arid" ? 0x8a7048 : 0x7a623c);
+  const earth = new THREE.Color(biome === "arid" ? 0x8a7048 : 0x7a5a32);
+  const earthDeep = new THREE.Color(biome === "arid" ? 0x6a5430 : 0x5c4224);
   const paint = (x: number, y: number) => {
     const checker = (x + y) & 1;
     const roll = scatter(x, y) % 3;
@@ -1746,9 +1766,9 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const skirt = (x0: number, z0: number, x1: number, z1: number, cellX: number, cellY: number) => {
     paint(cellX, cellY);
     positions.push(x0, GROUND_Y, z0, x1, GROUND_Y, z1, x1, SKIRT_Y, z1);
-    colors.push(grass.r, grass.g, grass.b, grass.r, grass.g, grass.b, earth.r, earth.g, earth.b);
+    colors.push(earth.r, earth.g, earth.b, earth.r, earth.g, earth.b, earthDeep.r, earthDeep.g, earthDeep.b);
     positions.push(x0, GROUND_Y, z0, x1, SKIRT_Y, z1, x0, SKIRT_Y, z0);
-    colors.push(grass.r, grass.g, grass.b, earth.r, earth.g, earth.b, earth.r, earth.g, earth.b);
+    colors.push(earth.r, earth.g, earth.b, earthDeep.r, earthDeep.g, earthDeep.b, earthDeep.r, earthDeep.g, earthDeep.b);
   };
 
   const plot: number[] = [];

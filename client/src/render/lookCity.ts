@@ -18,13 +18,13 @@ export interface LookCity {
 }
 
 /** Dense showcase city for look comparisons (client-only, not persisted). */
-export function buildLookCity(hour = 16): LookCity {
+export function buildLookCity(hour = 17): LookCity {
   const city = createCity(undefined, undefined, {
     seed: 1842,
     biome: "temperate",
     water: 38,
     lakes: 22,
-    forest: 42,
+    forest: 30,
     rivers: 18,
   });
   city.funds = 5_000_000;

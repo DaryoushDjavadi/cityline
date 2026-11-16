@@ -12,7 +12,7 @@ const VIEWPORTS = [
 ] as const;
 
 const HOURS = [
-  { name: "day", hour: 16 },
+  { name: "day", hour: 17 },
   { name: "dusk", hour: 18.6 },
   { name: "night", hour: 22 },
 ] as const;
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     hasTouch: true,
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   });
-  await mobile.goto(`${BASE}/?preview=look&hud=0&gfx=auto&hour=16`, { waitUntil: "networkidle" });
+  await mobile.goto(`${BASE}/?preview=look&hud=0&gfx=auto&hour=17`, { waitUntil: "networkidle" });
   await waitReady(mobile);
   const quality = await mobile.evaluate(() => (window as Window & { __cityline?: { quality: string } }).__cityline?.quality ?? "?");
   const mobileFps = await sampleFps(mobile);

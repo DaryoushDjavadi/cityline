@@ -27,7 +27,7 @@ html, body {
   pointer-events: none;
   z-index: 1;
   opacity: 0;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(16, 22, 30, 0.26) 100%);
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(42, 24, 14, 0.22) 100%);
 }
 body[data-vignette="on"] #view-vignette { opacity: 1; }
 body[data-look="shot"] #topbar,

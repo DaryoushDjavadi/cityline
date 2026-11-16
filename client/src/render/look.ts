@@ -4,6 +4,14 @@ import type { GfxProfile } from "./quality.ts";
 
 const tmp = new THREE.Color();
 const tmpB = new THREE.Color();
+const cloudDummy = new THREE.Object3D();
+
+/** Default camera azimuth is ~0.58; sun sits front-left in that framing. */
+const DEFAULT_AZIMUTH = 0.58;
+const DUSK_HEADING = Math.atan2(
+  -Math.cos(DEFAULT_AZIMUTH) + 0.62 * Math.sin(DEFAULT_AZIMUTH),
+  -Math.sin(DEFAULT_AZIMUTH) - 0.62 * Math.cos(DEFAULT_AZIMUTH),
+);
 
 export interface Atmosphere {
   sky: THREE.Mesh;
@@ -16,38 +24,29 @@ export interface Atmosphere {
 
 export function createAtmosphere(): Atmosphere {
   const skyMaterial = skyGradient();
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(1600, 48, 28), skyMaterial);
-  sky.geometry.scale(-1, 1, 1);
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(1800, 64, 32), skyMaterial);
   sky.frustumCulled = false;
   sky.renderOrder = -20;
 
-  const cloudGeo = cloudGeometry();
+  const cloudGeo = new THREE.SphereGeometry(18, 7, 5);
   const clouds = new THREE.InstancedMesh(
     cloudGeo,
-    new THREE.MeshBasicMaterial({ color: 0xfff4ea }),
-    12,
+    new THREE.MeshBasicMaterial({ color: 0xf2e4d0, transparent: true, opacity: 0.94, depthWrite: false }),
+    8,
   );
-  clouds.count = 12;
+  clouds.count = 8;
   clouds.frustumCulled = false;
   clouds.castShadow = false;
   clouds.receiveShadow = false;
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < 12; i += 1) {
-    const a = (i / 12) * Math.PI * 2 + 0.2;
-    const r = 420 + (i % 5) * 70;
-    dummy.position.set(Math.cos(a) * r * 1.6, 210 + (i % 4) * 18, Math.sin(a) * r * 1.15);
-    dummy.rotation.set(0, a + 0.4, 0);
-    dummy.scale.set(0.35 + (i % 3) * 0.12, 0.22 + (i % 2) * 0.06, 0.32 + ((i * 3) % 4) * 0.08);
-    dummy.updateMatrix();
-    clouds.setMatrixAt(i, dummy.matrix);
-  }
+  clouds.renderOrder = -5;
+  layoutClouds(clouds, new THREE.Vector3());
 
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(700 * 3);
   for (let i = 0; i < 700; i += 1) {
     const a = Math.random() * Math.PI * 2;
     const p = Math.acos(Math.random() * 0.72);
-    const r = 980;
+    const r = 1100;
     starPos[i * 3] = Math.sin(p) * Math.cos(a) * r;
     starPos[i * 3 + 1] = Math.abs(Math.cos(p)) * r + 80;
     starPos[i * 3 + 2] = Math.sin(p) * Math.sin(a) * r;
@@ -61,52 +60,63 @@ export function createAtmosphere(): Atmosphere {
   stars.renderOrder = -18;
 
   const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(10, 16, 12),
+    new THREE.SphereGeometry(11, 16, 12),
     new THREE.MeshBasicMaterial({ color: 0xfff4c8 }),
   );
   moon.frustumCulled = false;
 
   const sunDisc = new THREE.Mesh(
-    new THREE.SphereGeometry(7, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xffe7b0 }),
+    new THREE.SphereGeometry(9, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffe2a8, transparent: true, opacity: 0.9, depthWrite: false }),
   );
-  sunDisc.visible = false;
   sunDisc.frustumCulled = false;
 
   return { sky, skyMaterial, clouds, stars, moon, sunDisc };
 }
 
-export function seaMaterial(segmentsHint = 80): THREE.ShaderMaterial {
-  void segmentsHint;
+export function sunElevation(hour: number): number {
+  const t = (hour - 5.7) / 13.6;
+  return Math.max(0.02, Math.sin(Math.PI * Math.max(0, Math.min(1, t))));
+}
+
+export function poseSun(hour: number, target: THREE.Vector3): THREE.Vector3 {
+  const elev = sunElevation(hour);
+  const height = 22 + elev * 108;
+  const ring = 96 + (1 - elev) * 72;
+  const heading = hour < 12 ? DUSK_HEADING + Math.PI : DUSK_HEADING;
+  return new THREE.Vector3(
+    target.x + Math.cos(heading) * ring,
+    height,
+    target.z + Math.sin(heading) * ring,
+  );
+}
+
+export function seaMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uShade: { value: 1 },
       uNight: { value: 0 },
-      uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.2) },
-          uDeep: { value: new THREE.Color(0x0e4f96) },
-      uMid: { value: new THREE.Color(0x1e7ec4) },
-      uShallow: { value: new THREE.Color(0x3ea0d4) },
-      uHorizon: { value: new THREE.Color(0xc9b089) },
+      uSunDir: { value: new THREE.Vector3(0.55, 0.28, -0.4) },
+      uDeep: { value: new THREE.Color(0x1d648c) },
+      uMid: { value: new THREE.Color(0x2d7aa4) },
+      uShallow: { value: new THREE.Color(0x3d8fb0) },
+      uHorizon: { value: new THREE.Color(0xf3d2a4) },
     },
     vertexShader: `
       uniform float uTime;
       varying vec3 vWorld;
-      varying float vWave;
       varying vec3 vNormalW;
       void main() {
         vec3 shifted = position;
-        float wave = sin(position.x * 0.022 + uTime * 0.35) * 0.12
-          + sin(position.z * 0.018 - uTime * 0.28) * 0.08
-          + sin((position.x + position.z) * 0.012 + uTime * 0.4) * 0.05;
+        float wave = sin(position.x * 0.018 + uTime * 0.28) * 0.09
+          + sin(position.z * 0.014 - uTime * 0.22) * 0.06;
         shifted.y += wave;
-        vWave = wave;
-        vec3 n = normalize(vec3(
-          -cos(position.x * 0.028 + uTime * 0.55) * 0.028,
+        vNormalW = normalize(vec3(
+          -cos(position.x * 0.018 + uTime * 0.28) * 0.018,
           1.0,
-          -cos(position.z * 0.034 - uTime * 0.42) * 0.034
+          -cos(position.z * 0.014 - uTime * 0.22) * 0.014
         ));
-        vNormalW = n;
         vec4 world = modelMatrix * vec4(shifted, 1.0);
         vWorld = world.xyz;
         gl_Position = projectionMatrix * viewMatrix * world;
@@ -121,26 +131,30 @@ export function seaMaterial(segmentsHint = 80): THREE.ShaderMaterial {
       uniform vec3 uShallow;
       uniform vec3 uHorizon;
       varying vec3 vWorld;
-      varying float vWave;
       varying vec3 vNormalW;
       void main() {
         float dist = length(vWorld.xz);
-        float near = smoothstep(480.0, 160.0, dist);
-        float farFade = smoothstep(1600.0, 620.0, dist);
-        vec3 color = mix(uDeep, uMid, clamp(vWave * 1.4 + 0.35, 0.0, 1.0));
-        color = mix(color, uShallow, near * 0.4);
-        float spark = sin(vWorld.z * 0.031 + vWorld.x * 0.017) * 0.015;
-        color += spark * vec3(0.12, 0.2, 0.24);
+        float near = smoothstep(420.0, 140.0, dist);
+        vec3 color = mix(uDeep, uMid, 0.45 + near * 0.25);
+        color = mix(color, uShallow, near * 0.28);
         vec3 n = normalize(vNormalW);
         vec3 view = normalize(cameraPosition - vWorld);
-        vec3 h = normalize(normalize(uSunDir) + view);
-        float spec = pow(max(dot(n, h), 0.0), mix(48.0, 90.0, 1.0 - uNight));
-        float fresnel = pow(1.0 - max(dot(n, view), 0.0), 3.0);
-        vec3 sparkle = mix(vec3(1.0, 0.94, 0.78), vec3(0.82, 0.9, 1.0), uNight);
-        color += sparkle * spec * mix(0.45, 0.22, uNight);
-        color = mix(color, uHorizon, fresnel * 0.08 * farFade);
-        float foam = smoothstep(0.12, 0.28, vWave) * near;
-        color = mix(color, vec3(0.86, 0.94, 0.96), foam * 0.35);
+        vec3 sun = normalize(uSunDir);
+        vec3 h = normalize(sun + view);
+        float spec = pow(max(dot(n, h), 0.0), 70.0);
+        vec2 sunXZ = normalize(sun.xz + vec2(0.0001));
+        float along = dot(normalize(vWorld.xz + vec2(0.0001)), sunXZ);
+        vec2 acrossV = vWorld.xz - sunXZ * dot(vWorld.xz, sunXZ);
+        float streak = exp(-dot(acrossV, acrossV) * 0.000055) * smoothstep(-0.15, 0.55, along);
+        vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
+        color += glitter * (spec * 0.16 + streak * mix(0.38, 0.1, uNight));
+        float haze = smoothstep(480.0, 1400.0, dist);
+        vec3 ray = normalize(vWorld - cameraPosition);
+        float horizonFade = smoothstep(0.05, -0.02, ray.y) * smoothstep(240.0, 900.0, dist);
+        vec3 hazeCol = mix(uHorizon, uDeep, uNight);
+        color = mix(color, hazeCol, max(haze * mix(0.4, 0.22, uNight), horizonFade * 0.5 * (1.0 - uNight)));
+        float fresnel = pow(1.0 - max(dot(n, view), 0.0), 3.8);
+        color = mix(color, hazeCol, fresnel * 0.08 * (1.0 - uNight));
         color *= uShade;
         gl_FragColor = vec4(color, 1.0);
       }
@@ -167,88 +181,126 @@ export function applyLook(
   const rainy = climate.weather === "rain";
   const cloudy = climate.weather === "cloud" || rainy;
   const night = climate.isNight;
-  const golden = (climate.hour > 5.5 && climate.hour < 7.8) || (climate.hour > 17.2 && climate.hour < 19.8);
-  const nightAmt = night ? 1 - Math.min(1, Math.max(0, (day - 0.14) / 0.2)) : Math.max(0, 0.35 - day) / 0.35;
+  const goldenAmt = goldenAmount(climate.hour);
+  const nightAmt = night ? 1 - Math.min(1, Math.max(0, (day - 0.14) / 0.2)) : Math.max(0, 0.28 - day) / 0.28;
+  const elev = sunElevation(climate.hour);
 
-  const zenith = tmp.setHSL(
-    rainy ? 0.58 : golden ? 0.6 : night ? 0.64 : 0.58,
-    rainy ? 0.28 : golden ? 0.55 : night ? 0.58 : 0.72,
-    night ? 0.2 : golden ? 0.34 : rainy ? 0.42 : 0.4,
-  );
-  const horizon = tmpB.setHSL(
-    rainy ? 0.58 : golden ? 0.075 : night ? 0.62 : 0.1,
-    rainy ? 0.16 : golden ? 0.78 : night ? 0.28 : 0.62,
-    night ? 0.3 : golden ? 0.68 : rainy ? 0.58 : 0.72,
-  );
+  const zenith = night
+    ? tmp.set(0x1a3d66)
+    : rainy
+      ? tmp.set(0x7a93a8)
+      : tmp.set(goldenAmt > 0.45 ? 0x3f8fc8 : 0x2f82c0);
+  const horizon = night
+    ? tmpB.set(0x2a4a72)
+    : rainy
+      ? tmpB.set(0xb7c4ce)
+      : tmpB.set(goldenAmt > 0.45 ? 0xf4c992 : 0xd5e4f0);
 
   skyMaterial.uniforms.uZenith.value.copy(zenith);
   skyMaterial.uniforms.uHorizon.value.copy(horizon);
   skyMaterial.uniforms.uNight.value = nightAmt;
-  skyMaterial.uniforms.uHaze.value = cloudy ? 0.45 : golden ? 0.22 : 0.08;
+  skyMaterial.uniforms.uHaze.value = cloudy ? 0.4 : 0.06 + goldenAmt * 0.12;
+  skyMaterial.uniforms.uGlow.value = night ? 0.04 : 0.45 + goldenAmt * 0.4;
 
-  fog.color.set(night ? 0x1c4a82 : golden ? 0x6a9ac4 : 0x2f86c8);
-  fog.near = rainy ? 280 : 780;
-  fog.far = rainy ? 1200 : 2600;
-
-  hemi.color.set(night ? 0xb8c6dc : golden ? 0xffe0c0 : 0xfff6ea);
-  hemi.groundColor.set(night ? 0x3a4a42 : 0x4d6a40);
-  hemi.intensity = night ? 0.72 : 0.55 + day * 0.5;
-
-  const az = climate.phase * Math.PI * 2;
-  const sunHeight = night ? 55 : 48 + day * 130;
-  const ring = 90 + (1 - day) * 40;
-  sun.position.set(target.x + Math.cos(az) * ring, sunHeight, target.z + Math.sin(az) * ring);
+  const sunPos = poseSun(climate.hour, target);
+  sun.position.copy(sunPos);
   sun.target.position.copy(target);
   sun.target.updateMatrixWorld();
-  sun.color.set(golden ? 0xffb068 : night ? 0xc5d4ea : 0xfff3d6);
-  sun.intensity = (night ? 0.42 : 0.55 + day * 1.55) * (rainy ? 0.55 : cloudy ? 0.78 : 1);
+  const sunDir = sunPos.clone().sub(target).normalize();
+  skyMaterial.uniforms.uSunDir.value.copy(sunDir);
+
+  fog.color.copy(horizon).lerp(zenith, night ? 0.55 : 0.22);
+  fog.near = rainy ? 240 : 700;
+  fog.far = rainy ? 1100 : THREE.MathUtils.lerp(2600, 1900, goldenAmt);
+
+  hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
+  hemi.groundColor.set(night ? 0x3a4a42 : 0x4a5e40);
+  hemi.intensity = night ? 0.78 : 0.52 + (1 - goldenAmt) * 0.22;
+
+  sun.color.set(night ? 0xc5d4ea : tmp.setRGB(1, 0.78 - goldenAmt * 0.16, 0.48 - goldenAmt * 0.16).getHex());
+  sun.intensity = (night ? 0.42 : 0.95 + elev * 0.55 + goldenAmt * 0.4) * (rainy ? 0.55 : cloudy ? 0.78 : 1);
   sun.castShadow = quality.shadows && !night;
 
-  fill.position.set(target.x - Math.cos(az) * 70, 40, target.z - Math.sin(az) * 70);
+  fill.position.set(target.x - sunDir.x * 80, 36, target.z - sunDir.z * 80);
   fill.target.position.copy(target);
   fill.target.updateMatrixWorld();
-  fill.color.set(night ? 0x8aa0c0 : 0xb7d4e8);
-  fill.intensity = night ? 0.22 : 0.28;
+  fill.color.set(night ? 0x8aa0c0 : 0x9ec0e0);
+  fill.intensity = night ? 0.24 : 0.48;
 
-  const sunDir = sun.position.clone().sub(target).normalize();
   seaMaterial.uniforms.uSunDir.value.copy(sunDir);
   seaMaterial.uniforms.uNight.value = nightAmt;
-  seaMaterial.uniforms.uShade.value = night ? 0.78 : rainy ? 0.82 : 1;
+  seaMaterial.uniforms.uShade.value = night ? 0.8 : rainy ? 0.84 : 1;
   if (night) {
-    seaMaterial.uniforms.uDeep.value.set(0x123f78);
-    seaMaterial.uniforms.uMid.value.set(0x1f5f9c);
-    seaMaterial.uniforms.uShallow.value.set(0x2f78b4);
-    seaMaterial.uniforms.uHorizon.value.set(0x6e84a0);
-  } else if (golden) {
-    seaMaterial.uniforms.uDeep.value.set(0x0f4c8e);
-    seaMaterial.uniforms.uMid.value.set(0x1f74b4);
-    seaMaterial.uniforms.uShallow.value.set(0x3e94c4);
-    seaMaterial.uniforms.uHorizon.value.set(0xe2b888);
+    seaMaterial.uniforms.uDeep.value.set(0x143a66);
+    seaMaterial.uniforms.uMid.value.set(0x1d5580);
+    seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
+    seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
   } else {
-    seaMaterial.uniforms.uDeep.value.set(0x0e4f96);
-    seaMaterial.uniforms.uMid.value.set(0x1e7ec4);
-    seaMaterial.uniforms.uShallow.value.set(0x3ea0d4);
-    seaMaterial.uniforms.uHorizon.value.set(0xc9b089);
+    seaMaterial.uniforms.uDeep.value.set(0x1c5f88);
+    seaMaterial.uniforms.uMid.value.set(0x2c7aa2);
+    seaMaterial.uniforms.uShallow.value.set(0x3c8fb0);
+    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xf3d2a4 : 0xc9d8e6);
   }
 
   clouds.visible = quality.clouds && !night;
-  (clouds.material as THREE.MeshBasicMaterial).color.set(golden ? 0xffe0c4 : 0xfff4ea);
+  layoutClouds(clouds, target);
+  (clouds.material as THREE.MeshBasicMaterial).color.set(goldenAmt > 0.4 ? 0xffe6cc : 0xfff8f0);
 
   const starMat = stars.material as THREE.PointsMaterial;
   stars.visible = quality.stars && nightAmt > 0.25;
   starMat.opacity = nightAmt * 0.85;
 
   moon.visible = nightAmt > 0.35;
-  moon.position.set(target.x - Math.cos(az) * 320, 240, target.z - Math.sin(az) * 320);
+  moon.position.set(target.x - sunDir.x * 340, 250, target.z - sunDir.z * 340);
 
-  sunDisc.visible = false;
-  sunDisc.position.copy(sun.position);
+  sunDisc.visible = !night && elev > 0.04;
+  const along = new THREE.Vector3(sunDir.x, 0, sunDir.z).normalize().multiplyScalar(640);
+  sunDisc.position.set(target.x + along.x, 70 + elev * 50, target.z + along.z);
+  (sunDisc.material as THREE.MeshBasicMaterial).color.set(goldenAmt > 0.3 ? 0xffd080 : 0xffeec0);
 
   return {
     nightLit: night || day < 0.28,
-    exposure: night ? 1.08 : golden ? 1.04 : 0.98,
+    exposure: night ? 1.05 : 0.98 + goldenAmt * 0.02,
   };
 }
+
+export function goldenAmount(hour: number): number {
+  const dusk = 1 - Math.min(1, Math.abs(hour - 17.2) / 2.6);
+  const dawn = 1 - Math.min(1, Math.abs(hour - 6.8) / 1.8);
+  return Math.max(0, dusk, dawn);
+}
+
+export const COLOR_GRADE = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uWarm: { value: 0.12 },
+    uContrast: { value: 0.98 },
+    uVignette: { value: 0.2 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uWarm;
+    uniform float uContrast;
+    uniform float uVignette;
+    varying vec2 vUv;
+    void main() {
+      vec4 src = texture2D(tDiffuse, vUv);
+      vec3 color = src.rgb;
+      color *= vec3(1.0 + uWarm * 0.16, 1.0 + uWarm * 0.02, 1.0 - uWarm * 0.1);
+      color = mix(vec3(0.5), color, uContrast);
+      float r = length(vUv - 0.5);
+      color *= 1.0 - smoothstep(0.42, 0.95, r) * uVignette;
+      gl_FragColor = vec4(color, src.a);
+    }
+  `,
+};
 
 export function nightWindowCompile(shader: THREE.WebGLProgramParametersWithUniforms): void {
   shader.uniforms.uNightWindows = { value: 0 };
@@ -272,16 +324,19 @@ function skyGradient(): THREE.ShaderMaterial {
     depthWrite: false,
     fog: false,
     uniforms: {
-      uZenith: { value: new THREE.Color(0x4a90d4) },
-      uHorizon: { value: new THREE.Color(0xf3d2a0) },
+      uZenith: { value: new THREE.Color(0x4a90c8) },
+      uHorizon: { value: new THREE.Color(0xf6d09a) },
       uNight: { value: 0 },
       uHaze: { value: 0.1 },
+      uGlow: { value: 0.7 },
+      uSunDir: { value: new THREE.Vector3(0.6, 0.25, -0.4) },
     },
     vertexShader: `
-      varying vec3 vDir;
+      varying vec3 vWorld;
       void main() {
-        vDir = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: `
@@ -289,63 +344,48 @@ function skyGradient(): THREE.ShaderMaterial {
       uniform vec3 uHorizon;
       uniform float uNight;
       uniform float uHaze;
-      varying vec3 vDir;
+      uniform float uGlow;
+      uniform vec3 uSunDir;
+      varying vec3 vWorld;
       void main() {
-        float h = clamp(vDir.y * 0.72 + 0.28, 0.0, 1.0);
-        float band = smoothstep(0.18, 0.78, h);
+        vec3 ray = normalize(vWorld - cameraPosition);
+        float h = ray.y;
+        float band = smoothstep(-0.06, 0.16, h);
         vec3 color = mix(uHorizon, uZenith, band);
-        color = mix(color, vec3(0.92, 0.95, 0.98), uHaze * (1.0 - band) * 0.35);
-        float glow = pow(1.0 - abs(vDir.y), 4.0) * (1.0 - uNight) * 0.18;
-        color += vec3(1.0, 0.78, 0.42) * glow;
+        vec3 sun = normalize(uSunDir);
+        float sunDot = max(dot(ray, sun), 0.0);
+        float glow = pow(sunDot, 8.0) * uGlow * (1.0 - uNight);
+        float halo = pow(sunDot, 2.2) * 0.22 * uGlow * (1.0 - uNight);
+        float low = pow(1.0 - clamp(h + 0.04, 0.0, 1.0), 2.8);
+        color += vec3(1.0, 0.74, 0.34) * glow * 0.85;
+        color += vec3(1.0, 0.84, 0.55) * halo * low;
+        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.28);
+        color = mix(color, vec3(0.07, 0.12, 0.24), uNight * 0.72);
         gl_FragColor = vec4(color, 1.0);
       }
     `,
   });
 }
 
-function cloudGeometry(): THREE.BufferGeometry {
-  const parts = [
-    new THREE.BoxGeometry(38, 10, 22),
-    new THREE.BoxGeometry(22, 8, 16),
-    new THREE.BoxGeometry(16, 7, 14),
-  ];
-  parts[1].translate(14, 2, 4);
-  parts[2].translate(-12, 1, -3);
-  const merged = mergeBoxes(parts);
-  for (const part of parts) part.dispose();
-  return merged;
-}
-
-function mergeBoxes(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  let verts = 0;
-  let idx = 0;
-  for (const part of parts) {
-    verts += part.getAttribute("position").count;
-    idx += part.getIndex()?.count ?? 0;
+function layoutClouds(clouds: THREE.InstancedMesh, target: THREE.Vector3): void {
+  const az = DEFAULT_AZIMUTH;
+  const fwdX = -Math.sin(az);
+  const fwdZ = -Math.cos(az);
+  const leftX = -Math.cos(az);
+  const leftZ = Math.sin(az);
+  for (let i = 0; i < clouds.count; i += 1) {
+    const side = (i - (clouds.count - 1) / 2) * 70;
+    const push = 200 + (i % 3) * 48;
+    cloudDummy.position.set(
+      target.x + fwdX * push + leftX * side,
+      88 + (i % 4) * 14,
+      target.z + fwdZ * push + leftZ * side,
+    );
+    cloudDummy.rotation.set(0, az + i * 0.35, 0.08 * (i % 3));
+    const s = 1.05 + (i % 3) * 0.22;
+    cloudDummy.scale.set(s * 1.7, s * 0.55, s);
+    cloudDummy.updateMatrix();
+    clouds.setMatrixAt(i, cloudDummy.matrix);
   }
-  const position = new Float32Array(verts * 3);
-  const normal = new Float32Array(verts * 3);
-  const index = new Uint16Array(idx);
-  let v = 0;
-  let c = 0;
-  for (const part of parts) {
-    const p = part.getAttribute("position");
-    const n = part.getAttribute("normal");
-    const base = v;
-    for (let i = 0; i < p.count; i += 1) {
-      position.set([p.getX(i), p.getY(i), p.getZ(i)], (v + i) * 3);
-      normal.set([n.getX(i), n.getY(i), n.getZ(i)], (v + i) * 3);
-    }
-    v += p.count;
-    const pi = part.getIndex();
-    if (pi) {
-      for (let i = 0; i < pi.count; i += 1) index[c++] = pi.getX(i) + base;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(position, 3));
-  geo.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
-  geo.setIndex(new THREE.BufferAttribute(index, 1));
-  return geo;
+  clouds.instanceMatrix.needsUpdate = true;
 }
-

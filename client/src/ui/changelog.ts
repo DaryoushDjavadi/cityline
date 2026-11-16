@@ -14,6 +14,7 @@ export const CHANGELOG: PatchNote[] = [
       "Beleuchtung, Himmel, Meer und Gelände folgen der Key-Art: warmes Sonnenlicht, weiche Schatten, klareres Blau im Wasser, helleres Gras und Sand am Ufer.",
       "Nachts bleibt die Karte nur etwas dunkler, mit warmen Fenstern, Laternen und einem blauen Himmel — nicht pechschwarz.",
       "Grafikqualität unter Nachfrage: Auto, Hoch, Mittel, Schonend. Handys und schwache Geräte gehen von allein auf Schonend, ohne die Simulation jedes Bild neu zu bauen.",
+      "Neue Städte starten am späten Nachmittag: warmes Gegenlicht, weiche Schatten, Meer mit Sonnenstreifen und sichtbare Erdkanten an der Küste.",
     ],
   },
   {

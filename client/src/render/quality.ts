@@ -87,7 +87,7 @@ export function gfxProfile(preset: GfxPreset, devicePixelRatio = 1): GfxProfile 
     shadows: true,
     shadowMap: 1024,
     bloom: true,
-    vignette: true,
+    vignette: false,
     clouds: true,
     stars: true,
     seaSegments: 80,

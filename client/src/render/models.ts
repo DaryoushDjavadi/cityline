@@ -38,7 +38,7 @@ const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number
 function partGeometry(part: Part): THREE.BufferGeometry {
   let geometry: THREE.BufferGeometry;
   if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, 12);
-  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 4);
+  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 6);
   else if (part.shape === "sphere") geometry = new THREE.SphereGeometry(part.sx, 12, 8);
   else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
   if (part.rx || part.ry || part.rz) {
@@ -99,6 +99,7 @@ function pitch(color: number): Part[] {
   return [
     box(0, 3.45, -1.05, 6.3, 0.28, 3.5, color, { rx: 0.62 }),
     box(0, 3.45, 1.05, 6.3, 0.28, 3.5, color, { rx: -0.62 }),
+    box(0, 3.92, 0, 6.35, 0.16, 0.42, color),
   ];
 }
 
@@ -121,14 +122,14 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 9.4,
     parts: [
       box(0, 0.2, 0, 7.6, 0.4, 6.4, 0x7d7468),
-      box(0, 4.4, 0, 7.1, 8, 5.8, 0xd4cbb8),
+      box(0, 4.4, 0, 7.1, 8, 5.8, 0xe2d4bc),
       box(0, 2.3, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
       box(0, 4.5, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
       box(0, 6.7, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
       box(-1.7, 4.6, 2.96, 1.15, 5.6, 0.1, WIN),
       box(0, 4.6, 2.96, 1.15, 5.6, 0.1, WIN),
       box(1.7, 4.6, 2.96, 1.15, 5.6, 0.1, WIN),
-      box(0, 8.6, 0, 7.5, 0.35, 6.2, 0x6e7c86),
+      box(0, 8.6, 0, 7.5, 0.35, 6.2, 0x8a6a52),
       box(-3.15, 2.2, 0, 0.7, 4, 1.4, 0xc4b8a4),
     ],
   },
@@ -136,7 +137,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 20.5,
     parts: [
       box(0, 0.25, 0, 5.6, 0.5, 5.6, 0x5e6a72),
-      box(0, 8.6, 0, 4.7, 16.2, 4.7, 0x8aa0b0),
+      box(0, 8.6, 0, 4.7, 16.2, 4.7, 0xc8b8a0),
       box(0, 4, 2.4, 3.6, 0.18, 0.12, WIN),
       box(0, 8, 2.4, 3.6, 0.18, 0.12, WIN),
       box(0, 12, 2.4, 3.6, 0.18, 0.12, WIN),
@@ -163,7 +164,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.3, 0, 7.2, 0.6, 7.2, 0x6a7378),
       box(0, 1.5, 0, 6.8, 1.8, 6.8, 0xd9d3c8),
-      box(0, 7.2, 0, 5.2, 9.4, 5.2, 0x7e96a8),
+      box(0, 7.2, 0, 5.2, 9.4, 5.2, 0xc2b49a),
       box(0, 4.2, 2.66, 4.2, 0.14, 0.1, WIN),
       box(0, 6.6, 2.66, 4.2, 0.14, 0.1, WIN),
       box(0, 9, 2.66, 4.2, 0.14, 0.1, WIN),
@@ -286,11 +287,11 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   park: {
     height: 3.6,
     parts: [
-      box(0, 0.12, 0, 8.6, 0.24, 8.2, 0x3f8f4a),
+      box(0, 0.12, 0, 8.6, 0.24, 8.2, 0x6a9a58),
       box(0, 0.2, 0, 2.4, 0.16, 2.4, 0xd7e2c8),
       { shape: "cyl", x: 0, y: 0.7, z: 0, sx: 0.7, sy: 0.8, sz: 0.7, color: 0x8aa0a8 },
-      { shape: "cone", x: -2.6, y: 1.8, z: -1.8, sx: 1.15, sy: 2.8, sz: 1, color: 0x2f6a3c, ry: 0.4 },
-      { shape: "cone", x: 2.5, y: 1.6, z: 1.6, sx: 1, sy: 2.4, sz: 1, color: 0x4e7d43 },
+      { shape: "sphere", x: -2.6, y: 1.7, z: -1.8, sx: 1.05, sy: 1.05, sz: 1.05, color: 0x7da85e },
+      { shape: "sphere", x: 2.5, y: 1.55, z: 1.6, sx: 0.9, sy: 0.9, sz: 0.9, color: 0x6e9854 },
     ],
   },
   university: {
@@ -354,16 +355,25 @@ function stripedStack(x: number, z: number, y: number, radius: number, height: n
 }
 
 export function buildTreeModels(): BuiltModel[] {
-  const greens = [0x5ea24a, 0x4e8e3e, 0x6bb052];
-  return greens.map((leaf, index) => ({
-    key: `tree${index}`,
-    height: 3.4,
-    geometry: compose([
-      { shape: "cyl", x: 0, y: 0.45, z: 0, sx: 0.16, sy: 0.9, sz: 0.16, color: 0x7a5a38 },
-      { shape: "cone", x: 0, y: 1.7, z: 0, sx: 0.95, sy: 1.8, sz: 0.95, color: leaf },
-      { shape: "cone", x: 0, y: 2.55, z: 0, sx: 0.7, sy: 1.35, sz: 0.7, color: leaf },
-    ]),
-  }));
+  const round = (leaf: number, leaf2: number): Part[] => [
+    { shape: "cyl", x: 0, y: 0.42, z: 0, sx: 0.18, sy: 0.84, sz: 0.18, color: 0x8a6840 },
+    { shape: "sphere", x: 0, y: 1.55, z: 0, sx: 1.05, sy: 1.05, sz: 1.05, color: leaf },
+    { shape: "sphere", x: 0.35, y: 2.05, z: 0.15, sx: 0.7, sy: 0.7, sz: 0.7, color: leaf2 },
+    { shape: "sphere", x: -0.28, y: 1.95, z: -0.22, sx: 0.62, sy: 0.62, sz: 0.62, color: leaf },
+  ];
+  const pine = (leaf: number, leaf2: number): Part[] => [
+    { shape: "cyl", x: 0, y: 0.4, z: 0, sx: 0.16, sy: 0.8, sz: 0.16, color: 0x7a5a38 },
+    { shape: "cone", x: 0, y: 1.45, z: 0, sx: 1.05, sy: 1.5, sz: 1.05, color: leaf },
+    { shape: "cone", x: 0, y: 2.25, z: 0, sx: 0.72, sy: 1.2, sz: 0.72, color: leaf2 },
+  ];
+  return [
+    { key: "tree0", height: 3.2, geometry: compose(round(0x86b066, 0x94bc72)) },
+    { key: "tree1", height: 3.2, geometry: compose(round(0x78a45a, 0x88b268)) },
+    { key: "tree2", height: 3.2, geometry: compose(round(0x90ba6e, 0x7eaa60)) },
+    { key: "tree3", height: 3.4, geometry: compose(pine(0x7aaa62, 0x88b86e)) },
+    { key: "tree4", height: 3.4, geometry: compose(pine(0x6e9e56, 0x7eae64)) },
+    { key: "tree5", height: 3.4, geometry: compose(pine(0x84b468, 0x74a45a)) },
+  ];
 }
 
 export function buildModels(): BuiltModel[] {
