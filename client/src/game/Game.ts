@@ -53,6 +53,7 @@ import {
   foodRatio,
   isFarmAction,
   houseReport,
+  inBounds,
   isLine,
   isWorkplace,
   jobOpenings,
@@ -330,6 +331,85 @@ export class Game {
     }, 4000);
     this.publish();
     requestAnimationFrame((time) => this.frame(time));
+    if (new URLSearchParams(location.search).has("e2e")) this.attachE2e();
+  }
+
+  /** Browser-test helper: project buildable cells so Playwright can click the real canvas. */
+  private attachE2e(): void {
+    const self = this;
+    (window as unknown as { __citylineE2E: unknown }).__citylineE2E = {
+      snapshot() {
+        let roads = 0;
+        let homes = 0;
+        for (let i = 0; i < self.city.roads.length; i += 1) if (self.city.roads[i]) roads += 1;
+        for (let i = 0; i < self.city.levels.length; i += 1) {
+          if (self.city.levels[i] > 0 && self.city.zones[i] === Zone.Residential) homes += 1;
+        }
+        return {
+          mode: self.mode,
+          room: self.room,
+          funds: self.city.funds,
+          roads,
+          homes,
+          playing: self.playing,
+        };
+      },
+      roadRun(): { cells: { x: number; y: number }[]; screens: { x: number; y: number }[] } | null {
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+        const width = self.canvas.clientWidth || window.innerWidth;
+        const height = self.canvas.clientHeight || window.innerHeight;
+        const rect = self.canvas.getBoundingClientRect();
+        const project = (cx: number, cy: number) => {
+          const world = cellToWorld(self.city, cx, cy);
+          self.cursorNdc.set(world.x, 0.2, world.z).project(self.camera.camera);
+          if (self.cursorNdc.z < -1 || self.cursorNdc.z > 1) return null;
+          const x = (self.cursorNdc.x * 0.5 + 0.5) * width;
+          const y = (-self.cursorNdc.y * 0.5 + 0.5) * height;
+          if (x < 8 || y < 8 || x > width - 8 || y > height - 8) return null;
+          return { x: rect.left + x, y: rect.top + y };
+        };
+        for (let y = 8; y < self.city.height - 8; y += 1) {
+          let run: { x: number; y: number }[] = [];
+          for (let x = 8; x < self.city.width - 8; x += 1) {
+            const index = cellIndex(self.city, x, y);
+            if (canPlace(self.city, index, "road")) run.push({ x, y });
+            else run = [];
+            if (run.length >= 6) {
+              const screens = run.map((cell) => project(cell.x, cell.y));
+              if (screens.every(Boolean)) return { cells: run, screens: screens as { x: number; y: number }[] };
+              run = run.slice(-3);
+            }
+          }
+        }
+        return null;
+      },
+      cottageSpot(): { x: number; y: number; screen: { x: number; y: number } } | null {
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+        const width = self.canvas.clientWidth || window.innerWidth;
+        const height = self.canvas.clientHeight || window.innerHeight;
+        const rect = self.canvas.getBoundingClientRect();
+        for (let i = 0; i < self.city.roads.length; i += 1) {
+          if (!self.city.roads[i]) continue;
+          const { x, y } = cellCoords(self.city, i);
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (!inBounds(self.city, nx, ny)) continue;
+            if (!canPlace(self.city, cellIndex(self.city, nx, ny), "build")) continue;
+            const world = cellToWorld(self.city, nx, ny);
+            self.cursorNdc.set(world.x, 0.2, world.z).project(self.camera.camera);
+            if (self.cursorNdc.z < -1 || self.cursorNdc.z > 1) continue;
+            const sx = (self.cursorNdc.x * 0.5 + 0.5) * width;
+            const sy = (-self.cursorNdc.y * 0.5 + 0.5) * height;
+            if (sx < 8 || sy < 8 || sx > width - 8 || sy > height - 8) continue;
+            return { x: nx, y: ny, screen: { x: rect.left + sx, y: rect.top + sy } };
+          }
+        }
+        return null;
+      },
+    };
   }
 
   private frame(time: number): void {
