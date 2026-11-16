@@ -18,13 +18,13 @@ export interface LookCity {
 }
 
 /** Dense showcase city for look comparisons (client-only, not persisted). */
-export function buildLookCity(hour = 17): LookCity {
+export function buildLookCity(hour = 7): LookCity {
   const city = createCity(undefined, undefined, {
     seed: 1842,
     biome: "temperate",
     water: 38,
     lakes: 22,
-    forest: 30,
+    forest: 18,
     rivers: 18,
   });
   city.funds = 5_000_000;
@@ -83,8 +83,14 @@ export function buildLookCity(hour = 17): LookCity {
   placeBuild(34, bestY - 1, "workshop");
   placeBuild(36, bestY - 1, "factory");
   placeBuild(38, bestY - 1, "plant");
-  placeBuild(14, bestY - 3, "farm");
-  placeBuild(16, bestY - 3, "farm");
+  placeBuild(28, bestY - 3, "apartments");
+  placeBuild(30, bestY - 3, "office");
+  placeBuild(32, bestY - 3, "apartments");
+  placeBuild(34, bestY + 1, "shop");
+  placeBuild(22, bestY + 1, "cottage");
+  placeBuild(26, bestY - 1, "cottage");
+  placeBuild(14, bestY - 3, "cottage");
+  placeBuild(16, bestY - 3, "cottage");
 
   placeService(24, bestY - 1, ServiceKind.Power);
   placeService(24, bestY + 1, ServiceKind.Water);

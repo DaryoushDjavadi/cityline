@@ -127,9 +127,9 @@ export class RtsCamera {
     this.focusEase = null;
     this.target.set(0, 0, 0);
     this.azimuth = 0.58;
-    this.polar = 1.08;
-    this.lookLift = 12;
-    this.distance = 390;
+    this.polar = 1.04;
+    this.lookLift = 6;
+    this.distance = 205;
   }
 
   update(dt: number): void {

@@ -81,27 +81,28 @@ export function sunElevation(hour: number): number {
 
 export function poseSun(hour: number, target: THREE.Vector3): THREE.Vector3 {
   const elev = sunElevation(hour);
-  const height = 22 + elev * 108;
-  const ring = 96 + (1 - elev) * 72;
-  const heading = hour < 12 ? DUSK_HEADING + Math.PI : DUSK_HEADING;
+  const golden = goldenAmount(hour);
+  const height = 16 + elev * 88 - golden * 8;
+  const ring = 108 + (1 - elev) * 70;
   return new THREE.Vector3(
-    target.x + Math.cos(heading) * ring,
+    target.x + Math.cos(DUSK_HEADING) * ring,
     height,
-    target.z + Math.sin(heading) * ring,
+    target.z + Math.sin(DUSK_HEADING) * ring,
   );
 }
 
 export function seaMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    fog: false,
     uniforms: {
       uTime: { value: 0 },
       uShade: { value: 1 },
       uNight: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.55, 0.28, -0.4) },
-      uDeep: { value: new THREE.Color(0x1d648c) },
-      uMid: { value: new THREE.Color(0x2d7aa4) },
-      uShallow: { value: new THREE.Color(0x3d8fb0) },
-      uHorizon: { value: new THREE.Color(0xf3d2a4) },
+      uDeep: { value: new THREE.Color(0x1a5f8a) },
+      uMid: { value: new THREE.Color(0x2474a0) },
+      uShallow: { value: new THREE.Color(0x2f88b0) },
+      uHorizon: { value: new THREE.Color(0xf0c48a) },
     },
     vertexShader: `
       uniform float uTime;
@@ -147,14 +148,13 @@ export function seaMaterial(): THREE.ShaderMaterial {
         vec2 acrossV = vWorld.xz - sunXZ * dot(vWorld.xz, sunXZ);
         float streak = exp(-dot(acrossV, acrossV) * 0.000055) * smoothstep(-0.15, 0.55, along);
         vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
-        color += glitter * (spec * 0.16 + streak * mix(0.38, 0.1, uNight));
-        float haze = smoothstep(480.0, 1400.0, dist);
+        color += glitter * (spec * 0.12 + streak * mix(0.22, 0.08, uNight));
         vec3 ray = normalize(vWorld - cameraPosition);
-        float horizonFade = smoothstep(0.05, -0.02, ray.y) * smoothstep(240.0, 900.0, dist);
+        float horizonFade = smoothstep(0.018, -0.012, ray.y) * smoothstep(380.0, 1100.0, dist);
         vec3 hazeCol = mix(uHorizon, uDeep, uNight);
-        color = mix(color, hazeCol, max(haze * mix(0.4, 0.22, uNight), horizonFade * 0.5 * (1.0 - uNight)));
-        float fresnel = pow(1.0 - max(dot(n, view), 0.0), 3.8);
-        color = mix(color, hazeCol, fresnel * 0.08 * (1.0 - uNight));
+        color = mix(color, hazeCol, horizonFade * mix(0.28, 0.12, uNight));
+        float fresnel = pow(1.0 - max(dot(n, view), 0.0), 5.0);
+        color = mix(color, uMid, fresnel * 0.06 * (1.0 - uNight));
         color *= uShade;
         gl_FragColor = vec4(color, 1.0);
       }
@@ -189,7 +189,7 @@ export function applyLook(
     ? tmp.set(0x1a3d66)
     : rainy
       ? tmp.set(0x7a93a8)
-      : tmp.set(goldenAmt > 0.45 ? 0x3f8fc8 : 0x2f82c0);
+      : tmp.set(goldenAmt > 0.45 ? 0x3a8ed4 : 0x2d7fc8);
   const horizon = night
     ? tmpB.set(0x2a4a72)
     : rainy
@@ -199,7 +199,7 @@ export function applyLook(
   skyMaterial.uniforms.uZenith.value.copy(zenith);
   skyMaterial.uniforms.uHorizon.value.copy(horizon);
   skyMaterial.uniforms.uNight.value = nightAmt;
-  skyMaterial.uniforms.uHaze.value = cloudy ? 0.4 : 0.06 + goldenAmt * 0.12;
+  skyMaterial.uniforms.uHaze.value = cloudy ? 0.35 : 0.04 + goldenAmt * 0.06;
   skyMaterial.uniforms.uGlow.value = night ? 0.04 : 0.45 + goldenAmt * 0.4;
 
   const sunPos = poseSun(climate.hour, target);
@@ -209,13 +209,13 @@ export function applyLook(
   const sunDir = sunPos.clone().sub(target).normalize();
   skyMaterial.uniforms.uSunDir.value.copy(sunDir);
 
-  fog.color.copy(horizon).lerp(zenith, night ? 0.55 : 0.22);
-  fog.near = rainy ? 240 : 700;
-  fog.far = rainy ? 1100 : THREE.MathUtils.lerp(2600, 1900, goldenAmt);
+  fog.color.copy(zenith);
+  fog.near = rainy ? 280 : 2400;
+  fog.far = rainy ? 1200 : 5200;
 
   hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
-  hemi.groundColor.set(night ? 0x3a4a42 : 0x4a5e40);
-  hemi.intensity = night ? 0.78 : 0.52 + (1 - goldenAmt) * 0.22;
+  hemi.groundColor.set(night ? 0x3a4a42 : 0x5a7a38);
+  hemi.intensity = night ? 0.8 : 0.62 + (1 - goldenAmt) * 0.18;
 
   sun.color.set(night ? 0xc5d4ea : tmp.setRGB(1, 0.78 - goldenAmt * 0.16, 0.48 - goldenAmt * 0.16).getHex());
   sun.intensity = (night ? 0.42 : 0.95 + elev * 0.55 + goldenAmt * 0.4) * (rainy ? 0.55 : cloudy ? 0.78 : 1);
@@ -225,7 +225,7 @@ export function applyLook(
   fill.target.position.copy(target);
   fill.target.updateMatrixWorld();
   fill.color.set(night ? 0x8aa0c0 : 0x9ec0e0);
-  fill.intensity = night ? 0.24 : 0.48;
+  fill.intensity = night ? 0.28 : 0.58;
 
   seaMaterial.uniforms.uSunDir.value.copy(sunDir);
   seaMaterial.uniforms.uNight.value = nightAmt;
@@ -236,10 +236,10 @@ export function applyLook(
     seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
     seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
   } else {
-    seaMaterial.uniforms.uDeep.value.set(0x1c5f88);
-    seaMaterial.uniforms.uMid.value.set(0x2c7aa2);
-    seaMaterial.uniforms.uShallow.value.set(0x3c8fb0);
-    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xf3d2a4 : 0xc9d8e6);
+    seaMaterial.uniforms.uDeep.value.set(0x17608c);
+    seaMaterial.uniforms.uMid.value.set(0x2176a4);
+    seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
+    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xf0c48a : 0xb7d4e6);
   }
 
   clouds.visible = quality.clouds && !night;
@@ -273,7 +273,7 @@ export function goldenAmount(hour: number): number {
 export const COLOR_GRADE = {
   uniforms: {
     tDiffuse: { value: null },
-    uWarm: { value: 0.12 },
+    uWarm: { value: 0.08 },
     uContrast: { value: 0.98 },
     uVignette: { value: 0.2 },
   },
@@ -312,9 +312,9 @@ export function nightWindowCompile(shader: THREE.WebGLProgramParametersWithUnifo
     "#include <emissivemap_fragment>",
     `#include <emissivemap_fragment>
      float windowMask = step(0.42, diffuseColor.b) * step(diffuseColor.g, diffuseColor.b + 0.08) * step(diffuseColor.r, 0.72) * step(0.38, diffuseColor.g);
-     vec3 lamp = vec3(1.0, 0.86, 0.52);
+     vec3 lamp = vec3(1.0, 0.78, 0.38);
      diffuseColor.rgb = mix(diffuseColor.rgb, lamp, windowMask * uNightWindows);
-     totalEmissiveRadiance += lamp * windowMask * uNightWindows * 1.15;`,
+     totalEmissiveRadiance += lamp * windowMask * uNightWindows * 1.55;`,
   );
 }
 

@@ -492,7 +492,7 @@ export class Game {
   private bootLookPreview(): void {
     const params = new URLSearchParams(location.search);
     if (params.get("preview") !== "look") return;
-    const hour = Number(params.get("hour") ?? 17);
+    const hour = Number(params.get("hour") ?? 7);
     const gfx = params.get("gfx");
     if (gfx === "auto" || gfx === "high" || gfx === "medium" || gfx === "low") this.setQuality(gfx);
     if (params.get("hud") === "0") document.body.dataset.look = "shot";
@@ -509,10 +509,10 @@ export class Game {
     this.hud.setMode("Vorschau");
     this.hud.setLobbyBackVisible(false);
     this.beginSession(false);
-    const showcase = buildLookCity(Number.isFinite(hour) ? hour : 17);
+    const showcase = buildLookCity(Number.isFinite(hour) ? hour : 7);
     writeCity(this.city, packCells(showcase.city), buildMeta(showcase.city));
     this.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
-    this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 17);
+    this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 7);
     refreshUtilities(this.city);
     this.view.setWeatherOverride("clear");
     this.view.setDecorations(false);
@@ -523,9 +523,9 @@ export class Game {
     this.camera.resetOverview();
     this.camera.lookAt(showcase.focusX, showcase.focusZ);
     this.camera.azimuth = 0.58;
-    this.camera.polar = 1.22;
-    this.camera.lookLift = 28;
-    this.camera.setDistance(292);
+    this.camera.polar = 1.1;
+    this.camera.lookLift = 10;
+    this.camera.setDistance(176);
     this.publish();
   }
 

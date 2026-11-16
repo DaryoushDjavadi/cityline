@@ -468,10 +468,10 @@ if (midnight.daylight < 0.1) throw new Error("night lighting must stay readable,
 if (!/^\d{2}:\d{2}$/.test(noon.clock)) throw new Error(`bad clock ${noon.clock}`);
 {
   const start = climateAt(createCity().tick);
-  if (start.clock !== "17:00") throw new Error(`new city should start at 17:00, got ${start.clock}`);
+  if (start.clock !== "07:00") throw new Error(`new city should start at 07:00, got ${start.clock}`);
   if (start.isNight) throw new Error("new city should not start in the dark");
   const levelStart = climateAt(createLevelCity(LEVELS[0]).tick);
-  if (levelStart.clock !== start.clock) throw new Error("level cities should share the freeplay afternoon clock");
+  if (levelStart.clock !== start.clock) throw new Error("level cities should share the freeplay morning clock");
 }
 const walkers = streetPedestrians(city);
 for (const ped of walkers) {

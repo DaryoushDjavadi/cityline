@@ -185,7 +185,7 @@ export class CityRenderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     this.scene.background = new THREE.Color(0x7eb3d8);
-    this.fog = new THREE.Fog(0xc8d6e4, 420, 1700);
+    this.fog = new THREE.Fog(0x3f8fc8, 2400, 5200);
     this.scene.fog = this.fog;
 
     this.hemi = new THREE.HemisphereLight(0xfff6ea, 0x4d6a40, 1.05);
@@ -205,7 +205,7 @@ export class CityRenderer {
     sea.rotateX(-Math.PI / 2);
     this.seaMaterial = seaMaterial();
     const ocean = new THREE.Mesh(sea, this.seaMaterial);
-    ocean.position.y = -2.15;
+    ocean.position.y = -1.55;
     ocean.frustumCulled = false;
     ocean.receiveShadow = this.quality.shadows;
     this.scene.add(ocean);
@@ -266,13 +266,13 @@ export class CityRenderer {
     this.lampPoles = mesh(new THREE.CylinderGeometry(0.12, 0.16, 1, 6), lit, 400);
     this.streetLamps = mesh(
       new THREE.SphereGeometry(0.45, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffe6b0 }),
+      new THREE.MeshBasicMaterial({ color: 0xffc56a }),
       400,
     );
     this.nightGlows = mesh(
       new THREE.SphereGeometry(1, 10, 8),
       new THREE.MeshBasicMaterial({
-        color: 0xffd89a,
+        color: 0xffc070,
         transparent: true,
         opacity: 0.12,
         depthWrite: false,
@@ -302,7 +302,7 @@ export class CityRenderer {
     this.pipeMesh = mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55 }), CAP * 6);
     this.roofs = mesh(new THREE.ConeGeometry(0.5, 1, 4), lit);
     this.stones = mesh(new THREE.DodecahedronGeometry(0.55, 0), lit);
-    this.lakes = mesh(plane, new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+    this.lakes = mesh(plane, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.32, metalness: 0.08, fog: false }));
     const litBuildings = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.06 });
     litBuildings.onBeforeCompile = (shader) => {
       nightWindowCompile(shader);
@@ -478,7 +478,7 @@ export class CityRenderer {
           roads = laid.roads;
           if (mask === 0b0101 || mask === 0b1010) {
             const east = mask === 0b1010;
-            this.put(this.markings, marks, world.x, 0.18, world.z, east ? CELL_SIZE * 0.55 : CELL_SIZE * 0.07, 0.04, east ? CELL_SIZE * 0.07 : CELL_SIZE * 0.55, 0, 0xf3eee4);
+            this.put(this.markings, marks, world.x, 0.18, world.z, east ? CELL_SIZE * 0.55 : CELL_SIZE * 0.08, 0.04, east ? CELL_SIZE * 0.08 : CELL_SIZE * 0.55, 0, 0xffffff);
             marks += 1;
             if ((x + y) % 4 === 0) {
               this.put(this.poles, poles, world.x + (east ? 0 : 3.4), 1.1, world.z + (east ? 3.4 : 0), 0.28, 2.2, 0.28, 0, 0xded3b4);
@@ -486,7 +486,7 @@ export class CityRenderer {
             }
           }
         } else {
-          this.put(this.cornerCurbs, bends, world.x, 0, world.z, CELL_SIZE, 1, CELL_SIZE, bend, 0x9a9388);
+          this.put(this.cornerCurbs, bends, world.x, 0, world.z, CELL_SIZE, 1, CELL_SIZE, bend, 0xd2c8b4);
           this.put(this.corners, bends, world.x, 0, world.z, CELL_SIZE, 1, CELL_SIZE, bend, asphalt);
           bends += 1;
         }
@@ -511,22 +511,6 @@ export class CityRenderer {
         if (overlays.water && live) {
           this.put(this.water, waterCount, world.x, 0.24, world.z, CELL_SIZE * 0.36, 1, CELL_SIZE * 0.36, 0, 0x3f86d8);
           waterCount += 1;
-        }
-      }
-
-      if (isWater(city, index) && x > 2 && y > 2 && x < city.width - 3 && y < city.height - 3) {
-        let landN = 0;
-        for (let dy = -1; dy <= 1; dy += 1) {
-          for (let dx = -1; dx <= 1; dx += 1) {
-            if (!dx && !dy) continue;
-            const nx = x + dx;
-            const ny = y + dy;
-            if (inBounds(city, nx, ny) && !isWater(city, ny * city.width + nx)) landN += 1;
-          }
-        }
-        if (landN >= 4) {
-          this.put(this.lakes, lakes, world.x, -0.18, world.z, CELL_SIZE, 1, CELL_SIZE, 0, 0x2a6e94);
-          lakes += 1;
         }
       }
 
@@ -1047,7 +1031,7 @@ export class CityRenderer {
       this.quality,
     );
     this.nightLit = stamped.nightLit;
-    this.windowNight.value = this.nightLit ? 1 : goldenAmount(lookClimate.hour) * 0.42;
+    this.windowNight.value = this.nightLit ? 1 : goldenAmount(lookClimate.hour) * 0.12;
     this.renderer.toneMappingExposure = stamped.exposure;
     this.scene.background = this.atmosphere.skyMaterial.uniforms.uZenith.value;
     this.rain.visible = lookClimate.weather === "rain";
@@ -1137,11 +1121,11 @@ export class CityRenderer {
           poles += 1;
         }
         if (bulbs < 400) {
-          this.put(this.streetLamps, bulbs, px, crest + 4.35, pz, powered && this.nightLit ? 1.15 : 0.7, powered && this.nightLit ? 1.15 : 0.7, powered && this.nightLit ? 1.15 : 0.7, 0, powered ? 0xffe6b0 : 0x6a655c);
+          this.put(this.streetLamps, bulbs, px, crest + 4.35, pz, powered && this.nightLit ? 1.35 : 0.7, powered && this.nightLit ? 1.35 : 0.7, powered && this.nightLit ? 1.35 : 0.7, 0, powered ? 0xffc56a : 0x6a655c);
           bulbs += 1;
         }
         if (this.nightLit && powered && glows + 1 < 700) {
-          this.put(this.nightGlows, glows, px, crest + 2.2, pz, 6.5, 3.2, 6.5, 0, 0xffd089);
+          this.put(this.nightGlows, glows, px, crest + 2.2, pz, 7.4, 3.6, 7.4, 0, 0xffb45a);
           glows += 1;
         }
       }
@@ -1323,7 +1307,7 @@ export class CityRenderer {
 
   private asphaltColor(load: number): number {
     const heat = Math.min(1, (load / 255) * (0.35 + this.streetActivity * 1.15));
-    this.tint.setRGB(0.36 + heat * 0.28, 0.38 - heat * 0.06, 0.4 - heat * 0.08);
+    this.tint.setRGB(0.22 + heat * 0.2, 0.23 - heat * 0.04, 0.26 - heat * 0.05);
     return this.tint.getHex();
   }
 
@@ -1386,7 +1370,7 @@ export class CityRenderer {
     const slab = (slotMesh: THREE.InstancedMesh, slot: number, ox: number, oz: number, sx: number, sz: number, y: number, height: number, paint: number) => {
       this.put(slotMesh, slot, x + ox * CELL_SIZE * 0.25, y, z + oz * CELL_SIZE * 0.25, sx, height, sz, 0, paint);
     };
-    slab(this.curbs, curbs, 0, 0, CELL_SIZE * 0.92, CELL_SIZE * 0.92, 0.05, 0.1, 0x9a9388);
+    slab(this.curbs, curbs, 0, 0, CELL_SIZE * 0.92, CELL_SIZE * 0.92, 0.05, 0.1, 0xd2c8b4);
     curbs += 1;
     slab(this.asphalt, roads, 0, 0, CELL_SIZE * 0.78, CELL_SIZE * 0.78, 0.11, 0.12, color);
     roads += 1;
@@ -1399,7 +1383,7 @@ export class CityRenderer {
       const sz = arm.wide ? curbWidth : span;
       const ax = arm.wide ? span : roadWidth;
       const az = arm.wide ? roadWidth : span;
-      slab(this.curbs, curbs, arm.ox, arm.oz, sx, sz, 0.05, 0.1, 0x9a9388);
+      slab(this.curbs, curbs, arm.ox, arm.oz, sx, sz, 0.05, 0.1, 0xd2c8b4);
       curbs += 1;
       slab(this.asphalt, roads, arm.ox, arm.oz, ax, az, 0.11, 0.12, color);
       roads += 1;
@@ -1695,14 +1679,15 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
 }
 
 const GROUND_Y = 0.02;
-const SKIRT_Y = -3.9;
+const WATER_Y = -0.14;
+const SKIRT_Y = -2.85;
 
 function groundPalette(biome: BiomeId): [number, number, number] {
   if (biome === "arid") return [0xc4b486, 0xd0c094, 0xb6a678];
-  if (biome === "alpine") return [0x6a8a64, 0x748e6c, 0x5d7a58];
-  if (biome === "tropical") return [0x5a9458, 0x649e60, 0x4e8650];
-  if (biome === "archipelago") return [0x6e945c, 0x789e66, 0x648854];
-  return [0x8fbc62, 0x84b258, 0x99c66c];
+  if (biome === "alpine") return [0x6a9a58, 0x74a462, 0x5e8e4e];
+  if (biome === "tropical") return [0x5eaa56, 0x6ab860, 0x529e4c];
+  if (biome === "archipelago") return [0x74b056, 0x80bc62, 0x68a44c];
+  return [0x7fb04a, 0x8cbf55, 0x74a442];
 }
 
 function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: THREE.LineSegments["geometry"] } {
@@ -1718,71 +1703,89 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
     for (let x = 0; x < cols; x += 1) {
       const baseX = -half + x * CELL_SIZE;
       const baseZ = -half + y * CELL_SIZE;
-      const touches = [
-        [x - 1, y - 1],
-        [x, y - 1],
-        [x - 1, y],
-        [x, y],
-      ];
-      let land = 0;
-      let total = 0;
-      let sumX = 0;
-      let sumZ = 0;
-      for (const [cellX, cellY] of touches) {
-        if (!inBounds(city, cellX, cellY)) continue;
-        total += 1;
-        if (!landHere(cellX, cellY)) continue;
-        land += 1;
-        const spot = cellToWorld(city, cellX, cellY);
-        sumX += spot.x;
-        sumZ += spot.z;
-      }
-      let worldX = baseX;
-      let worldZ = baseZ;
-      if (land > 0 && land < total) {
-        worldX = baseX + (sumX / land - baseX) * 0.16;
-        worldZ = baseZ + (sumZ / land - baseZ) * 0.16;
-      }
-      pointX[y * cols + x] = worldX;
-      pointZ[y * cols + x] = worldZ;
+      pointX[y * cols + x] = baseX;
+      pointZ[y * cols + x] = baseZ;
     }
   }
 
   const positions: number[] = [];
+  const normals: number[] = [];
   const colors: number[] = [];
   const grass = new THREE.Color();
-  const earth = new THREE.Color(biome === "arid" ? 0x8a7048 : 0x7a5a32);
-  const earthDeep = new THREE.Color(biome === "arid" ? 0x6a5430 : 0x5c4224);
+  const earth = new THREE.Color(biome === "arid" ? 0xb08650 : 0xb06c38);
+  const earthDeep = new THREE.Color(biome === "arid" ? 0x8a6438 : 0x7a4a24);
+  const water = new THREE.Color(0x2a82b0);
   const paint = (x: number, y: number) => {
     const checker = (x + y) & 1;
-    const roll = scatter(x, y) % 3;
-    grass.set(palette[(checker + roll) % 3] ?? palette[0]);
+    grass.set(palette[checker] ?? palette[0]);
   };
-  const top = (x: number, z: number, cellX: number, cellY: number) => {
-    paint(cellX, cellY);
-    positions.push(x, GROUND_Y, z);
-    colors.push(grass.r, grass.g, grass.b);
+  const addTri = (
+    ax: number, ay: number, az: number,
+    bx: number, by: number, bz: number,
+    cx: number, cy: number, cz: number,
+    ca: THREE.Color, cb: THREE.Color, cc: THREE.Color,
+  ) => {
+    const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+    const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    positions.push(ax, ay, az, bx, by, bz, cx, cy, cz);
+    normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
+    colors.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
+  };
+  const top = (x0: number, z0: number, x1: number, z1: number, x2: number, z2: number) => {
+    addTri(x0, GROUND_Y, z0, x1, GROUND_Y, z1, x2, GROUND_Y, z2, grass, grass, grass);
   };
   const skirt = (x0: number, z0: number, x1: number, z1: number, cellX: number, cellY: number) => {
-    paint(cellX, cellY);
-    positions.push(x0, GROUND_Y, z0, x1, GROUND_Y, z1, x1, SKIRT_Y, z1);
-    colors.push(earth.r, earth.g, earth.b, earth.r, earth.g, earth.b, earthDeep.r, earthDeep.g, earthDeep.b);
-    positions.push(x0, GROUND_Y, z0, x1, SKIRT_Y, z1, x0, SKIRT_Y, z0);
-    colors.push(earth.r, earth.g, earth.b, earthDeep.r, earthDeep.g, earthDeep.b, earthDeep.r, earthDeep.g, earthDeep.b);
+    const spot = cellToWorld(city, cellX, cellY);
+    let nx = z0 - z1;
+    let nz = x1 - x0;
+    const edge = Math.hypot(nx, nz) || 1;
+    nx /= edge;
+    nz /= edge;
+    const mx = (x0 + x1) * 0.5;
+    const mz = (z0 + z1) * 0.5;
+    if ((mx - spot.x) * nx + (mz - spot.z) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    const out = 1.35;
+    const bx0 = x0 + nx * out;
+    const bz0 = z0 + nz * out;
+    const bx1 = x1 + nx * out;
+    const bz1 = z1 + nz * out;
+    addTri(x0, GROUND_Y, z0, x1, GROUND_Y, z1, bx1, SKIRT_Y, bz1, earth, earth, earthDeep);
+    addTri(x0, GROUND_Y, z0, bx1, SKIRT_Y, bz1, bx0, SKIRT_Y, bz0, earth, earthDeep, earthDeep);
   };
 
   const plot: number[] = [];
   for (let y = 0; y < city.height; y += 1) {
     for (let x = 0; x < city.width; x += 1) {
-      if (!landHere(x, y)) continue;
-      const corners = [y * cols + x, y * cols + x + 1, (y + 1) * cols + x + 1, (y + 1) * cols + x];
-      const quad = [
-        [corners[0], corners[2], corners[1]],
-        [corners[0], corners[3], corners[2]],
-      ];
-      for (const triangle of quad) {
-        for (const corner of triangle) top(pointX[corner], pointZ[corner], x, y);
+      if (!landHere(x, y)) {
+        let landN = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            if (!dx && !dy) continue;
+            if (landHere(x + dx, y + dy)) landN += 1;
+          }
+        }
+        if (landN > 0) {
+          const i0 = y * cols + x;
+          const i1 = i0 + 1;
+          const i2 = i0 + cols + 1;
+          const i3 = i0 + cols;
+          addTri(pointX[i0], WATER_Y, pointZ[i0], pointX[i2], WATER_Y, pointZ[i2], pointX[i1], WATER_Y, pointZ[i1], water, water, water);
+          addTri(pointX[i0], WATER_Y, pointZ[i0], pointX[i3], WATER_Y, pointZ[i3], pointX[i2], WATER_Y, pointZ[i2], water, water, water);
+        }
+        continue;
       }
+      const corners = [y * cols + x, y * cols + x + 1, (y + 1) * cols + x + 1, (y + 1) * cols + x];
+      paint(x, y);
+      top(pointX[corners[0]], pointZ[corners[0]], pointX[corners[2]], pointZ[corners[2]], pointX[corners[1]], pointZ[corners[1]]);
+      top(pointX[corners[0]], pointZ[corners[0]], pointX[corners[3]], pointZ[corners[3]], pointX[corners[2]], pointZ[corners[2]]);
       const edges = [
         { nextX: x, nextY: y - 1, a: corners[0], b: corners[1] },
         { nextX: x + 1, nextY: y, a: corners[1], b: corners[2] },
@@ -1807,8 +1810,8 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
 
   const ground = new THREE.BufferGeometry();
   ground.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  ground.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   ground.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  ground.computeVertexNormals();
   const lines = new THREE.BufferGeometry();
   lines.setAttribute("position", new THREE.Float32BufferAttribute(plot, 3));
   return { ground, plot: lines };

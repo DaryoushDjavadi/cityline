@@ -103,15 +103,15 @@ function pitch(color: number): Part[] {
   ];
 }
 
-const WIN = 0x6eb4d4;
+const WIN = 0x8ec8ea;
 
 const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   cottage: {
     height: 5.6,
     parts: [
-      box(0, 0.18, 0, 6.4, 0.36, 5.6, 0x9a886c),
-      box(0, 1.7, 0, 5.5, 2.7, 4.7, 0xf3e6cc),
-      ...pitch(0xc24a32),
+      box(0, 0.18, 0, 6.4, 0.36, 5.6, 0xb89668),
+      box(0, 1.7, 0, 5.5, 2.7, 4.7, 0xffe6c4),
+      ...pitch(0xe24a32),
       box(0, 1.15, 2.4, 1.15, 1.9, 0.16, 0x6a4532),
       box(-1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
       box(1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
@@ -122,7 +122,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 9.4,
     parts: [
       box(0, 0.2, 0, 7.6, 0.4, 6.4, 0x7d7468),
-      box(0, 4.4, 0, 7.1, 8, 5.8, 0xe2d4bc),
+      box(0, 4.4, 0, 7.1, 8, 5.8, 0xf3d8b4),
       box(0, 2.3, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
       box(0, 4.5, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
       box(0, 6.7, 2.95, 6.4, 0.16, 0.18, 0xb7aa96),
@@ -137,7 +137,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 20.5,
     parts: [
       box(0, 0.25, 0, 5.6, 0.5, 5.6, 0x5e6a72),
-      box(0, 8.6, 0, 4.7, 16.2, 4.7, 0xc8b8a0),
+      box(0, 8.6, 0, 4.7, 16.2, 4.7, 0xe8cba0),
       box(0, 4, 2.4, 3.6, 0.18, 0.12, WIN),
       box(0, 8, 2.4, 3.6, 0.18, 0.12, WIN),
       box(0, 12, 2.4, 3.6, 0.18, 0.12, WIN),
@@ -152,7 +152,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 5.5,
     parts: [
       box(0, 0.18, 0, 7.6, 0.36, 5.6, 0x8a8174),
-      box(0, 1.9, 0, 7.2, 3.1, 5.1, 0xf4efe4),
+      box(0, 1.9, 0, 7.2, 3.1, 5.1, 0xfff0dc),
       box(0, 1.85, 2.6, 4.6, 2.1, 0.12, WIN),
       box(0, 3.15, 2.7, 5.4, 0.28, 1.3, 0xc44732),
       box(0, 4.15, 0, 3.4, 0.9, 0.28, 0xe2b15a),
@@ -164,7 +164,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.3, 0, 7.2, 0.6, 7.2, 0x6a7378),
       box(0, 1.5, 0, 6.8, 1.8, 6.8, 0xd9d3c8),
-      box(0, 7.2, 0, 5.2, 9.4, 5.2, 0xc2b49a),
+      box(0, 7.2, 0, 5.2, 9.4, 5.2, 0xe6c8a0),
       box(0, 4.2, 2.66, 4.2, 0.14, 0.1, WIN),
       box(0, 6.6, 2.66, 4.2, 0.14, 0.1, WIN),
       box(0, 9, 2.66, 4.2, 0.14, 0.1, WIN),

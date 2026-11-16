@@ -3,8 +3,8 @@
 /** 600 ticks × 0.5 s = 5 real minutes per in-game day. */
 export const DAY_TICKS = 600;
 
-/** Fresh cities start at 17:00 — late afternoon, matching the key art. */
-export const NEW_CITY_HOUR = 17;
+/** Fresh cities start at 07:00 — morning, with golden-hour lighting. */
+export const NEW_CITY_HOUR = 7;
 export const NEW_CITY_TICK = Math.round((NEW_CITY_HOUR / 24) * DAY_TICKS);
 
 export type WeatherKind = "clear" | "cloud" | "rain";
