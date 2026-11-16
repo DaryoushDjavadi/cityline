@@ -1,4 +1,4 @@
-import { allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
+import { deleteCityAuth, loadCityAuth, markCoopJoined, rememberCityPush, wasCoopJoined, allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 {
@@ -537,6 +537,24 @@ for (const ped of walkers) {
   const copy = createCity();
   writeCity(copy, packCells(tagged), meta);
   if (copy.gen?.biome !== "alpine" || copy.gen?.forest !== 70) throw new Error("writeCity must restore gen");
+}
+
+{
+  // Coop overwrite guard: per-device owner key + server revision bookkeeping.
+  const store = new MemoryStore();
+  rememberCityPush("berlin", { ok: true, code: "berlin", rev: "r1" }, store);
+  if (loadCityAuth("berlin", store)) throw new Error("rev without key must not create credentials");
+  rememberCityPush("berlin", { ok: true, code: "berlin", rev: "r1", key: "k1" }, store);
+  rememberCityPush("berlin", { ok: true, code: "berlin", rev: "r2" }, store);
+  const auth = loadCityAuth("berlin", store);
+  if (auth?.key !== "k1" || auth.rev !== "r2") throw new Error(`auth ${JSON.stringify(auth)}`);
+  rememberCityPush("berlin", { ok: false, reason: "stale", rev: "r9" }, store);
+  if (loadCityAuth("berlin", store)?.rev !== "r2") throw new Error("rejected push must not move rev");
+  if (wasCoopJoined("berlin", store)) throw new Error("not joined yet");
+  markCoopJoined("berlin", store);
+  if (!wasCoopJoined("berlin", store)) throw new Error("coop join not remembered");
+  deleteCityAuth("berlin", store);
+  if (loadCityAuth("berlin", store)) throw new Error("auth not deleted");
 }
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

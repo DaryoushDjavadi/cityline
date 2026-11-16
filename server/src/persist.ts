@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,13 +61,53 @@ export function peekSave(code: string): CitySave | null {
   }
 }
 
-export function saveCity(code: string, city: CityState, name?: string): void {
+/** Server-only fields stored next to a save. Never sent to clients via /api/rooms. */
+interface StoredAuth {
+  /** sha256 (hex) of the owner key handed out when the city was created or claimed. */
+  owner?: string;
+  /** Changes on every content save; a POST must name the current rev to overwrite. */
+  rev?: string;
+}
+
+export interface SaveAuth {
+  /** File was written before revisions existed (pre coop-overwrite fix). */
+  legacy: boolean;
+  owner: string | null;
+  rev: string | null;
+  tick: number;
+}
+
+export interface SaveOptions {
+  /** Keep the current rev (content did not change, e.g. evicting an idle room). */
+  keepRev?: boolean;
+  /** Set a new owner hash (create/claim). Otherwise the stored owner is kept. */
+  owner?: string;
+}
+
+export function peekAuth(code: string): SaveAuth | null {
+  const raw = peekSave(code) as (CitySave & StoredAuth) | null;
+  if (!raw) return null;
+  return {
+    legacy: typeof raw.rev !== "string",
+    owner: typeof raw.owner === "string" ? raw.owner : null,
+    rev: typeof raw.rev === "string" ? raw.rev : null,
+    tick: Number(raw.meta?.tick) || 0,
+  };
+}
+
+/** Write the city to disk and return the revision that now identifies it. */
+export function saveCity(code: string, city: CityState, name?: string, options: SaveOptions = {}): string | null {
   const safe = cleanRoom(code);
-  if (!safe) return;
+  if (!safe) return null;
   mkdirSync(directory, { recursive: true });
-  const previous = peekSave(safe);
+  const previous = peekSave(safe) as (CitySave & StoredAuth) | null;
   const label = (name && name.trim()) || previous?.name || safe;
-  writeFileSync(fileFor(safe), JSON.stringify(cityToSave(city, label, safe)));
+  const owner = options.owner ?? previous?.owner;
+  const rev = options.keepRev && typeof previous?.rev === "string" ? previous.rev : randomUUID();
+  const stored: CitySave & StoredAuth = { ...cityToSave(city, label, safe), rev };
+  if (owner) stored.owner = owner;
+  writeFileSync(fileFor(safe), JSON.stringify(stored));
+  return rev;
 }
 
 export function deleteCity(code: string): boolean {
