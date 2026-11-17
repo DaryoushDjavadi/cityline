@@ -11,7 +11,6 @@ import {
   BUILDINGS,
   CELL_SIZE,
   COST,
-  FOOD_STOCK_MAX,
   LEVEL_COUNT,
   POWER_BIT,
   ServiceKind,
@@ -20,10 +19,12 @@ import {
   Zone,
   applyCommand,
   asUint8Array,
+  beachVisitors,
   cleanChat,
   goalProgress,
   brushCells,
   buildMeta,
+  adjacentToOcean,
   canPlace,
   cellBudget,
   cellCoords,
@@ -53,8 +54,18 @@ import {
   farmYield,
   FARM_UPGRADES,
   foodRatio,
+  harborYield,
+  houseHappiness,
+  hubIncome,
+  hubSlots,
+  isBeach,
   isFarmAction,
+  isHub,
   houseReport,
+  logisticsPartner,
+  marketMultiplier,
+  pendingAt,
+  quoteTrade,
   inBounds,
   isLine,
   isWorkplace,
@@ -79,6 +90,7 @@ import {
   unemployedAdults,
   worldToCell,
   writeCity,
+  tradeBlockReason as hubTradeReason,
   type ChatMessage,
   type CityPushReply,
   type CitySave,
@@ -127,7 +139,8 @@ const HINTS: Partial<Record<ToolId, string>> = {
   police: `Polizei. ${COST.police} €.`,
   fire: `Feuerwehr. ${COST.fire} €.`,
   park: `Park. ${COST.park} €.`,
-  airport: `Kleiner Privatflugplatz. ${COST.airport.toLocaleString("de-DE")} €, danach etwa 260 € alle 2 s. Import und Export an der Lupe.`,
+  airport: `Flughafen. ${COST.airport.toLocaleString("de-DE")} €. Schneller, teurer Handel. Logistik-Verbund mit einem Hafen in der Nähe.`,
+  harbor: `Hafen an der Küste. ${COST.harbor.toLocaleString("de-DE")} €. Günstiges Massengut, langsamer. Braucht Straße, Strom und Wasser.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
   bulldoze: "Ein einzelnes Feld abreißen.",
 };
@@ -142,6 +155,7 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
   park: ServiceKind.Park,
   university: ServiceKind.University,
   airport: ServiceKind.Airport,
+  harbor: ServiceKind.Harbor,
   lamp: ServiceKind.Lamp,
 };
 
@@ -157,6 +171,7 @@ const REASONS: Record<string, string> = {
   no_stock: "Dafür reicht die Nahrung nicht.",
   stock_full: "Der Nahrungsspeicher ist voll.",
   no_market: "Dafür braucht die Stadt das passende Gewerbe oder die Industrie.",
+  busy: "Alle Handelsplätze sind belegt. Warte auf die Schiffe oder Flugzeuge.",
 };
 
 interface TickMessage {
@@ -358,7 +373,89 @@ export class Game {
           roads,
           homes,
           playing: self.playing,
+          tick: self.city.tick,
+          harbors: [...self.city.services].filter((kind) => kind === ServiceKind.Harbor).length,
+          airports: [...self.city.services].filter((kind) => kind === ServiceKind.Airport).length,
+          boats: (self.view as unknown as { boats?: unknown[] }).boats?.length ?? 0,
         };
+      },
+      apply(command: Command) {
+        self.applyLocal(command);
+        return { funds: self.city.funds, revision: self.city.revision };
+      },
+      lookAt(x: number, y: number, distance = 48, polar?: number, lift?: number, azimuth?: number) {
+        const world = cellToWorld(self.city, x, y);
+        self.camera.target.set(world.x, 0, world.z);
+        self.camera.distance = distance;
+        if (polar !== undefined) self.camera.polar = polar;
+        if (lift !== undefined) self.camera.lookLift = lift;
+        if (azimuth !== undefined) self.camera.azimuth = azimuth;
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+      },
+      setHour(hour: number) {
+        self.city.tick = Math.round(((hour % 24) / 24) * 600);
+        self.publish();
+      },
+      findCoast(): { x: number; y: number; screen: { x: number; y: number } } | null {
+        for (let y = 3; y < self.city.height - 3; y += 1) {
+          for (let x = 3; x < self.city.width - 3; x += 1) {
+            const index = cellIndex(self.city, x, y);
+            if (self.city.terrain[index] === 1) continue;
+            if (self.city.services[index] !== ServiceKind.None || self.city.levels[index] > 0) continue;
+            if (!isBeach(self.city, index) && !adjacentToOcean(self.city, index)) continue;
+            return { x, y, screen: { x: 0, y: 0 } };
+          }
+        }
+        return null;
+      },
+      findHarbor(): { x: number; y: number } | null {
+        for (let i = 0; i < self.city.services.length; i += 1) {
+          if (self.city.services[i] === ServiceKind.Harbor) return cellCoords(self.city, i);
+        }
+        return null;
+      },
+      findBeach(): { x: number; y: number } | null {
+        const crowd = beachVisitors(self.city, 36);
+        if (crowd.length > 0) {
+          const counts = new Map<number, number>();
+          let bestCell = crowd[0].cell;
+          let bestCount = 0;
+          for (const visitor of crowd) {
+            const next = (counts.get(visitor.cell) ?? 0) + 1;
+            counts.set(visitor.cell, next);
+            if (next > bestCount) {
+              bestCount = next;
+              bestCell = visitor.cell;
+            }
+          }
+          const { x, y } = cellCoords(self.city, bestCell);
+          return { x, y };
+        }
+        let best: { x: number; y: number } | null = null;
+        let score = -1;
+        for (let y = 2; y < self.city.height - 2; y += 1) {
+          for (let x = 2; x < self.city.width - 2; x += 1) {
+            const index = cellIndex(self.city, x, y);
+            if (!isBeach(self.city, index)) continue;
+            if (self.city.services[index] !== ServiceKind.None) continue;
+            let homes = 0;
+            for (let dy = -5; dy <= 5; dy += 1) {
+              for (let dx = -5; dx <= 5; dx += 1) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (!inBounds(self.city, nx, ny)) continue;
+                const home = cellIndex(self.city, nx, ny);
+                if (self.city.zones[home] === Zone.Residential && self.city.levels[home] > 0) homes += 1;
+              }
+            }
+            if (homes > score) {
+              score = homes;
+              best = { x, y };
+            }
+          }
+        }
+        return best;
       },
       roadRun(): { cells: { x: number; y: number }[]; screens: { x: number; y: number }[] } | null {
         self.camera.update(0);
@@ -1983,7 +2080,8 @@ export class Game {
     const watered = (this.city.utility[index] & WATER_BIT) !== 0;
     const workplace = isWorkplace(this.city, index);
     const farm = workplace && this.city.zones[index] === Zone.Farm;
-    const airport = service?.kind === ServiceKind.Airport;
+    const hub = isHub(this.city, index);
+    const happy = families.length > 0 ? houseHappiness(this.city, index) : null;
     const occupied = this.city.levels[index] > 0 || this.city.services[index] !== ServiceKind.None;
     const gifted = (this.city.skills[index] & 4) !== 0;
     const unemployedHere = families.some((family) => family.members.some((member) => member.unemployed));
@@ -1998,32 +2096,62 @@ export class Game {
     this.setRosterOpen(false);
     this.setChatOpen(false);
     this.shrinkCompactHud("inspect");
-    if (airport) {
+    if (hub) {
+      const kind = this.city.services[index] === ServiceKind.Harbor ? "harbor" : "airport";
+      const partner = logisticsPartner(this.city, index);
+      const partnerSpot = partner !== null ? cellCoords(this.city, partner) : null;
+      const staffed = employeesAt(this.city, index);
+      const openingsHere = jobOpenings(this.city, index);
+      const seekingHub = openingsHere > 0 ? unemployedAdults(this.city).slice(0, 8) : [];
+      const fish = kind === "harbor" ? harborYield(this.city, index, staffed.length) : 0;
+      const heat = this.city.tradeHeat ?? 0;
+      const earn = hubIncome(this.city, index);
+      const slots = hubSlots(this.city, index);
+      const used = pendingAt(this.city, index);
       this.hud.showInspect({
-        kind: "airport",
-        kicker: "Privatflugplatz",
-        title: "Flughafen",
+        kind,
+        kicker: kind === "harbor" ? "Seeverkehr" : "Luftverkehr",
+        title: kind === "harbor" ? "Hafen" : "Flughafen",
         stats: [
           { icon: "bolt", label: "Strom", value: powered ? "an" : "fehlt", tone: powered ? "good" : "bad" },
           { icon: "drop", label: "Wasser", value: watered ? "an" : "fehlt", tone: watered ? "good" : "bad" },
-          { icon: "plane", label: "Ertrag", value: "+260 € / 2 s", tone: "good" },
+          { icon: kind === "harbor" ? "boat" : "plane", label: "Ertrag", value: `+${earn} € / 2 s`, tone: "good" },
+          { icon: "work", label: "Handel", value: `${used}/${slots} Plätze` },
           { icon: "food", label: "Stadtnahrung", value: String(this.city.food) },
+          { icon: "people", label: "Markt", value: heat <= 12 ? "frei" : `satt ${heat}%`, tone: heat >= 70 ? "bad" : "good" },
+          ...(kind === "harbor" ? [{ icon: "food" as const, label: "Fischerei", value: staffed.length === 0 ? "ohne Arbeiter 0" : `+${fish}`, tone: fish > 0 ? "good" as const : "bad" as const }] : []),
+          { icon: "work", label: "Jobs", value: `${staffed.length} belegt · ${openingsHere} frei` },
         ],
         families: [],
-        hires: [],
+        hires: seekingHub.map((adult) => ({
+          name: adult.name,
+          detail: `${adult.educationLabel} · Feld ${cellCoords(this.city, adult.home).x},${cellCoords(this.city, adult.home).y}`,
+          home: adult.home,
+          slot: adult.slot,
+        })),
         trade: TRADE.map((deal) => {
+          const quote = quoteTrade(this.city, index, deal);
           const enabled = this.canTrade(deal.id);
           return {
             id: deal.id,
             name: deal.name,
             side: deal.side,
-            detail: tradeEffect(deal),
-            price: `${deal.price.toLocaleString("de-DE")} €`,
+            detail: quote?.detail ?? tradeEffect(deal),
+            price: `${(quote?.price ?? deal.price).toLocaleString("de-DE")} €`,
             enabled,
             hint: enabled ? null : this.tradeBlockReason(deal.id),
           };
         }),
-        note: powered && watered ? null : "Ohne Strom oder Wasser bleibt der Flugplatz dunkel — Handel geht trotzdem.",
+        note: [
+          kind === "harbor"
+            ? "Hafen: mehr Menge, niedrigere Preise, längere Lieferzeit. Schiffe fahren raus aufs Meer."
+            : "Flughafen: schnell, teurer, weniger Kapazität. Flugzeuge starten und landen.",
+          partnerSpot
+            ? `Logistik-Verbund mit ${kind === "harbor" ? "Flughafen" : "Hafen"} ${partnerSpot.x},${partnerSpot.y}: günstigere Umschläge, Touristen, extra Handelsplatz.`
+            : "Mit Hafen und Flughafen in der Nähe (Straße oder 14 Felder) entsteht ein Logistik-Verbund.",
+          heat > 20 ? `Exportpreise bei Marktsättigung ${Math.round(marketMultiplier(heat) * 100)} %. Erholt sich mit der Zeit.` : null,
+          powered && watered ? null : "Ohne Strom oder Wasser bleibt das Gebäude dunkel — Handel geht trotzdem, Fischerei und Jobs schwächeln.",
+        ].filter(Boolean).join(" "),
         budget: cellBudget(this.city, index),
         gift: null,
       });
@@ -2040,6 +2168,7 @@ export class Game {
           { icon: "people" as const, label: "Bewohner", value: `${this.city.levels[index] * 12} · ${families.length} Haushalte` },
           { icon: "car" as const, label: "Autos", value: String(families.reduce((sum, family) => sum + family.cars.length, 0)) },
           { icon: "food" as const, label: "Nahrung", value: meals >= 1 ? "satt" : "knapp", tone: meals >= 1 ? "good" as const : "bad" as const },
+          { icon: "people" as const, label: "Glück", value: happy?.label ?? "—", tone: happy && happy.score >= 0.7 ? "good" as const : happy?.beach ? "good" as const : undefined },
           { icon: "book" as const, label: "Schule", value: school ? "im Viertel" : "fehlt", tone: school ? "good" as const : "bad" as const },
           { icon: "book" as const, label: "Universität", value: university ? "im Viertel" : "fehlt", tone: university ? "good" as const : "bad" as const },
         ] : []),
@@ -2098,7 +2227,8 @@ export class Game {
         ].filter(Boolean).join(" ")
         : service?.blurb
         ?? (workplace ? [staff.length > 0 ? `Beschäftigt: ${staff.map((adult) => adult.name).join(", ")}` : "Noch niemand angestellt.", seeking.length > 0 ? "Arbeitslose aus der Stadt anstellen." : ""].filter(Boolean).join(" ") : null)
-        ?? (unemployedHere ? "Arbeitslose stellt man im Gewerbe, in der Industrie oder auf dem Bauernhof an." : null)
+        ?? (happy?.beach ? "Die Bewohner gehen an den Strand — starkes Glück, grüne Smileys über den Köpfen." : null)
+        ?? (unemployedHere ? "Arbeitslose stellt man im Gewerbe, in der Industrie, am Hafen, Flughafen oder auf dem Bauernhof an." : null)
         ?? (families.length === 0 && !service ? (isRoad(this.city, index) ? "Straße" : "Hier ist nichts gebaut.") : null),
       budget: occupied ? cellBudget(this.city, index) : null,
       gift: families.length > 0 && !gifted ? `Studium finanzieren (${scholarshipCost(this.city.levels[index])} €)` : null,
@@ -2169,33 +2299,8 @@ export class Game {
   }
 
   private tradeBlockReason(dealId: string): string | null {
-    const deal = TRADE.find((entry) => entry.id === dealId);
-    if (!deal) return "Unbekanntes Geschäft.";
-    if (deal.side === "import") {
-      if (this.city.funds < deal.price) return `Zu wenig Geld (braucht ${deal.price.toLocaleString("de-DE")} €).`;
-      if (deal.food && this.city.food + deal.food > FOOD_STOCK_MAX) {
-        return `Nahrungsspeicher voll (noch ${Math.max(0, FOOD_STOCK_MAX - this.city.food)} frei).`;
-      }
-      return null;
-    }
-    if (deal.requires === "food") {
-      const need = Math.abs(deal.food ?? 0);
-      if (this.city.food < need) return `Zu wenig Nahrung (braucht ${need}).`;
-      return null;
-    }
-    if (deal.requires === "commercial") {
-      if (!this.city.zones.some((zone, index) => zone === Zone.Commercial && this.city.levels[index] > 0)) {
-        return "Braucht ein Gewerbe in der Stadt.";
-      }
-      return null;
-    }
-    if (deal.requires === "industrial") {
-      if (!this.city.zones.some((zone, index) => zone === Zone.Industrial && this.city.levels[index] > 0)) {
-        return "Braucht eine Industrie in der Stadt.";
-      }
-      return null;
-    }
-    return null;
+    if (this.selected < 0) return "Kein Gebäude gewählt.";
+    return hubTradeReason(this.city, this.selected, dealId);
   }
 
   private giveScholarship(): void {

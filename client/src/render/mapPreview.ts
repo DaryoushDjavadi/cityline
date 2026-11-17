@@ -34,10 +34,15 @@ export function paintMapPreview(canvas: HTMLCanvasElement, city: CityState): voi
   for (let index = 0; index < city.terrain.length; index += 1) {
     const { x, y } = cellCoords(city, index);
     const water = city.terrain[index] === 1;
+    const beach = city.terrain[index] === 2;
     let r = 42;
     let g = 98;
     let b = 148;
-    if (!water) {
+    if (beach) {
+      r = 232;
+      g = 210;
+      b = 150;
+    } else if (!water) {
       const shade = ((x * 13 + y * 7) % 5) - 2;
       r = land[0] + shade * 4;
       g = land[1] + shade * 3;

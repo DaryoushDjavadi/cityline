@@ -23,6 +23,7 @@ export const ServiceKind = {
   University: 8,
   Airport: 9,
   Lamp: 10,
+  Harbor: 11,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];
@@ -91,6 +92,10 @@ export interface CityState {
   goals: number;
   /** Stadtweiter Nahrungsspeicher aus Bauernhöfen und Import. */
   food: number;
+  /** 0–100, export market saturation. Missing on old saves. */
+  tradeHeat?: number;
+  /** Delayed harbor/airport cargo. Missing on old saves. */
+  shipments?: { cell: number; due: number; money: number; food: number }[];
 }
 
 export type Command =
@@ -130,6 +135,8 @@ export interface SimMeta {
   food: number;
   /** Present on newer rooms so Koop clients keep biome/forest/seed. */
   gen?: MapGen;
+  tradeHeat?: number;
+  shipments?: { cell: number; due: number; money: number; food: number }[];
 }
 
 export interface PublicPlayer {
@@ -203,6 +210,19 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
   state.food = typeof meta.food === "number" && Number.isFinite(meta.food)
     ? Math.max(0, Math.min(120, Math.floor(meta.food)))
     : 0;
+  state.tradeHeat = typeof meta.tradeHeat === "number" && Number.isFinite(meta.tradeHeat)
+    ? Math.max(0, Math.min(100, Math.floor(meta.tradeHeat)))
+    : 0;
+  state.shipments = Array.isArray(meta.shipments)
+    ? meta.shipments
+      .filter((entry) => entry && Number.isInteger(entry.cell) && Number.isInteger(entry.due))
+      .map((entry) => ({
+        cell: entry.cell >>> 0,
+        due: entry.due | 0,
+        money: Math.max(0, Math.floor(Number(entry.money) || 0)),
+        food: Math.floor(Number(entry.food) || 0),
+      }))
+    : [];
   if (meta.gen && typeof meta.gen === "object") {
     const seed = Number((meta.gen as MapGen).seed);
     const biome = (meta.gen as MapGen).biome;
@@ -215,8 +235,10 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
         forest: Number((meta.gen as MapGen).forest) || 0,
         rivers: Number((meta.gen as MapGen).rivers) || 0,
       };
+      return;
     }
   }
+  state.gen = undefined;
 }
 
 export function asUint8Array(data: unknown): Uint8Array | null {

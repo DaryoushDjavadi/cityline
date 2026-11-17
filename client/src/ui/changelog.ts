@@ -7,6 +7,19 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.41",
+    at: "16. Nov 2026",
+    title: "Hafen, Hügel und Strandglück",
+    items: [
+      "Neuer Hafen unter Verkehr: nur an der Meeresküste, mit Pier, Kran und Containern. Schiffe legen an und fahren aufs Meer.",
+      "Hafen handelt in großen, günstigen, langsamen Ladungen. Der Flughafen bleibt schnell, teurer und mit weniger Kapazität. Zusammen in der Nähe bilden sie einen Logistik-Verbund (Touristen, bessere Preise, extra Handelsplatz).",
+      "Export sättigt den Markt: Preise fallen und erholen sich mit der Zeit — kein Endlosgeld.",
+      "Neue Karten haben sanfte Hügel. Gebäude und Straßen ebnen lokal ein. Am Meer liegt Sand, der weich ins Gras übergeht. Am Strand stehen nur Hafen und Wege.",
+      "Häuser nah am Strand machen die Bewohner sehr glücklich. Nachmittags liegen sie am Wasser. Glückliche Leute tragen ein kleines grünes Smiley über dem Kopf.",
+      "Bewohner sind stilisierte Low-Poly-Figuren (runder Kopf, Körper, Arme/Beine, bunte Kleidung). Sie laufen, sitzen oder liegen — auf Schonend als einfache Kapsel.",
+    ],
+  },
+  {
     version: "0.40",
     at: "16. Nov 2026",
     title: "Stadt im Konzeptlicht",

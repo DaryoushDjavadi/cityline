@@ -49,6 +49,7 @@ export type ToolId =
   | "park"
   | "university"
   | "airport"
+  | "harbor"
   | "lamp"
   | "bulldoze";
 
@@ -69,10 +70,10 @@ export interface RosterPlayer {
   present: boolean;
 }
 
-export type InspectKind = "field" | "home" | "work" | "car" | "power" | "water" | "airport" | "farm";
+export type InspectKind = "field" | "home" | "work" | "car" | "power" | "water" | "airport" | "harbor" | "farm";
 
 export interface InspectStat {
-  icon: "people" | "family" | "car" | "bolt" | "drop" | "book" | "home" | "work" | "food" | "plane";
+  icon: "people" | "family" | "car" | "bolt" | "drop" | "book" | "home" | "work" | "food" | "plane" | "boat";
   label: string;
   value: string;
   tone?: "good" | "bad";
@@ -1543,6 +1544,7 @@ function mark(kind: InspectKind): string {
   if (kind === "work") return glyph("work");
   if (kind === "farm") return glyph("food");
   if (kind === "airport") return glyph("plane");
+  if (kind === "harbor") return glyph("boat");
   return glyph("book");
 }
 
@@ -1558,6 +1560,7 @@ function glyph(icon: InspectStat["icon"] | "people"): string {
     work: `<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2"/>`,
     food: `<path d="M12 3c2.4 3.2 4 6 4 8.4A4 4 0 0 1 8 11.4C8 9 9.6 6.2 12 3Z"/><path d="M12 21V12"/>`,
     plane: `<path d="M3 13.5 12 11l9 2.5-9 2.5Z"/><path d="M12 4v16"/><path d="M8 18h8"/>`,
+    boat: `<path d="M4 14h16l-2 4H6Z"/><path d="M7 14V9h4v5"/><path d="M12 14V7h5v7"/>`,
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[icon] ?? paths.book}</svg>`;
 }

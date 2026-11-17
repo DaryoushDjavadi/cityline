@@ -1,7 +1,12 @@
 import { climateAt, isOnDuty } from "./climate.ts";
 import { serviceInfo } from "./catalog.ts";
-import { cellCoords } from "./grid.ts";
+import { ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
+import { isBeach, waterDir } from "./terrain.ts";
+import { hubJobs, isHub } from "./trade.ts";
 import { POST_SLOTS, POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
+
+export const BEACH_HAPPINESS_RADIUS = 5;
+export const HAPPY_SMILE = 0.78;
 
 const FIRST = ["Mara", "Jonas", "Lea", "Emil", "Nora", "Theo", "Mila", "Anton", "Frieda", "Luis", "Ida", "Mats"];
 const CHILD = ["Mia", "Leo", "Emma", "Finn", "Lina", "Paul", "Greta", "Nils"];
@@ -65,6 +70,22 @@ export interface StreetPedestrian {
   name: string;
   child: boolean;
   color: number;
+  happy: boolean;
+}
+
+export type BeachPose = "idle" | "sit" | "lie";
+
+export interface BeachVisitor {
+  id: string;
+  home: number;
+  name: string;
+  child: boolean;
+  color: number;
+  cell: number;
+  ox: number;
+  oz: number;
+  pose: BeachPose;
+  happy: boolean;
 }
 
 export function houseReport(city: CityState, home: number): Household[] {
@@ -110,7 +131,7 @@ export function streetCars(city: CityState, limit = 72): StreetCar[] {
   return Array.from({ length: cap }, (_, offset) => cars[(start + offset) % cars.length]);
 }
 
-const PED_COLORS = [0xc47a5a, 0x3d6b8a, 0x5a7a4a, 0x8a5a7a, 0xd4a05a, 0x4a4a6a];
+const PED_COLORS = [0xd45a3c, 0x2f7d9a, 0x3d8a4a, 0xa85a8a, 0xe2a03a, 0x3d4a8a, 0xf2efe8];
 
 /** People on the sidewalk — not those currently at work (commuters may walk). */
 export function streetPedestrians(city: CityState, limit = 56): StreetPedestrian[] {
@@ -141,6 +162,7 @@ export function streetPedestrians(city: CityState, limit = 56): StreetPedestrian
           name: member.name,
           child: member.child,
           color: PED_COLORS[hash(home * 11 + member.slot + 3) % PED_COLORS.length],
+          happy: houseHappiness(city, home).score >= HAPPY_SMILE,
         });
       }
     }
@@ -249,8 +271,126 @@ export function employeesAt(city: CityState, workplace: number): Adult[] {
   return staff;
 }
 
+export function houseHappiness(city: CityState, home: number): { score: number; beach: boolean; tax: number; label: string } {
+  if (city.zones[home] !== Zone.Residential || city.levels[home] <= 0) {
+    return { score: 0, beach: false, tax: 0, label: "—" };
+  }
+  const beach = nearBeach(city, home);
+  const bits = city.utility[home] & (POWER_BIT | WATER_BIT);
+  const utility = bits === (POWER_BIT | WATER_BIT) ? 0.18 : bits === 0 ? 0 : 0.08;
+  const park = serviceNearby(city, home, ServiceKind.Park) ? 0.12 : 0;
+  const clinic = serviceNearby(city, home, ServiceKind.Clinic) ? 0.1 : 0;
+  const meals = city.food > 0 ? 0.12 : 0.04;
+  const score = Math.max(0, Math.min(1, 0.28 + utility + park + clinic + meals + (beach ? 0.38 : 0)));
+  const label = beach ? "Strandglück" : score >= HAPPY_SMILE ? "sehr glücklich" : score >= 0.55 ? "zufrieden" : "unzufrieden";
+  return { score, beach, tax: beach ? 0.42 : 0, label };
+}
+
+export function nearBeach(city: CityState, index: number): boolean {
+  const here = cellCoords(city, index);
+  for (let dy = -BEACH_HAPPINESS_RADIUS; dy <= BEACH_HAPPINESS_RADIUS; dy += 1) {
+    for (let dx = -BEACH_HAPPINESS_RADIUS; dx <= BEACH_HAPPINESS_RADIUS; dx += 1) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) > BEACH_HAPPINESS_RADIUS) continue;
+      const nx = here.x + dx;
+      const ny = here.y + dy;
+      if (!inBounds(city, nx, ny)) continue;
+      if (isBeach(city, cellIndex(city, nx, ny))) return true;
+    }
+  }
+  return false;
+}
+
+function beachCells(city: CityState): number[] {
+  const cells: number[] = [];
+  for (let index = 0; index < city.terrain.length; index += 1) {
+    if (isBeach(city, index)) cells.push(index);
+  }
+  return cells;
+}
+
+function isOpenSand(city: CityState, index: number): boolean {
+  if (!isBeach(city, index) || city.levels[index] > 0) return false;
+  if ((city.roads[index] & ROAD_FLAG) !== 0) return false;
+  const service = city.services[index];
+  return service === ServiceKind.None || service === ServiceKind.Lamp;
+}
+
+function nearestBeach(city: CityState, home: number, cells: number[]): number | null {
+  if (cells.length === 0) return null;
+  const origin = cellCoords(city, home);
+  let best: number | null = null;
+  let bestDist = 999;
+  let paved: number | null = null;
+  let pavedDist = 999;
+  for (const cell of cells) {
+    const spot = cellCoords(city, cell);
+    const dist = Math.max(Math.abs(spot.x - origin.x), Math.abs(spot.y - origin.y));
+    if (dist > BEACH_HAPPINESS_RADIUS) continue;
+    if (isOpenSand(city, cell)) {
+      if (dist < bestDist) {
+        best = cell;
+        bestDist = dist;
+      }
+    } else if (dist < pavedDist) {
+      paved = cell;
+      pavedDist = dist;
+    }
+  }
+  return best ?? paved;
+}
+
+/** Leisure-time residents on nearby sand (day and evening). */
+export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
+  const climate = climateAt(city.tick);
+  const hour = climate.hour;
+  const leisure = hour >= 10 && hour < 20.2 && climate.weather !== "rain";
+  if (!leisure) return [];
+  const sand = beachCells(city);
+  if (sand.length === 0) return [];
+  const visitors: BeachVisitor[] = [];
+  const rotate = Math.floor(city.tick / 14);
+  for (let home = 0; home < city.levels.length; home += 1) {
+    if (city.zones[home] !== Zone.Residential || city.levels[home] <= 0) continue;
+    const cell = nearestBeach(city, home, sand);
+    if (cell === null) continue;
+    for (const family of families(city, home)) {
+      for (const member of family.members) {
+        if (member.child) {
+          if ((hash(home * 71 + member.name.length + rotate) % 3) !== 0) continue;
+        } else {
+          if (member.slot < 0) continue;
+          const workplace = assignedWorkplace(city, home, member.slot);
+          if (isOnDuty(home, member.slot, workplace, climate)) continue;
+          if ((hash(home * 83 + member.slot * 5 + rotate) % 2) !== 0) continue;
+        }
+        const poseRoll = hash(home * 17 + member.name.length + 9) % 8;
+        const pose: BeachPose = poseRoll <= 3 ? "lie" : poseRoll <= 6 ? "sit" : "idle";
+        const spot = cellCoords(city, cell);
+        const dir = waterDir(city, spot.x, spot.y);
+        const along = 2.4 + (hash(home * 19 + member.name.length) % 10) * 0.16;
+        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.42;
+        visitors.push({
+          id: `beach-${home}-${member.name}`,
+          home,
+          name: member.name,
+          child: member.child,
+          color: PED_COLORS[hash(home * 11 + member.slot + 9) % PED_COLORS.length],
+          cell,
+          ox: dir.dx * along + dir.dy * side,
+          oz: dir.dy * along - dir.dx * side,
+          pose,
+          happy: true,
+        });
+      }
+    }
+  }
+  if (visitors.length <= limit) return visitors;
+  const start = Math.floor(city.tick / 18) % visitors.length;
+  return Array.from({ length: limit }, (_, offset) => visitors[(start + offset) % visitors.length]);
+}
+
 export function trimPosts(city: CityState, index: number): void {
-  if (city.levels[index] <= 0) {
+  if (city.levels[index] <= 0 && !isHub(city, index)) {
     for (let slot = 0; slot < POST_SLOTS; slot += 1) city.posts[index * POST_SLOTS + slot] = 0;
     const mark = index + 1;
     for (let entry = 0; entry < city.posts.length; entry += 1) {
@@ -293,13 +433,12 @@ export function helpBadges(city: CityState): { homes: number[]; workplaces: numb
   return { homes, workplaces };
 }
 
-/** Zone buildings and airports that miss power and/or water. */
+/** Zone buildings and trade hubs that miss power and/or water. */
 export function utilityOutageBadges(city: CityState): number[] {
   const out: number[] = [];
   for (let index = 0; index < city.levels.length; index += 1) {
     const zoneBuilding = city.levels[index] > 0;
-    const airport = city.services[index] === ServiceKind.Airport;
-    if (!zoneBuilding && !airport) continue;
+    if (!zoneBuilding && !isHub(city, index)) continue;
     if ((city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT)) continue;
     out.push(index);
   }
@@ -309,6 +448,8 @@ export function utilityOutageBadges(city: CityState): number[] {
 /** Without power/water, commercial and industrial keep their seats but earn much less (see cityLedger). */
 export function effectiveJobCapacity(city: CityState, workplace: number): number {
   if (!isWorkplace(city, workplace)) return 0;
+  const hub = hubJobs(city, workplace);
+  if (hub > 0) return hub;
   return jobCapacity(city.zones[workplace], city.levels[workplace]);
 }
 
@@ -323,7 +464,9 @@ export function jobOpenings(city: CityState, workplace: number): number {
 }
 
 export function isWorkplace(city: CityState, index: number): boolean {
-  if (index < 0 || index >= city.levels.length || city.levels[index] <= 0) return false;
+  if (index < 0 || index >= city.services.length) return false;
+  if (isHub(city, index)) return true;
+  if (city.levels[index] <= 0) return false;
   const zone = city.zones[index];
   return zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm;
 }
@@ -349,6 +492,8 @@ function jobTitle(city: CityState, workplace: number, education: number, person:
   const { x, y } = cellCoords(city, workplace);
   const title = JOBS[education]?.[hash(person + workplace) % 3] ?? "Aushilfe";
   const place = city.zones[workplace] === Zone.Industrial ? "Industrie" : city.zones[workplace] === Zone.Farm ? "Bauernhof" : "Gewerbe";
+  if (city.services[workplace] === ServiceKind.Harbor) return `${title === "Aushilfe" ? "Kaianlage" : title}, Hafen Feld ${x}, ${y}`;
+  if (city.services[workplace] === ServiceKind.Airport) return `${title === "Aushilfe" ? "Vorfeld" : title}, Flughafen Feld ${x}, ${y}`;
   const farmJob = city.zones[workplace] === Zone.Farm ? "Feldarbeit" : title;
   return `${farmJob}, ${place} Feld ${x}, ${y}`;
 }

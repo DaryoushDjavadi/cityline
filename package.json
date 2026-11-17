@@ -9,6 +9,7 @@
     "dev": "concurrently -n client,server -c cyan,yellow \"npm run dev -w cityline-client\" \"npm run dev -w cityline-server\"",
     "typecheck": "npm run typecheck -w cityline-client && npm run typecheck -w cityline-server",
     "smoke": "tsx scripts/smoke.ts",
+    "sim-tests": "tsx scripts/sim-tests.ts",
     "look-shots": "tsx scripts/look-shots.ts",
     "build": "npm run build -w cityline-client",
     "start": "npm run start -w cityline-server"

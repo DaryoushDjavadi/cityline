@@ -722,6 +722,7 @@ body[data-menu="closed"] #rail { display: none; }
 #rail button[data-tool="fire"] { --mark: #c44732; }
 #rail button[data-tool="park"] { --mark: #3f8f4a; }
 #rail button[data-tool="airport"] { --mark: #b7c3c8; }
+#rail button[data-tool="harbor"] { --mark: #3d88b5; }
 
 #demand { right: 14px; top: 132px; width: 250px; padding: 14px; max-height: calc(100vh - 216px); overflow: auto; }
 #demand .panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -1197,6 +1198,7 @@ body[data-play="level"] #brief {
 #inspector[data-kind="water"] #insp-mark { background: #2d6f98; }
 #inspector[data-kind="farm"] #insp-mark { background: #6d8f3c; }
 #inspector[data-kind="airport"] #insp-mark { background: #4e5960; }
+#inspector[data-kind="harbor"] #insp-mark { background: #2d6f98; }
 #insp-kicker { margin: 0; }
 #inspector h2 { margin: 0; font-family: Palatino, "Palatino Linotype", serif; font-size: 26px; line-height: 1; }
 #insp-close, #roster-close, #chat-close {
@@ -1335,14 +1337,17 @@ body[data-play="level"] #brief {
   background: #3a4134;
   color: #cbbfa6;
 }
-#inspector[data-kind="airport"] .insp-stats {
+#inspector[data-kind="airport"] .insp-stats,
+#inspector[data-kind="harbor"] .insp-stats {
   grid-template-columns: 1fr 1fr;
 }
-#inspector[data-kind="airport"] .insp-actions {
+#inspector[data-kind="airport"] .insp-actions,
+#inspector[data-kind="harbor"] .insp-actions {
   padding-top: 4px;
   border-top: 1px solid rgba(232, 205, 150, 0.12);
 }
-#inspector[data-kind="airport"] #insp-budget-wrap {
+#inspector[data-kind="airport"] #insp-budget-wrap,
+#inspector[data-kind="harbor"] #insp-budget-wrap {
   margin-top: 8px;
 }
 .insp-actions { margin-top: 12px; }

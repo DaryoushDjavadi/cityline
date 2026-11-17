@@ -81,7 +81,7 @@ export const SERVICES: Record<number, ServiceInfo> = {
     cost: COST.airport,
     upkeep: 48,
     radius: 0,
-    blurb: "Privatflugplatz mit Import und Export.",
+    blurb: "Schneller Handel: teurer, weniger Menge, kurze Lieferzeit. Mit einem Hafen in der Nähe entsteht ein Logistik-Verbund.",
   },
   [ServiceKind.Lamp]: {
     kind: ServiceKind.Lamp,
@@ -90,6 +90,14 @@ export const SERVICES: Record<number, ServiceInfo> = {
     upkeep: 1,
     radius: 2,
     blurb: "Beleuchtet nachts die Umgebung. Geht auf Straßen und Stromleitungen; leitet Strom weiter.",
+  },
+  [ServiceKind.Harbor]: {
+    kind: ServiceKind.Harbor,
+    name: "Hafen",
+    cost: COST.harbor,
+    upkeep: 32,
+    radius: 0,
+    blurb: "An die Küste. Massengut günstiger, aber langsamer als der Flughafen. Fischerboote liefern Nahrung, wenn Arbeiter da sind.",
   },
 };
 
@@ -159,7 +167,8 @@ export function refundForLevel(zone: number, level: number): number {
 
 export const FOOD_PER_WORKER = 4;
 export const FOOD_STOCK_MAX = 120;
-export const AIRPORT_INCOME = 260;
+export const AIRPORT_INCOME = 240;
+export const HARBOR_INCOME = 155;
 /** Four cottages (12 residents each) eat nothing. */
 export const FOOD_FREE_POPULATION = 48;
 /** About three extra cottages per additional food unit after the free tier. */

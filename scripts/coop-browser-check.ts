@@ -211,7 +211,7 @@ async function expectMode(page: Page, text: string): Promise<void> {
 async function main(): Promise<void> {
   const browser = await chromium.launch({
     headless: true,
-    args: ["--use-gl=angle", "--use-angle=swiftshader"],
+    args: ["--use-gl=angle", "--ignore-gpu-blocklist"],
   });
   const hostCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "de-DE" });
   const partnerCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "de-DE" });
