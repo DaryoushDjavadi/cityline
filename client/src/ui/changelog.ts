@@ -11,7 +11,7 @@ export const CHANGELOG: PatchNote[] = [
     at: "16. Nov 2026",
     title: "Hafen, Hügel und Strandglück",
     items: [
-      "Neuer Hafen unter Verkehr: nur an der Meeresküste, mit Straße, Strom, Wasser und Arbeitern. Schiffe fahren sichtbar aufs Meer.",
+      "Neuer Hafen unter Verkehr: nur an der Meeresküste, mit Pier, Kran und Containern. Schiffe legen an und fahren aufs Meer.",
       "Hafen handelt in großen, günstigen, langsamen Ladungen. Der Flughafen bleibt schnell, teurer und mit weniger Kapazität. Zusammen in der Nähe bilden sie einen Logistik-Verbund (Touristen, bessere Preise, extra Handelsplatz).",
       "Export sättigt den Markt: Preise fallen und erholen sich mit der Zeit — kein Endlosgeld.",
       "Neue Karten haben sanfte Hügel. Gebäude und Straßen ebnen lokal ein. Am Meer liegt Sand, der weich ins Gras übergeht. Am Strand stehen nur Hafen und Wege.",

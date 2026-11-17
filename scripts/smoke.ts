@@ -1,4 +1,5 @@
 import { deleteCityAuth, loadCityAuth, markCoopJoined, rememberCityPush, wasCoopJoined, adjacentToOcean, allocateCityCode, applyCommand, beachVisitors, buildMeta, canPlace, cellCoords, cellHeight, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, harborYield, houseHappiness, isBeach, isBridge, isHub, isLevelRoom, isLine, isOnDuty, isRoad, isWorkplace, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, logisticsPartner, marketMultiplier, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, quoteTrade, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, tradeDeal, writeCity, writeCitySlot } from "../shared/src/index.ts";
+import { runSimTests } from "./sim-tests.ts";
 
 const city = createCity();
 {
@@ -676,5 +677,7 @@ for (const ped of walkers) {
   }
   if ((old.shipments ?? []).length !== 0 && old.shipments === undefined) throw new Error("old saves get empty shipments");
 }
+
+runSimTests();
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);

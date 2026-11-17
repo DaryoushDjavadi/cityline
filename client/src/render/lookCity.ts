@@ -104,19 +104,32 @@ export function buildLookCity(hour = 7): LookCity {
       const index = cellIndex(city, x, y);
       if (!isBeach(city, index) && !adjacentToOcean(city, index)) continue;
       if (isWater(city, index)) continue;
-      applyCommand(city, { type: "road", cells: [cellIndex(city, x, y + 1), cellIndex(city, x + 1, y), cellIndex(city, x - 1, y)] });
+      const access: number[] = [];
+      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (!inBounds(city, nx, ny)) continue;
+        const ri = cellIndex(city, nx, ny);
+        if (isWater(city, ri) || isBeach(city, ri)) continue;
+        access.push(ri);
+      }
+      if (access.length) applyCommand(city, { type: "road", cells: access });
       if (applyCommand(city, { type: "service", index, kind: ServiceKind.Harbor }).ok) harborCell = index;
     }
   }
   if (harborCell >= 0) {
     const hx = harborCell % city.width;
     const hy = Math.floor(harborCell / city.width);
-    for (const [dx, dy] of [[-2, 0], [2, 0], [0, 2], [-1, 2], [1, 2], [-2, 1], [2, 1], [-3, 2], [3, 2], [-4, 1], [4, 1], [-2, 3], [2, 3], [0, 3], [-1, 3], [1, 3]] as const) {
+    let homes = 0;
+    for (const [dx, dy] of [[0, 2], [-1, 2], [1, 2], [0, 3], [-2, 2], [2, 2], [-1, 3], [1, 3]] as const) {
       const nx = hx + dx;
       const ny = hy + dy;
       if (!inBounds(city, nx, ny)) continue;
-      applyCommand(city, { type: "road", cells: [cellIndex(city, nx, ny + 1), cellIndex(city, nx + 1, ny)] });
-      placeBuild(nx, ny, "cottage");
+      const index = cellIndex(city, nx, ny);
+      if (isWater(city, index) || isBeach(city, index)) continue;
+      applyCommand(city, { type: "road", cells: [cellIndex(city, nx, ny + 1)] });
+      if (applyCommand(city, { type: "build", cells: [index], kind: "cottage" }).ok) homes += 1;
+      if (homes >= 8) break;
     }
   }
   for (const [x, y] of [[18, bestY - 3], [20, bestY - 3], [16, bestY + 3]] as const) {

@@ -235,8 +235,10 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
         forest: Number((meta.gen as MapGen).forest) || 0,
         rivers: Number((meta.gen as MapGen).rivers) || 0,
       };
+      return;
     }
   }
+  state.gen = undefined;
 }
 
 export function asUint8Array(data: unknown): Uint8Array | null {

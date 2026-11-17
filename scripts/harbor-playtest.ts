@@ -11,6 +11,7 @@ type E2E = {
   lookAt: (x: number, y: number, distance?: number, polar?: number, lift?: number, azimuth?: number) => void;
   setHour: (hour: number) => void;
   findCoast: () => { x: number; y: number } | null;
+  findHarbor: () => { x: number; y: number } | null;
   findBeach: () => { x: number; y: number } | null;
   roadRun: () => { cells: { x: number; y: number }[] } | null;
   cottageSpot: () => { x: number; y: number } | null;
@@ -46,25 +47,36 @@ async function shotLook(
   name: string,
   hour: number,
   viewport: { width: number; height: number },
-  distance: number,
-  mobile = false,
-  beach = false,
+  kind: "hills" | "harbor" | "beach" | "mobile",
 ): Promise<void> {
   const page = await browser.newPage({
     viewport,
-    deviceScaleFactor: mobile ? 2 : 1,
-    isMobile: mobile,
-    hasTouch: mobile,
+    deviceScaleFactor: kind === "mobile" ? 2 : 1,
+    isMobile: kind === "mobile",
+    hasTouch: kind === "mobile",
   });
   await page.goto(`${BASE}/?preview=look&hud=0&e2e=1&gfx=high&hour=${hour}`, { waitUntil: "networkidle" });
   await waitReady(page);
-  await page.evaluate(({ dist, useBeach, hour }) => {
+  await page.evaluate(({ kind, hour }) => {
     const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
     e2e.setHour(hour);
-    const target = useBeach ? e2e.findBeach() ?? e2e.findCoast() : e2e.findCoast();
-    if (target) e2e.lookAt(target.x, target.y, dist, useBeach ? 0.9 : 1.05, useBeach ? 1.1 : 6, useBeach ? 0.48 : 0.58);
-  }, { dist: distance, useBeach: beach, hour });
-  await page.waitForTimeout(1200);
+    const harbor = e2e.findHarbor();
+    const beach = e2e.findBeach();
+    if (kind === "beach") {
+      const target = beach ?? harbor ?? e2e.findCoast();
+      if (target) e2e.lookAt(target.x, target.y, 34, 1.08, 1.8, 0.55);
+    } else if (kind === "harbor") {
+      const target = harbor ?? e2e.findCoast();
+      if (target) e2e.lookAt(target.x, target.y, 40, 1.04, 1.2, 1.05);
+    } else if (kind === "mobile") {
+      const target = harbor ?? e2e.findCoast();
+      if (target) e2e.lookAt(target.x, target.y, 48, 1.1, 2.4, 0.7);
+    } else {
+      const target = harbor ?? e2e.findCoast();
+      if (target) e2e.lookAt(target.x, target.y + 3, 82, 1.16, 4.8, 0.48);
+    }
+  }, { kind, hour });
+  await page.waitForTimeout(1400);
   await page.screenshot({ path: path.join(ARTIFACTS, name), type: "png" });
   await page.close();
 }
@@ -106,10 +118,10 @@ async function main(): Promise<void> {
   if (built.harbors < 1) throw new Error(`harbor not placed ${JSON.stringify(built)}`);
   await page.close();
 
-  await shotLook(browser, "desktop-day.png", 16, { width: 1440, height: 900 }, 62);
-  await shotLook(browser, "harbor-boats.png", 16, { width: 1440, height: 900 }, 48);
-  await shotLook(browser, "desktop-beach-residents.png", 18, { width: 1440, height: 900 }, 30, false, true);
-  await shotLook(browser, "mobile-portrait.png", 16, { width: 390, height: 844 }, 56, true);
+  await shotLook(browser, "desktop-day.png", 16, { width: 1440, height: 900 }, "hills");
+  await shotLook(browser, "harbor-boats.png", 16, { width: 1440, height: 900 }, "harbor");
+  await shotLook(browser, "desktop-beach-residents.png", 18, { width: 1440, height: 900 }, "beach");
+  await shotLook(browser, "mobile-portrait.png", 16, { width: 390, height: 844 }, "mobile");
   await browser.close();
   console.log("playtest screenshots written", ARTIFACTS, "harborBuilt", built.harbors);
 }

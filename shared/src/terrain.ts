@@ -297,6 +297,18 @@ export function oceanMask(city: CityState): Uint8Array {
   return ocean;
 }
 
+/** Unit step from a land cell toward adjacent water (grid axes). */
+export function waterDir(city: CityState, x: number, y: number): { dx: number; dy: number } {
+  for (const dir of DIRS) {
+    const nx = x + dir.dx;
+    const ny = y + dir.dy;
+    if (!inBounds(city, nx, ny) || city.terrain[cellIndex(city, nx, ny)] === TERRAIN_WATER) {
+      return { dx: dir.dx, dy: dir.dy };
+    }
+  }
+  return { dx: 0, dy: 1 };
+}
+
 export function adjacentToOcean(city: CityState, index: number, ocean?: Uint8Array): boolean {
   const mask = ocean ?? oceanMask(city);
   const x = index % city.width;
@@ -353,12 +365,35 @@ export function rawHill(city: CityState, x: number, y: number): number {
   const index = cellIndex(city, x, y);
   if (city.terrain[index] === TERRAIN_WATER) return -0.14;
   const seed = city.gen.seed >>> 0;
-  const n = fbm(x, y, seed + 77, 0.072);
-  const ridge = fbm(x, y, seed + 201, 0.16);
-  let height = (n - 0.48) * 2.45 + (ridge - 0.5) * 0.7;
-  if (city.terrain[index] === TERRAIN_BEACH) height = Math.min(0.1, height * 0.12) + 0.045;
-  else if (touchesWater(city, x, y)) height *= 0.28;
-  return Math.max(city.terrain[index] === TERRAIN_BEACH ? 0.03 : 0, height);
+  const n = fbm(x, y, seed + 77, 0.048);
+  const ridge = fbm(x, y, seed + 201, 0.11);
+  const alpine = city.gen.biome === "alpine" ? 1.18 : 1;
+  let height = ((n - 0.36) * 5.6 + (ridge - 0.48) * 2.1) * alpine;
+  if (city.terrain[index] === TERRAIN_BEACH) height = 0.04 + n * 0.05;
+  else if (touchesWater(city, x, y)) height = Math.max(0.05, height * 0.22);
+  return Math.max(0, Math.min(7.2, height));
+}
+
+/** 0 = grass, 1 = sand. Narrow noisy strip at the waterline. */
+export function vertexSand(city: CityState, vx: number, vy: number): number {
+  let water = 80;
+  for (let y = vy - 2; y <= vy + 1; y += 1) {
+    for (let x = vx - 2; x <= vx + 1; x += 1) {
+      const wet = !inBounds(city, x, y) || city.terrain[cellIndex(city, x, y)] === TERRAIN_WATER;
+      if (!wet) continue;
+      const dx = vx < x ? x - vx : vx > x + 1 ? vx - (x + 1) : 0;
+      const dy = vy < y ? y - vy : vy > y + 1 ? vy - (y + 1) : 0;
+      water = Math.min(water, Math.hypot(dx, dy) * 10);
+    }
+  }
+  const dither = (hash2(vx, vy, (city.gen?.seed ?? 1) + 91) - 0.5) * 2.6;
+  const mix = 1 - smoothstep(0.7, 5.4, water + dither);
+  return Math.max(0, Math.min(1, mix));
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 export function cellHeight(city: CityState, x: number, y: number): number {

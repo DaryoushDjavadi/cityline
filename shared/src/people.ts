@@ -1,7 +1,7 @@
 import { climateAt, isOnDuty } from "./climate.ts";
 import { serviceInfo } from "./catalog.ts";
-import { cellCoords, cellIndex, inBounds } from "./grid.ts";
-import { isBeach } from "./terrain.ts";
+import { ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
+import { isBeach, waterDir } from "./terrain.ts";
 import { hubJobs, isHub } from "./trade.ts";
 import { POST_SLOTS, POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
 
@@ -308,21 +308,35 @@ function beachCells(city: CityState): number[] {
   return cells;
 }
 
+function isOpenSand(city: CityState, index: number): boolean {
+  if (!isBeach(city, index) || city.levels[index] > 0) return false;
+  if ((city.roads[index] & ROAD_FLAG) !== 0) return false;
+  const service = city.services[index];
+  return service === ServiceKind.None || service === ServiceKind.Lamp;
+}
+
 function nearestBeach(city: CityState, home: number, cells: number[]): number | null {
   if (cells.length === 0) return null;
   const origin = cellCoords(city, home);
   let best: number | null = null;
   let bestDist = 999;
+  let paved: number | null = null;
+  let pavedDist = 999;
   for (const cell of cells) {
     const spot = cellCoords(city, cell);
     const dist = Math.max(Math.abs(spot.x - origin.x), Math.abs(spot.y - origin.y));
     if (dist > BEACH_HAPPINESS_RADIUS) continue;
-    if (dist < bestDist) {
-      best = cell;
-      bestDist = dist;
+    if (isOpenSand(city, cell)) {
+      if (dist < bestDist) {
+        best = cell;
+        bestDist = dist;
+      }
+    } else if (dist < pavedDist) {
+      paved = cell;
+      pavedDist = dist;
     }
   }
-  return best;
+  return best ?? paved;
 }
 
 /** Leisure-time residents on nearby sand (day and evening). */
@@ -349,8 +363,12 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
           if (isOnDuty(home, member.slot, workplace, climate)) continue;
           if ((hash(home * 83 + member.slot * 5 + rotate) % 2) !== 0) continue;
         }
-        const poseRoll = hash(home * 17 + member.name.length + 9) % 5;
-        const pose: BeachPose = poseRoll <= 1 ? "lie" : poseRoll === 2 ? "sit" : "idle";
+        const poseRoll = hash(home * 17 + member.name.length + 9) % 8;
+        const pose: BeachPose = poseRoll <= 3 ? "lie" : poseRoll <= 6 ? "sit" : "idle";
+        const spot = cellCoords(city, cell);
+        const dir = waterDir(city, spot.x, spot.y);
+        const along = 2.4 + (hash(home * 19 + member.name.length) % 10) * 0.16;
+        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.42;
         visitors.push({
           id: `beach-${home}-${member.name}`,
           home,
@@ -358,8 +376,8 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
           child: member.child,
           color: PED_COLORS[hash(home * 11 + member.slot + 9) % PED_COLORS.length],
           cell,
-          ox: ((hash(home + member.name.length * 13) % 17) - 8) * 0.32,
-          oz: ((hash(home * 3 + member.name.length * 7) % 17) - 8) * 0.32,
+          ox: dir.dx * along + dir.dy * side,
+          oz: dir.dy * along - dir.dx * side,
           pose,
           happy: true,
         });

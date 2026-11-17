@@ -25,6 +25,8 @@ import {
   oceanMask,
   vegetationRoll,
   vertexHeight,
+  vertexSand,
+  waterDir,
   type BiomeId,
   type CityState,
   type Climate,
@@ -237,7 +239,7 @@ export class CityRenderer {
     sea.rotateX(-Math.PI / 2);
     this.seaMaterial = seaMaterial();
     const ocean = new THREE.Mesh(sea, this.seaMaterial);
-    ocean.position.y = -1.55;
+    ocean.position.y = -0.32;
     ocean.frustumCulled = false;
     ocean.receiveShadow = this.quality.shadows;
     this.scene.add(ocean);
@@ -616,7 +618,8 @@ export class CityRenderer {
         const airportLit =
           !isHubService(service) || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
         const nightWarm = this.nightLit && airportLit && (city.utility[index] & POWER_BIT) !== 0;
-        this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index, this.heightOf(index));
+        const facing = service === ServiceKind.Harbor ? Math.atan2(waterDir(city, x, y).dx, waterDir(city, x, y).dy) : 0;
+        this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index, this.heightOf(index), facing);
       } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index) && !isBeach(city, index)) {
         const forest = city.gen?.forest ?? 50;
         const seed = city.gen?.seed ?? 1;
@@ -1086,7 +1089,7 @@ export class CityRenderer {
         this.put(this.towels, towels, px, gy + 0.04, pz, 1, 1, 1, visitor.ox * 0.2, visitor.color);
         towels += 1;
       }
-      if (!low && visitor.pose === "sit" && umbrellas < 24 && (hashCode(visitor.id) % 3) === 0) {
+      if (!low && visitor.pose === "sit" && umbrellas < 24 && (hashCode(visitor.id) % 2) === 0) {
         this.put(this.umbrellas, umbrellas, px + 0.35, gy, pz - 0.2, 1, 1, 1, 0, visitor.color);
         umbrellas += 1;
       }
@@ -1570,13 +1573,13 @@ export class CityRenderer {
     return { curbs, roads };
   }
 
-  private placeModel(key: string, x: number, z: number, color: number, cell = -1, y = 0): void {
+  private placeModel(key: string, x: number, z: number, color: number, cell = -1, y = 0, rotY = 0): void {
     const instances = this.models.get(key);
     if (!instances) return;
     const slot = this.modelSlot.get(key) ?? 0;
     if (slot >= 700) return;
     const scale = cell >= 0 ? this.birthScale(cell) : 1;
-    this.put(instances, slot, x, y, z, scale, scale, scale, 0, color);
+    this.put(instances, slot, x, y, z, scale, scale, scale, rotY, color);
     this.modelSlot.set(key, slot + 1);
   }
 
@@ -1861,43 +1864,57 @@ function isHubService(kind: number): boolean {
   return kind === ServiceKind.Airport || kind === ServiceKind.Harbor;
 }
 
+const BOAT_SEA_Y = -0.2;
+
 function boatPose(city: CityState, cell: number, time: number, kind: "cargo" | "fish" | "ferry"): { x: number; y: number; z: number; rotY: number } {
   const { x, y } = cellCoords(city, cell);
   const origin = cellToWorld(city, x, y);
-  const edge = nearestSeaExit(city, x, y);
+  const step = waterDir(city, x, y);
+  const wx = step.dx;
+  const wz = step.dy;
+  const dockX = origin.x + wx * 8.2;
+  const dockZ = origin.z + wz * 8.2;
+  const heading = Math.atan2(wx, wz);
   if (kind === "fish") {
-    const cycle = 18;
+    const cycle = 22;
     const t = ((time % cycle) + cycle) % cycle / cycle;
-    const ang = t * Math.PI * 2;
-    const radius = 18 + (cell % 7);
+    if (t < 0.22) {
+      return { x: dockX + wz * 2.4, y: BOAT_SEA_Y, z: dockZ - wx * 2.4, rotY: heading };
+    }
+    const u = (t - 0.22) / 0.78;
+    const ang = u * Math.PI * 2;
+    const radius = 16 + (cell % 6);
     return {
-      x: origin.x + edge.x * 14 + Math.cos(ang) * radius,
-      y: -0.05,
-      z: origin.z + edge.z * 14 + Math.sin(ang) * radius,
+      x: origin.x + wx * 22 + Math.cos(ang) * radius,
+      y: BOAT_SEA_Y,
+      z: origin.z + wz * 22 + Math.sin(ang) * radius,
       rotY: ang + Math.PI / 2,
     };
   }
-  const cycle = kind === "ferry" ? 28 : 36;
+  const cycle = kind === "ferry" ? 26 : 34;
   const t = ((time % cycle) + cycle) % cycle / cycle;
-  const going = t < 0.5 ? t * 2 : 1 - (t - 0.5) * 2;
-  const dist = kind === "ferry" ? 90 : 140;
-  const px = origin.x + edge.x * (12 + going * dist);
-  const pz = origin.z + edge.z * (12 + going * dist);
-  const vx = t < 0.5 ? edge.x : -edge.x;
-  const vz = t < 0.5 ? edge.z : -edge.z;
-  return { x: px, y: kind === "cargo" ? 0.05 : -0.02, z: pz, rotY: Math.atan2(vx, vz) };
-}
-
-function nearestSeaExit(city: CityState, x: number, y: number): { x: number; z: number } {
-  const left = x;
-  const right = city.width - 1 - x;
-  const up = y;
-  const down = city.height - 1 - y;
-  const best = Math.min(left, right, up, down);
-  if (best === left) return { x: -1, z: 0 };
-  if (best === right) return { x: 1, z: 0 };
-  if (best === up) return { x: 0, z: -1 };
-  return { x: 0, z: 1 };
+  const reach = kind === "ferry" ? 38 : 52;
+  let along: number;
+  let outbound: boolean;
+  if (t < 0.18) {
+    along = 0;
+    outbound = true;
+  } else if (t < 0.5) {
+    along = ((t - 0.18) / 0.32) * reach;
+    outbound = true;
+  } else if (t < 0.62) {
+    along = reach;
+    outbound = false;
+  } else {
+    along = (1 - (t - 0.62) / 0.38) * reach;
+    outbound = false;
+  }
+  return {
+    x: dockX + wx * along,
+    y: BOAT_SEA_Y,
+    z: dockZ + wz * along,
+    rotY: outbound ? heading : heading + Math.PI,
+  };
 }
 
 function smileyTexture(): THREE.CanvasTexture {
@@ -1976,23 +1993,19 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
       const cx = vx + dx;
       const cy = vy + dy;
       if (!inBounds(city, cx, cy) || isWater(city, cy * city.width + cx)) continue;
-      if (isBeach(city, cy * city.width + cx)) {
-        r += sand.r;
-        g += sand.g;
-        b += sand.b;
-      } else {
-        grass.set(palette[(cx + cy) & 1] ?? palette[0]);
-        r += grass.r;
-        g += grass.g;
-        b += grass.b;
-      }
+      grass.set(palette[(cx + cy) & 1] ?? palette[0]);
+      r += grass.r;
+      g += grass.g;
+      b += grass.b;
       n += 1;
     }
     if (n === 0) {
       out.copy(sand);
       return out;
     }
+    const mix = vertexSand(city, vx, vy);
     out.setRGB(r / n, g / n, b / n);
+    out.lerp(sand, mix);
     return out;
   };
   const addTri = (
@@ -2019,7 +2032,7 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   ) => {
     addTri(ax, ay, az, bx, by, bz, cx, cy, cz, ac, bc, cc);
   };
-  const skirt = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, cellX: number, cellY: number) => {
+  const skirt = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, cellX: number, cellY: number, sandy: boolean) => {
     const spot = cellToWorld(city, cellX, cellY);
     let nx = z0 - z1;
     let nz = x1 - x0;
@@ -2032,13 +2045,16 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
       nx = -nx;
       nz = -nz;
     }
-    const out = 5.2;
+    const out = sandy ? 1.6 : 5.2;
+    const bottom = sandy ? -0.32 : SKIRT_Y;
+    const lip = sandy ? sand : earth;
+    const deep = sandy ? sand : earthDeep;
     const bx0 = x0 + nx * out;
     const bz0 = z0 + nz * out;
     const bx1 = x1 + nx * out;
     const bz1 = z1 + nz * out;
-    addTri(x0, y0, z0, x1, y1, z1, bx1, SKIRT_Y, bz1, earth, earth, earthDeep);
-    addTri(x0, y0, z0, bx1, SKIRT_Y, bz1, bx0, SKIRT_Y, bz0, earth, earthDeep, earthDeep);
+    addTri(x0, y0, z0, x1, y1, z1, bx1, bottom, bz1, lip, lip, deep);
+    addTri(x0, y0, z0, bx1, bottom, bz1, bx0, bottom, bz0, lip, deep, deep);
   };
 
   const plot: number[] = [];
@@ -2074,7 +2090,9 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
       ];
       for (const edge of edges) {
         if (landHere(edge.nextX, edge.nextY)) continue;
-        skirt(pointX[edge.a], edge.ha, pointZ[edge.a], pointX[edge.b], edge.hb, pointZ[edge.b], x, y);
+        const nextIndex = inBounds(city, edge.nextX, edge.nextY) ? edge.nextY * city.width + edge.nextX : -1;
+        const sandy = nextIndex < 0 || ocean[nextIndex] === 1 || isBeach(city, y * city.width + x);
+        skirt(pointX[edge.a], edge.ha, pointZ[edge.a], pointX[edge.b], edge.hb, pointZ[edge.b], x, y, sandy);
       }
       const east = landHere(x + 1, y);
       const south = landHere(x, y + 1);

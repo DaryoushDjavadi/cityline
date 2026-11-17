@@ -409,6 +409,12 @@ export class Game {
         }
         return null;
       },
+      findHarbor(): { x: number; y: number } | null {
+        for (let i = 0; i < self.city.services.length; i += 1) {
+          if (self.city.services[i] === ServiceKind.Harbor) return cellCoords(self.city, i);
+        }
+        return null;
+      },
       findBeach(): { x: number; y: number } | null {
         const crowd = beachVisitors(self.city, 36);
         if (crowd.length > 0) {
