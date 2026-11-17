@@ -472,98 +472,130 @@ export function modelForService(kind: number): { key: string; height: number } |
 }
 
 function harborParts(): Part[] {
+  const stone = 0xc5c8cc;
+  const stoneDark = 0xa8adb4;
+  const wood = 0xd4a56a;
+  const woodDark = 0xb8884c;
   return [
-    box(0, 0.16, -1.7, 9.8, 0.42, 7.0, 0x8e9398),
-    box(0, 0.4, -1.55, 9.4, 0.14, 6.5, 0xcbb089),
-    box(-4.55, 0.55, -1.4, 0.22, 0.55, 6.2, 0x7a6a52),
-    box(4.55, 0.55, -1.4, 0.22, 0.55, 6.2, 0x7a6a52),
-    box(-2.7, 2.05, -2.35, 4.9, 3.2, 4.4, 0xe2d0ae),
-    box(-2.7, 3.85, -2.35, 5.3, 0.22, 2.5, 0x8a4a32, { rx: 0.52 }),
-    box(-2.7, 3.85, -1.15, 5.3, 0.22, 2.5, 0x8a4a32, { rx: -0.52 }),
-    box(-2.7, 4.28, -1.75, 5.35, 0.12, 0.38, 0x6e3a28),
-    box(-4.95, 2.3, -2.35, 0.18, 2.6, 4.2, 0xc9b48c),
-    box(-0.45, 2.3, -2.35, 0.18, 2.6, 4.2, 0xc9b48c),
-    box(-2.7, 2.2, -0.12, 1.9, 1.35, 0.1, WIN),
-    box(-3.7, 2.2, -0.12, 1.1, 1.1, 0.1, WIN),
-    box(-1.7, 1.15, -0.1, 1.05, 1.7, 0.12, 0x5c3a2a),
-    { shape: "cyl", x: 3.35, y: 2.9, z: -2.55, sx: 0.62, sy: 5.4, sz: 0.62, color: 0xf4efe4 },
-    { shape: "cyl", x: 3.35, y: 1.55, z: -2.55, sx: 0.66, sy: 0.28, sz: 0.66, color: 0xc44732 },
-    { shape: "cyl", x: 3.35, y: 2.35, z: -2.55, sx: 0.66, sy: 0.28, sz: 0.66, color: 0xc44732 },
-    { shape: "cyl", x: 3.35, y: 3.15, z: -2.55, sx: 0.66, sy: 0.28, sz: 0.66, color: 0xc44732 },
-    box(3.35, 5.75, -2.55, 1.55, 0.7, 1.55, 0xc44732),
-    box(3.35, 6.05, -1.72, 0.7, 0.42, 0.08, 0xffe08a),
-    { shape: "cyl", x: 3.35, y: 6.55, z: -2.55, sx: 0.08, sy: 0.9, sz: 0.08, color: 0xf4efe4 },
-    { shape: "cyl", x: -1.55, y: 3.55, z: 1.85, sx: 0.28, sy: 6.8, sz: 0.28, color: 0xc9a46a },
-    { shape: "cyl", x: -1.55, y: 0.55, z: 1.85, sx: 0.7, sy: 0.7, sz: 0.7, color: 0x6a7380 },
-    box(0, 0.26, 4.9, 4.6, 0.3, 9.6, 0xb89568),
-    box(0, 0.12, 9.2, 5.0, 0.18, 1.7, 0xa48458),
-    box(-2.15, 0.48, 4.2, 0.18, 0.42, 8.4, 0x8a6a48),
-    box(2.15, 0.48, 4.2, 0.18, 0.42, 8.4, 0x8a6a48),
-    { shape: "cyl", x: -1.85, y: -0.42, z: 3.6, sx: 0.16, sy: 1.55, sz: 0.16, color: 0x6a5340 },
-    { shape: "cyl", x: 1.85, y: -0.42, z: 3.6, sx: 0.16, sy: 1.55, sz: 0.16, color: 0x6a5340 },
-    { shape: "cyl", x: -1.85, y: -0.5, z: 6.4, sx: 0.16, sy: 1.7, sz: 0.16, color: 0x6a5340 },
-    { shape: "cyl", x: 1.85, y: -0.5, z: 6.4, sx: 0.16, sy: 1.7, sz: 0.16, color: 0x6a5340 },
-    { shape: "cyl", x: -1.85, y: -0.58, z: 8.9, sx: 0.18, sy: 1.85, sz: 0.18, color: 0x6a5340 },
-    { shape: "cyl", x: 1.85, y: -0.58, z: 8.9, sx: 0.18, sy: 1.85, sz: 0.18, color: 0x6a5340 },
-    { shape: "cyl", x: -1.7, y: 0.62, z: 5.1, sx: 0.16, sy: 0.42, sz: 0.16, color: 0x3a3530 },
-    { shape: "cyl", x: 1.7, y: 0.62, z: 5.1, sx: 0.16, sy: 0.42, sz: 0.16, color: 0x3a3530 },
-    { shape: "cyl", x: -1.7, y: 0.62, z: 8.4, sx: 0.16, sy: 0.42, sz: 0.16, color: 0x3a3530 },
-    { shape: "cyl", x: 1.7, y: 0.62, z: 8.4, sx: 0.16, sy: 0.42, sz: 0.16, color: 0x3a3530 },
-    { shape: "cyl", x: -3.6, y: 1.7, z: 0.7, sx: 0.08, sy: 3.1, sz: 0.08, color: 0x4a4540 },
-    box(-3.6, 3.28, 0.7, 0.55, 0.16, 0.55, 0xd8c48a),
-    { shape: "sphere", x: -3.6, y: 3.48, z: 0.7, sx: 0.16, sy: 0.16, sz: 0.16, color: 0xffe08a },
-    { shape: "cyl", x: 3.8, y: 1.7, z: 0.55, sx: 0.08, sy: 3.1, sz: 0.08, color: 0x4a4540 },
-    box(3.8, 3.28, 0.55, 0.55, 0.16, 0.55, 0xd8c48a),
-    { shape: "sphere", x: 3.8, y: 3.48, z: 0.55, sx: 0.16, sy: 0.16, sz: 0.16, color: 0xffe08a },
-    box(2.55, 0.82, 1.15, 1.95, 1.22, 1.22, 0xc44732),
-    box(2.55, 2.02, 1.15, 1.95, 1.22, 1.22, 0x2f5f86),
-    box(2.55, 0.82, 2.5, 1.95, 1.22, 1.22, 0xe2b33a),
-    box(-3.85, 0.72, 1.35, 1.95, 1.05, 1.22, 0x2c6b49),
-    box(-3.85, 1.75, 1.35, 1.95, 1.05, 1.22, 0xc44732),
-    box(3.55, 0.55, 4.15, 1.45, 0.72, 1.45, 0x4a5560),
-    { shape: "cyl", x: 0.2, y: -0.05, z: 11.4, sx: 0.28, sy: 0.7, sz: 0.28, color: 0xc44732 },
-    { shape: "cyl", x: 0.2, y: 0.42, z: 11.4, sx: 0.42, sy: 0.22, sz: 0.42, color: 0xf4efe4 },
-    { shape: "cyl", x: 0.2, y: 0.95, z: 11.4, sx: 0.05, sy: 0.9, sz: 0.05, color: 0xf4efe4 },
+    box(0, 0.18, -1.55, 9.9, 0.38, 6.8, stone),
+    box(0, 0.4, -1.4, 9.5, 0.12, 6.3, stoneDark),
+    box(-4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
+    box(4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
+    box(-2.55, 1.85, -2.2, 4.6, 2.7, 4.0, 0xf3ece0),
+    box(-2.55, 3.45, -2.2, 5.05, 0.2, 2.2, 0xc44732, { rx: 0.5 }),
+    box(-2.55, 3.45, -1.15, 5.05, 0.2, 2.2, 0xc44732, { rx: -0.5 }),
+    box(-2.55, 3.82, -1.68, 5.1, 0.1, 0.32, 0x8a2e22),
+    box(-4.7, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
+    box(-0.4, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
+    box(-2.55, 2.05, -0.18, 1.8, 1.25, 0.08, WIN),
+    box(-3.5, 2.05, -0.18, 1.05, 1.05, 0.08, WIN),
+    box(-1.6, 1.05, -0.16, 0.95, 1.55, 0.1, 0x6a4a32),
+    { shape: "cyl", x: 3.45, y: 2.85, z: -2.45, sx: 0.58, sy: 5.2, sz: 0.58, color: 0xf7f4ee },
+    { shape: "cyl", x: 3.45, y: 1.5, z: -2.45, sx: 0.64, sy: 0.26, sz: 0.64, color: 0xe23b32 },
+    { shape: "cyl", x: 3.45, y: 2.35, z: -2.45, sx: 0.64, sy: 0.26, sz: 0.64, color: 0xe23b32 },
+    { shape: "cyl", x: 3.45, y: 3.2, z: -2.45, sx: 0.64, sy: 0.26, sz: 0.64, color: 0xe23b32 },
+    box(3.45, 5.6, -2.45, 1.45, 0.62, 1.45, 0xe23b32),
+    box(3.45, 5.9, -1.68, 0.65, 0.38, 0.08, 0xffe08a),
+    { shape: "cyl", x: 3.45, y: 6.4, z: -2.45, sx: 0.07, sy: 0.85, sz: 0.07, color: 0xf7f4ee },
+    { shape: "cyl", x: -1.35, y: 3.7, z: 1.7, sx: 0.22, sy: 7.0, sz: 0.22, color: 0xf0b43c },
+    { shape: "cyl", x: -1.35, y: 0.55, z: 1.7, sx: 0.62, sy: 0.7, sz: 0.62, color: 0x7a838c },
+    box(-1.35, 7.15, 1.7, 0.7, 0.22, 2.6, 0xf5a318),
+    box(0, 0.28, 4.7, 4.2, 0.26, 9.4, wood),
+    box(0, 0.14, 8.9, 4.6, 0.16, 1.5, woodDark),
+    box(-1.95, 0.5, 4.1, 0.16, 0.38, 8.2, woodDark),
+    box(1.95, 0.5, 4.1, 0.16, 0.38, 8.2, woodDark),
+    { shape: "cyl", x: -1.7, y: -0.38, z: 3.4, sx: 0.14, sy: 1.4, sz: 0.14, color: 0x8a6a48 },
+    { shape: "cyl", x: 1.7, y: -0.38, z: 3.4, sx: 0.14, sy: 1.4, sz: 0.14, color: 0x8a6a48 },
+    { shape: "cyl", x: -1.7, y: -0.46, z: 6.2, sx: 0.14, sy: 1.55, sz: 0.14, color: 0x8a6a48 },
+    { shape: "cyl", x: 1.7, y: -0.46, z: 6.2, sx: 0.14, sy: 1.55, sz: 0.14, color: 0x8a6a48 },
+    { shape: "cyl", x: -1.7, y: -0.54, z: 8.7, sx: 0.16, sy: 1.7, sz: 0.16, color: 0x8a6a48 },
+    { shape: "cyl", x: 1.7, y: -0.54, z: 8.7, sx: 0.16, sy: 1.7, sz: 0.16, color: 0x8a6a48 },
+    { shape: "cyl", x: -1.55, y: 0.62, z: 4.9, sx: 0.18, sy: 0.38, sz: 0.18, color: 0x3a3530 },
+    { shape: "cyl", x: 1.55, y: 0.62, z: 4.9, sx: 0.18, sy: 0.38, sz: 0.18, color: 0x3a3530 },
+    { shape: "cyl", x: -1.55, y: 0.62, z: 8.1, sx: 0.18, sy: 0.38, sz: 0.18, color: 0x3a3530 },
+    { shape: "cyl", x: 1.55, y: 0.62, z: 8.1, sx: 0.18, sy: 0.38, sz: 0.18, color: 0x3a3530 },
+    { shape: "cyl", x: -3.55, y: 1.65, z: 0.55, sx: 0.07, sy: 2.9, sz: 0.07, color: 0x4a4540 },
+    box(-3.55, 3.15, 0.55, 0.5, 0.14, 0.5, 0xf0e0b0),
+    { shape: "sphere", x: -3.55, y: 3.35, z: 0.55, sx: 0.16, sy: 0.16, sz: 0.16, color: 0xffe08a },
+    { shape: "cyl", x: 3.7, y: 1.65, z: 0.4, sx: 0.07, sy: 2.9, sz: 0.07, color: 0x4a4540 },
+    box(3.7, 3.15, 0.4, 0.5, 0.14, 0.5, 0xf0e0b0),
+    { shape: "sphere", x: 3.7, y: 3.35, z: 0.4, sx: 0.16, sy: 0.16, sz: 0.16, color: 0xffe08a },
+    box(2.7, 0.85, 1.05, 1.85, 1.15, 1.15, 0xe23b32),
+    box(2.7, 2.0, 1.05, 1.85, 1.15, 1.15, 0x2f6fbe),
+    box(2.7, 0.85, 2.4, 1.85, 1.15, 1.15, 0xf0c12e),
+    box(-3.7, 0.78, 1.2, 1.85, 1.0, 1.15, 0x2f9a55),
+    box(-3.7, 1.78, 1.2, 1.85, 1.0, 1.15, 0xe23b32),
+    box(3.45, 0.55, 3.95, 1.35, 0.65, 1.35, 0x8b93a0),
+    { shape: "cyl", x: 0.15, y: -0.02, z: 11.15, sx: 0.26, sy: 0.65, sz: 0.26, color: 0xe23b32 },
+    { shape: "cyl", x: 0.15, y: 0.4, z: 11.15, sx: 0.4, sy: 0.2, sz: 0.4, color: 0xf7f4ee },
+    { shape: "cyl", x: 0.15, y: 0.9, z: 11.15, sx: 0.05, sy: 0.85, sz: 0.05, color: 0xf7f4ee },
   ];
 }
 
 function airportParts(): Part[] {
+  const marks: Part[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    marks.push(box(-4.15, 0.24, -1.55 + i * 0.44, 0.7, 0.04, 0.18, 0xf4efe4));
+  }
+  for (let i = 0; i < 7; i += 1) {
+    marks.push(box(-2.4 + i * 1.05, 0.22, 0, 0.55, 0.03, 0.16, 0xf4efe4));
+  }
   return [
-    box(0, 0.08, 0, 9.6, 0.16, 8.8, 0x74aa52),
-    box(0, 0.16, 0, 9.4, 0.12, 2.55, 0x4e555c),
-    box(0, 0.2, 0, 8.8, 0.04, 0.16, 0xf4efe4),
-    box(-3.4, 0.2, 0, 0.9, 0.03, 2.2, 0xf4efe4),
-    box(-1.15, 0.2, 0, 0.9, 0.03, 2.2, 0xf4efe4),
-    box(1.15, 0.2, 0, 0.9, 0.03, 2.2, 0xf4efe4),
-    box(3.4, 0.2, 0, 0.9, 0.03, 2.2, 0xf4efe4),
-    box(-4.35, 0.2, 0, 0.16, 0.05, 2.4, 0xf4efe4),
-    box(4.35, 0.2, 0, 0.16, 0.05, 2.4, 0xf4efe4),
-    box(-2.55, 1.55, 2.75, 4.2, 2.7, 3.15, 0xf0e6d4),
-    box(-2.55, 1.7, 4.35, 3.4, 1.7, 0.1, WIN),
-    box(-2.55, 3.05, 2.75, 4.5, 0.22, 3.4, 0xc9a46a),
-    box(-2.55, 1.05, 4.32, 1.35, 1.7, 0.12, 0x5c3a2a),
-    box(2.95, 2.85, 2.85, 1.55, 5.2, 1.55, 0xf7efe0),
-    box(2.95, 5.7, 2.85, 2.15, 0.85, 2.15, 0xe2b15a),
-    box(2.95, 5.75, 3.95, 1.35, 0.55, 0.1, WIN),
-    box(2.95, 3.5, 3.65, 0.95, 0.7, 0.08, WIN),
-    { shape: "cyl", x: 2.95, y: 7.55, z: 2.85, sx: 0.08, sy: 2.4, sz: 0.08, color: 0xc44732 },
-    { shape: "cyl", x: 2.95, y: 8.7, z: 2.85, sx: 0.18, sy: 0.18, sz: 0.18, color: 0xf4efe4 },
-    box(2.35, 0.48, -0.15, 2.15, 0.55, 1.35, 0xf4efe4),
-    box(3.7, 0.95, -2.4, 2.4, 1.55, 2.6, 0xd8c8a8),
-    box(3.7, 1.8, -2.4, 2.6, 0.18, 2.8, 0x8a6a48),
+    box(0, 0.08, 0, 18.5, 0.16, 10.4, 0x7bb056),
+    box(1.2, 0.2, 0.15, 17.6, 0.16, 5.1, 0x9aa1a8),
+    box(1.2, 0.26, -2.28, 17.2, 0.04, 0.14, 0xf7f4ee),
+    box(1.2, 0.26, 2.55, 17.2, 0.04, 0.14, 0xf7f4ee),
+    box(-7.4, 0.28, 0.15, 0.14, 0.05, 4.9, 0xf7f4ee),
+    box(9.8, 0.28, 0.15, 0.14, 0.05, 4.9, 0xf7f4ee),
+    ...marks,
+    box(-3.35, 0.26, 1.55, 0.55, 0.05, 0.7, 0xf7f4ee),
+    box(-2.7, 0.26, 1.55, 0.18, 0.05, 0.7, 0xf7f4ee),
+    box(-2.7, 0.26, 1.15, 0.55, 0.05, 0.16, 0xf7f4ee),
+    box(-2.7, 0.26, 1.95, 0.55, 0.05, 0.16, 0xf7f4ee),
+    box(2.35, 0.2, -3.35, 4.4, 0.16, 2.4, 0xb8bec4),
+    box(-2.35, 1.7, 3.05, 4.6, 3.0, 2.9, 0xf4efe6),
+    box(-2.35, 1.85, 4.52, 4.0, 2.05, 0.1, WIN),
+    box(-2.35, 3.35, 3.05, 4.9, 0.22, 3.15, 0xd8c49a),
+    box(-2.35, 1.15, 4.48, 1.4, 1.75, 0.12, 0x6a4a32),
+    box(2.85, 3.15, 3.15, 1.45, 5.8, 1.45, 0xf7f2e8),
+    box(2.85, 6.2, 3.15, 2.25, 0.95, 2.25, 0xe2b15a),
+    box(2.85, 6.25, 4.28, 1.45, 0.6, 0.1, WIN),
+    box(2.85, 3.7, 3.9, 1.0, 0.75, 0.08, WIN),
+    { shape: "cyl", x: 2.85, y: 8.15, z: 3.15, sx: 0.08, sy: 2.5, sz: 0.08, color: 0xe23b32 },
+    { shape: "cyl", x: 2.85, y: 9.4, z: 3.15, sx: 0.2, sy: 0.2, sz: 0.2, color: 0xf7f4ee },
+    box(3.55, 0.55, -3.2, 2.2, 0.7, 2.0, 0xf4efe4),
   ];
 }
 
 export function buildCraneGeometry(): THREE.BufferGeometry {
   return compose([
-    box(0, 0.12, 0, 0.55, 0.22, 3.6, 0xc9a46a),
-    box(1.5, -0.55, 0, 0.16, 1.5, 0.16, 0x6e7c86),
-    box(1.5, -1.25, 0, 0.85, 0.55, 0.85, 0xc44732),
+    box(0, 0.12, 0, 0.5, 0.2, 4.2, 0xf5a318),
+    box(1.85, -0.55, 0, 0.14, 1.6, 0.14, 0xf0b43c),
+    box(1.85, -1.35, 0, 0.95, 0.55, 0.95, 0xe23b32),
   ]);
 }
 
 export function buildWakeGeometry(): THREE.BufferGeometry {
-  return compose([{ shape: "sphere", x: 0, y: 0.02, z: 0, sx: 0.7, sy: 0.08, sz: 0.42, color: 0xffffff }]);
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array([
+    0.05, 0.03, 0.2, 0.55, 0.03, -2.8, 0.18, 0.03, -6.4,
+    0.05, 0.03, 0.2, 0.18, 0.03, -6.4, 0.02, 0.03, -2.2,
+    -0.05, 0.03, 0.2, -0.55, 0.03, -2.8, -0.18, 0.03, -6.4,
+    -0.05, 0.03, 0.2, -0.18, 0.03, -6.4, -0.02, 0.03, -2.2,
+  ]);
+  const normals = new Float32Array(12 * 3);
+  for (let i = 0; i < 12; i += 1) normals.set([0, 1, 0], i * 3);
+  const colors = new Float32Array([
+    1, 1, 1, 0.9, 0.95, 1, 0.45, 0.7, 0.8,
+    1, 1, 1, 0.45, 0.7, 0.8, 0.85, 0.92, 1,
+    1, 1, 1, 0.9, 0.95, 1, 0.45, 0.7, 0.8,
+    1, 1, 1, 0.45, 0.7, 0.8, 0.85, 0.92, 1,
+  ]);
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.computeBoundingSphere();
+  return geo;
 }
 
 export function buildFoamGeometry(): THREE.BufferGeometry {
@@ -578,8 +610,9 @@ export function buildGrassTuftGeometry(): THREE.BufferGeometry {
 }
 
 export function buildBoatGeometry(kind: "cargo" | "fish" | "ferry"): THREE.BufferGeometry {
+  let geo: THREE.BufferGeometry;
   if (kind === "fish") {
-    return compose([
+    geo = compose([
       box(-0.15, 0.22, 0, 1.55, 0.32, 0.72, 0xd8c8a8),
       { shape: "cone", x: 0.85, y: 0.22, z: 0, sx: 0.34, sy: 0.7, sz: 0.34, color: 0xc9b896, rz: -Math.PI / 2 },
       box(-0.55, 0.52, 0, 0.75, 0.48, 0.58, 0xc44732),
@@ -588,9 +621,8 @@ export function buildBoatGeometry(kind: "cargo" | "fish" | "ferry"): THREE.Buffe
       box(0.05, 1.35, -0.28, 0.04, 0.7, 0.55, 0x6a7c86, { rx: -0.55 }),
       { shape: "cyl", x: -0.55, y: 0.95, z: 0, sx: 0.06, sy: 0.45, sz: 0.06, color: 0x4e555c },
     ]);
-  }
-  if (kind === "ferry") {
-    return compose([
+  } else if (kind === "ferry") {
+    geo = compose([
       box(-0.15, 0.28, 0, 2.9, 0.38, 1.15, 0xf4efe4),
       { shape: "cone", x: 1.45, y: 0.28, z: 0, sx: 0.52, sy: 0.85, sz: 0.52, color: 0xf4efe4, rz: -Math.PI / 2 },
       box(0, 0.62, 0, 2.6, 0.18, 1.05, 0xf7f8f8),
@@ -601,18 +633,22 @@ export function buildBoatGeometry(kind: "cargo" | "fish" | "ferry"): THREE.Buffe
       { shape: "cyl", x: 0.55, y: 1.85, z: 0, sx: 0.07, sy: 1.05, sz: 0.07, color: 0xc44732 },
       box(0.9, 0.55, 0, 0.55, 0.22, 0.7, 0xe2b15a),
     ]);
+  } else {
+    geo = compose([
+      box(-0.25, 0.42, 0, 5.4, 0.7, 1.85, 0x5c6772),
+      { shape: "cone", x: 2.7, y: 0.42, z: 0, sx: 0.92, sy: 1.35, sz: 0.92, color: 0x4e5964, rz: -Math.PI / 2 },
+      box(-0.45, 0.92, 0, 4.4, 0.42, 1.65, 0xd2b07a),
+      box(-1.85, 1.55, 0, 1.7, 0.88, 1.25, 0x3e4a52),
+      box(-1.85, 1.78, 0.64, 1.05, 0.38, 0.08, WIN),
+      { shape: "cyl", x: -1.85, y: 2.55, z: 0, sx: 0.16, sy: 1.35, sz: 0.16, color: 0xd8dde2 },
+      box(0.35, 1.28, 0.48, 1.45, 0.48, 0.85, 0xe23b32),
+      box(0.35, 1.28, -0.48, 1.45, 0.48, 0.85, 0x2f6fbe),
+      box(1.7, 1.28, 0, 1.15, 0.48, 0.85, 0xf0c12e),
+      box(0.35, 1.76, 0, 1.15, 0.48, 0.85, 0x2f9a55),
+    ]);
   }
-  return compose([
-    box(-0.25, 0.38, 0, 3.9, 0.55, 1.45, 0x6a7380),
-    { shape: "cone", x: 1.95, y: 0.38, z: 0, sx: 0.7, sy: 1.05, sz: 0.7, color: 0x5a636e, rz: -Math.PI / 2 },
-    box(-0.35, 0.82, 0, 3.2, 0.38, 1.28, 0xc9a46a),
-    box(-1.45, 1.35, 0, 1.35, 0.72, 1.05, 0x4e5960),
-    box(-1.45, 1.55, 0.54, 0.85, 0.32, 0.08, WIN),
-    { shape: "cyl", x: -1.45, y: 2.25, z: 0, sx: 0.14, sy: 1.15, sz: 0.14, color: 0xd8dde2 },
-    box(0.55, 1.12, 0.38, 1.15, 0.38, 0.7, 0xc44732),
-    box(0.55, 1.12, -0.38, 1.15, 0.38, 0.7, 0x2f5f86),
-    box(1.55, 1.12, 0, 0.85, 0.38, 0.7, 0xe2b33a),
-  ]);
+  geo.rotateY(Math.PI / 2);
+  return geo;
 }
 
 const SKIN = 0xf3c7a4;
@@ -721,28 +757,34 @@ export function buildPersonModels(): { key: PersonPose; body: THREE.BufferGeomet
 }
 
 export function buildTowelGeometry(): THREE.BufferGeometry {
-  return compose([box(0, 0.03, 0, 1.05, 0.05, 1.55, 0xffffff)]);
+  return compose([box(0, 0.03, 0, 1.15, 0.05, 1.85, 0xffffff)]);
 }
 
 export function buildUmbrellaGeometry(): THREE.BufferGeometry {
-  return compose([
+  const stripes: Part[] = [
     { shape: "cyl", x: 0, y: 0.95, z: 0, sx: 0.045, sy: 1.9, sz: 0.045, color: 0xe7dcc4 },
-    { shape: "cone", x: 0, y: 1.95, z: 0, sx: 1.35, sy: 0.42, sz: 1.35, color: 0xffffff },
-    { shape: "cone", x: 0, y: 1.86, z: 0, sx: 0.62, sy: 0.2, sz: 0.62, color: 0xf4efe4 },
-  ]);
+  ];
+  const palette = [0xf4efe4, 0xe23b32, 0xf4efe4, 0x2f6fbe, 0xf4efe4, 0xf0c12e, 0xf4efe4, 0xe23b32];
+  for (let i = 0; i < 8; i += 1) {
+    const a = (i / 8) * Math.PI * 2;
+    stripes.push(box(Math.sin(a) * 0.55, 1.88, Math.cos(a) * 0.55, 0.72, 0.1, 1.05, palette[i]!, { ry: a, rx: 0.42 }));
+  }
+  stripes.push({ shape: "cone", x: 0, y: 2.08, z: 0, sx: 0.22, sy: 0.22, sz: 0.22, color: 0xf4efe4 });
+  return compose(stripes);
 }
 
 export function buildPlaneGeometry(): THREE.BufferGeometry {
   return compose([
-    box(0, 0.2, 0, 3.6, 0.38, 0.7, 0xf7f2e8),
-    { shape: "cone", x: 1.85, y: 0.22, z: 0, sx: 0.28, sy: 0.7, sz: 0.28, color: 0xf7f2e8, rz: -Math.PI / 2 },
-    box(0.1, 0.24, 0, 1.05, 0.1, 4.35, 0xe7c36a),
-    box(-1.55, 0.58, 0, 0.55, 0.72, 0.1, 0xc44732),
-    box(1.35, 0.42, 0, 0.7, 0.28, 0.55, 0x6e7c86),
-    box(1.45, 0.55, 0, 0.12, 0.55, 1.15, 0xf7f2e8),
-    { shape: "cyl", x: 0.2, y: 0.5, z: 0, sx: 0.24, sy: 0.32, sz: 0.24, color: WIN },
-    box(-0.4, 0.08, 1.15, 0.55, 0.16, 0.16, 0x6e7c86),
-    box(-0.4, 0.08, -1.15, 0.55, 0.16, 0.16, 0x6e7c86),
+    box(0, 0.32, 0, 5.4, 0.55, 1.05, 0xf7f2e8),
+    { shape: "cone", x: 2.75, y: 0.34, z: 0, sx: 0.42, sy: 1.05, sz: 0.42, color: 0xf7f2e8, rz: -Math.PI / 2 },
+    box(0.15, 0.38, 0, 1.45, 0.12, 6.4, 0xe7c36a),
+    box(-2.15, 0.92, 0, 0.75, 1.05, 0.12, 0xe23b32),
+    box(2.05, 0.62, 0, 0.95, 0.38, 0.75, 0x6e7c86),
+    box(2.2, 0.82, 0, 0.16, 0.7, 1.55, 0xf7f2e8),
+    { shape: "cyl", x: 0.35, y: 0.72, z: 0, sx: 0.32, sy: 0.42, sz: 0.32, color: WIN },
+    box(-0.55, 0.14, 1.7, 0.75, 0.2, 0.22, 0x6e7c86),
+    box(-0.55, 0.14, -1.7, 0.75, 0.2, 0.22, 0x6e7c86),
+    box(-2.45, 0.22, 0, 0.7, 0.16, 1.55, 0xe23b32),
   ]);
 }
 

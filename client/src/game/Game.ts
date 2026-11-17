@@ -405,14 +405,14 @@ export class Game {
         const dir = waterDir(self.city, coast.x, coast.y);
         const inland = Math.atan2(-dir.dx, -dir.dy);
         if (kind === "boats") e2e.lookAt(coast.x + dir.dx * 2, coast.y + dir.dy * 2, 42, 0.92, 1.4, inland + 0.18);
-        else if (kind === "harbor") e2e.lookAt(coast.x + dir.dx, coast.y + dir.dy, 28, 0.98, 1.05, inland + 0.72);
+        else if (kind === "harbor") e2e.lookAt(coast.x + dir.dx * 1.2, coast.y + dir.dy * 1.2, 32, 0.94, 1.1, inland + 0.62);
         else if (kind === "beach") {
           const target = beach ?? coast;
-          e2e.lookAt(target.x + dir.dx, target.y + dir.dy, 24, 1.02, 1.05, inland + 0.22);
+          e2e.lookAt(target.x + dir.dx * 1.4, target.y + dir.dy * 1.4, 22, 1.05, 0.9, inland + 0.18);
         } else if (kind === "airport") {
           const target = airport ?? coast;
-          e2e.lookAt(target.x, target.y, 32, 1.02, 1.25, 0.52);
-        } else e2e.lookAt(coast.x - dir.dx * 2, coast.y - dir.dy * 3, 92, 1.05, 5.2, inland + 0.12);
+          e2e.lookAt(target.x + 1, target.y, 36, 0.85, 1.7, 0.18);
+        } else e2e.lookAt(coast.x - dir.dx * 7, coast.y - dir.dy * 8, 118, 0.96, 12, inland + 0.06);
       },
       setHour(hour: number) {
         self.city.tick = Math.round(((hour % 24) / 24) * 600);
@@ -1417,10 +1417,10 @@ export class Game {
         if (!isBeach(this.city, index) && !adjacentToOcean(this.city, index)) continue;
         if (this.city.terrain[index] === 1) continue;
         const world = cellToWorld(this.city, x, y);
-        this.camera.lookAt(world.x, world.z - 28);
-        this.camera.distance = 168;
-        this.camera.polar = 1.02;
-        this.camera.lookLift = 4.5;
+        this.camera.lookAt(world.x, world.z - 18);
+        this.camera.distance = 175;
+        this.camera.polar = 0.98;
+        this.camera.lookLift = 10;
         this.camera.azimuth = 0.58;
         return;
       }

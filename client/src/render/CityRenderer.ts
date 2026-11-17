@@ -112,6 +112,7 @@ interface Overlays {
 interface Flight {
   cell: number;
   phase: number;
+  parked?: boolean;
   x: number;
   y: number;
   z: number;
@@ -215,9 +216,10 @@ export class CityRenderer {
   private readonly foam: THREE.InstancedMesh;
   private readonly tufts: THREE.InstancedMesh;
   private flights: Flight[] = [];
-  private boats: { cell: number; phase: number; kind: "cargo" | "fish" | "ferry"; lane: number }[] = [];
+  private boats: { cell: number; phase: number; kind: "cargo" | "fish" | "ferry"; lane: number; docked?: boolean }[] = [];
   private flightTime = 0;
   private foamCells: number[] = [];
+  private landMap: THREE.DataTexture | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.quality = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1);
@@ -304,7 +306,7 @@ export class CityRenderer {
     }
     this.people = mesh(new THREE.CapsuleGeometry(0.28, 0.85, 3, 6), lit, 8);
     const personMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.04 });
-    const personCap = 128;
+    const personCap = 192;
     for (const model of buildPersonModels()) {
       const bodies = new THREE.InstancedMesh(model.body, personMat, personCap);
       bodies.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(personCap * 3), 3);
@@ -358,8 +360,8 @@ export class CityRenderer {
     this.cranes = mesh(buildCraneGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.18 }), 8);
     this.wakes = mesh(
       buildWakeGeometry(),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }),
-      64,
+      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide }),
+      24,
     );
     this.foam = mesh(
       buildFoamGeometry(),
@@ -668,7 +670,7 @@ export class CityRenderer {
             this.put(mesh, slot, world.x + jx, this.heightOf(index), world.z + jz, 2.4 + (canopy % 3) * 0.35, tall * 1.15, 2.4, (scatter(x, y) % 6) * 0.5, 0xffffff);
             this.treeSlots.set(key, slot + 1);
           }
-        } else if (this.quality.level !== "low" && !cellFlattened(city, index) && this.heightOf(index) > 0.9 && vegetationRoll(x + 2, y + 9, seed) < 28 && tufts < 400) {
+        } else if (this.quality.level !== "low" && !cellFlattened(city, index) && this.heightOf(index) > 0.55 && vegetationRoll(x + 2, y + 9, seed) < 36 && tufts < 400) {
           this.put(this.tufts, tufts, world.x + jx * 0.4, this.heightOf(index), world.z + jz * 0.4, 1.3, 1.1 + (canopy % 3) * 0.2, 1.3, (scatter(x, y) % 6) * 0.4, 0xffffff);
           tufts += 1;
         } else if (vegetationRoll(x + 11, y + 5, seed) < stoneChance) {
@@ -1102,6 +1104,34 @@ export class CityRenderer {
     let towels = 0;
     let umbrellas = 0;
     const low = this.quality.level === "low";
+    for (const visitor of this.beachCrowd) {
+      if (!this.shown) continue;
+      const { x, y } = cellCoords(this.shown, visitor.cell);
+      const world = cellToWorld(this.shown, x, y);
+      const gy = this.heightOf(visitor.cell);
+      const scale = (visitor.child ? 0.7 : 1) * (low ? 1.05 : visitor.pose === "swim" ? 2.15 : 1.42);
+      const pose: PersonPose = low ? "low" : visitor.pose === "lie" ? "lie" : visitor.pose === "sit" ? "sit" : visitor.pose === "swim" ? "swim" : "idle";
+      const px = world.x + visitor.ox;
+      const pz = world.z + visitor.oz;
+      const py = visitor.pose === "swim"
+        ? BOAT_SEA_Y + 0.22 + Math.sin(this.flightTime * 2 + visitor.ox) * 0.08
+        : visitor.pose === "lie"
+          ? gy + 0.08
+          : gy;
+      this.placePerson(pose, px, py, pz, scale, visitor.ox * 0.4, visitor.color);
+      if (visitor.pose === "lie" && towels < 48) {
+        this.put(this.towels, towels, px, gy + 0.05, pz, 1, 1, 1, visitor.ox * 0.2, TOWEL_COLORS[hashCode(visitor.id) % TOWEL_COLORS.length]);
+        towels += 1;
+      }
+      if (!low && (visitor.pose === "sit" || visitor.pose === "lie") && umbrellas < 24 && (hashCode(visitor.id) % 3) !== 0) {
+        this.put(this.umbrellas, umbrellas, px + 0.7, gy, pz - 0.45, 1.2, 1.2, 1.2, visitor.ox * 0.15, 0xffffff);
+        umbrellas += 1;
+      }
+      if (visitor.happy && smiles < 80) {
+        this.put(this.smileys, smiles, px, py + (pose === "lie" || pose === "swim" ? 0.85 : 2.15 * scale), pz, 1, 1, 1, 0, 0xffffff);
+        smiles += 1;
+      }
+    }
     for (const ped of this.pedestrians) {
       this.placePed(ped);
       const from = this.point(ped.from);
@@ -1113,30 +1143,6 @@ export class CityRenderer {
       this.placePerson(pose, ped.x, y, ped.z, scale, rotY, ped.color);
       if (ped.happy && (!low || smiles < 6) && smiles < 80) {
         this.put(this.smileys, smiles, ped.x, y + 2.15 * scale, ped.z, 1, 1, 1, 0, 0xffffff);
-        smiles += 1;
-      }
-    }
-    for (const visitor of this.beachCrowd) {
-      if (!this.shown) continue;
-      const { x, y } = cellCoords(this.shown, visitor.cell);
-      const world = cellToWorld(this.shown, x, y);
-      const gy = this.heightOf(visitor.cell);
-      const scale = (visitor.child ? 0.7 : 1) * (low ? 1.05 : 1.42);
-      const pose: PersonPose = low ? "low" : visitor.pose === "lie" ? "lie" : visitor.pose === "sit" ? "sit" : visitor.pose === "swim" ? "swim" : "idle";
-      const px = world.x + visitor.ox;
-      const pz = world.z + visitor.oz;
-      const py = visitor.pose === "swim" ? BOAT_SEA_Y + 0.08 + Math.sin(this.flightTime * 2 + visitor.ox) * 0.05 : gy;
-      this.placePerson(pose, px, py, pz, scale, visitor.ox * 0.4, visitor.color);
-      if (visitor.pose === "lie" && towels < 48) {
-        this.put(this.towels, towels, px, gy + 0.04, pz, 1, 1, 1, visitor.ox * 0.2, visitor.color);
-        towels += 1;
-      }
-      if (!low && (visitor.pose === "sit" || visitor.pose === "lie") && umbrellas < 24 && (hashCode(visitor.id) % 3) !== 0) {
-        this.put(this.umbrellas, umbrellas, px + 0.55, gy, pz - 0.35, 1.15, 1.15, 1.15, visitor.ox * 0.15, visitor.color);
-        umbrellas += 1;
-      }
-      if (visitor.happy && smiles < 80) {
-        this.put(this.smileys, smiles, px, py + (pose === "lie" || pose === "swim" ? 0.85 : 2.15 * scale), pz, 1, 1, 1, 0, 0xffffff);
         smiles += 1;
       }
     }
@@ -1170,7 +1176,7 @@ export class CityRenderer {
     const heads = this.personHeads.get(pose);
     if (!bodies || !heads) return;
     const slot = this.personBodySlot.get(pose) ?? 0;
-    if (slot >= 128) return;
+    if (slot >= 192) return;
     this.put(bodies, slot, x, y, z, scale, scale, scale, rotY, cloth);
     this.put(heads, slot, x, y, z, scale, scale, scale, rotY, 0xffffff);
     this.personBodySlot.set(pose, slot + 1);
@@ -1354,6 +1360,7 @@ export class CityRenderer {
         const key = `${cell}:${phase}`;
         this.flights.push(kept.get(key) ?? { cell, phase, x: 0, y: 0, z: 0, rotY: 0 });
       }
+      this.flights.push(kept.get(`${cell}:park`) ?? { cell, phase: 0, parked: true, x: 0, y: 0, z: 0, rotY: 0 });
     }
     if (this.flights.length === 0) this.finish(this.planes, 0);
   }
@@ -1368,7 +1375,8 @@ export class CityRenderer {
       const ferryN = this.quality.level === "low" ? 0 : 1;
       this.boats = [];
       for (const cell of harbors) {
-        for (let i = 0; i < cargoN; i += 1) this.boats.push({ cell, phase: i * 7.5, kind: "cargo", lane: i });
+        this.boats.push({ cell, phase: 0, kind: "cargo", lane: 0, docked: true });
+        for (let i = 0; i < cargoN; i += 1) this.boats.push({ cell, phase: i * 7.5, kind: "cargo", lane: i + 1 });
         for (let i = 0; i < fishN; i += 1) this.boats.push({ cell, phase: i * 5.2 + 1.4, kind: "fish", lane: i });
         for (let i = 0; i < ferryN; i += 1) this.boats.push({ cell, phase: 3.2, kind: "ferry", lane: 0 });
       }
@@ -1388,23 +1396,19 @@ export class CityRenderer {
     let wakes = 0;
     const low = this.quality.level === "low";
     for (const boat of this.boats) {
-      const pose = boatPose(this.shown, boat.cell, this.flightTime + boat.phase, boat.kind, boat.lane);
+      const pose = boatPose(this.shown, boat.cell, this.flightTime + boat.phase, boat.kind, boat.lane, boat.docked);
       const mesh = boat.kind === "cargo" ? this.cargoBoats : boat.kind === "fish" ? this.fishBoats : this.ferryBoats;
       const slot = boat.kind === "cargo" ? cargo : boat.kind === "fish" ? fish : ferry;
       const cap = boat.kind === "ferry" ? 12 : 16;
       if (slot >= cap) continue;
-      this.putEuler(mesh, slot, pose.x, pose.y, pose.z, 1, 1, 1, pose.rx, pose.rotY, pose.rz, 0xffffff);
+      const scale = boat.kind === "cargo" ? 1.58 : boat.kind === "ferry" ? 1.18 : 0.78;
+      this.putEuler(mesh, slot, pose.x, pose.y, pose.z, scale, scale, scale, pose.rx, pose.rotY, pose.rz, 0xffffff);
       if (boat.kind === "cargo") cargo += 1;
       else if (boat.kind === "fish") fish += 1;
       else ferry += 1;
-      if (!low && pose.speed > 0.25 && wakes + 3 < 64) {
-        const backX = -Math.sin(pose.rotY);
-        const backZ = -Math.cos(pose.rotY);
-        for (let w = 0; w < 3; w += 1) {
-          const d = 1.4 + w * 1.35;
-          this.put(this.wakes, wakes, pose.x + backX * d, BOAT_SEA_Y + 0.02, pose.z + backZ * d, 0.7 + w * 0.22, 1, 0.85 + w * 0.22, pose.rotY, 0xffffff);
-          wakes += 1;
-        }
+      if (!low && pose.speed > 0.2 && wakes < 24) {
+        this.putEuler(this.wakes, wakes, pose.x, BOAT_SEA_Y + 0.04, pose.z, scale, 1, scale * (0.9 + pose.speed * 0.35), 0, pose.rotY, 0, 0xffffff);
+        wakes += 1;
       }
     }
     this.finish(this.cargoBoats, cargo);
@@ -1436,33 +1440,7 @@ export class CityRenderer {
   }
 
   private paintFoam(): void {
-    if (!this.shown || this.quality.level === "low") {
-      this.finish(this.foam, 0);
-      return;
-    }
-    const cap = this.quality.level === "medium" ? 90 : 220;
-    let count = 0;
-    for (const index of this.foamCells) {
-      if (count >= cap) break;
-      const { x, y } = cellCoords(this.shown, index);
-      const world = cellToWorld(this.shown, x, y);
-      const dir = waterDir(this.shown, x, y);
-      const pulse = 0.85 + Math.sin(this.seaTime * 1.6 + index * 0.21) * 0.18;
-      this.put(
-        this.foam,
-        count,
-        world.x + dir.dx * 4.6,
-        BOAT_SEA_Y + 0.04,
-        world.z + dir.dy * 4.6,
-        1.8 * pulse,
-        1,
-        1.1 * pulse,
-        Math.atan2(dir.dx, dir.dy) + Math.PI / 2,
-        0xffffff,
-      );
-      count += 1;
-    }
-    this.finish(this.foam, count);
+    this.finish(this.foam, 0);
   }
 
   private paintPlanes(): void {
@@ -1471,12 +1449,12 @@ export class CityRenderer {
       return;
     }
     this.flights.forEach((flight, slot) => {
-      const pose = planePose(this.shown!, flight.cell, this.flightTime + flight.phase);
+      const pose = planePose(this.shown!, flight.cell, this.flightTime + flight.phase, flight.parked);
       flight.x = pose.x;
       flight.y = pose.y;
       flight.z = pose.z;
       flight.rotY = pose.rotY;
-      this.put(this.planes, slot, pose.x, pose.y, pose.z, 1, 1, 1, pose.rotY, 0xffffff);
+      this.put(this.planes, slot, pose.x, pose.y, pose.z, 2.45, 2.45, 2.45, pose.rotY, 0xffffff);
     });
     this.finish(this.planes, this.flights.length);
   }
@@ -1726,7 +1704,7 @@ export class CityRenderer {
     if (!instances) return;
     const slot = this.modelSlot.get(key) ?? 0;
     if (slot >= 700) return;
-    const scale = cell >= 0 ? this.birthScale(cell) : 1;
+    const scale = (cell >= 0 ? this.birthScale(cell) : 1) * (key === "airport" ? 1.28 : 1);
     this.put(instances, slot, x, y, z, scale, scale, scale, rotY, color);
     this.modelSlot.set(key, slot + 1);
   }
@@ -1757,6 +1735,11 @@ export class CityRenderer {
     this.plot.geometry.dispose();
     this.ground.geometry = built.ground;
     this.plot.geometry = built.plot;
+    this.landMap?.dispose();
+    this.landMap = occupancyTexture(city);
+    this.seaMaterial.uniforms.uLand.value = this.landMap;
+    this.seaMaterial.uniforms.uMapHalf.value = (city.width * CELL_SIZE) / 2;
+    this.seaMaterial.uniforms.uMapExtent.value = city.width * CELL_SIZE;
   }
 
   private finish(mesh: THREE.InstancedMesh, count: number): void {
@@ -1972,14 +1955,55 @@ function hashCode(value: string): number {
   return Math.abs(hash);
 }
 
-function planePose(city: CityState, cell: number, time: number): { x: number; y: number; z: number; rotY: number } {
+const TOWEL_COLORS = [0xe24b4b, 0x3d88d8, 0xf0c12e, 0xf4efe4, 0x2f9a55, 0xe07ad0];
+
+function occupancyTexture(city: CityState): THREE.DataTexture {
+  const size = 128;
+  const data = new Uint8Array(size * size);
+  const half = (city.width * CELL_SIZE) / 2;
+  const extent = city.width * CELL_SIZE;
+  for (let ty = 0; ty < size; ty += 1) {
+    for (let tx = 0; tx < size; tx += 1) {
+      const wx = ((tx + 0.5) / size) * extent - half;
+      const wz = ((ty + 0.5) / size) * extent - half;
+      const gx = wx / CELL_SIZE + city.width / 2;
+      const gy = wz / CELL_SIZE + city.height / 2;
+      let acc = 0;
+      let weight = 0;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        for (let dx = -2; dx <= 2; dx += 1) {
+          const cx = Math.floor(gx + dx);
+          const cy = Math.floor(gy + dy);
+          const land = inBounds(city, cx, cy) && !isWater(city, cy * city.width + cx) ? 1 : 0;
+          const dist = Math.hypot(gx - (cx + 0.5), gy - (cy + 0.5));
+          const w = Math.exp(-dist * dist * 1.35);
+          acc += land * w;
+          weight += w;
+        }
+      }
+      data[ty * size + tx] = Math.round((acc / Math.max(weight, 0.0001)) * 255);
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RedFormat);
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function planePose(city: CityState, cell: number, time: number, parked = false): { x: number; y: number; z: number; rotY: number } {
   const { x, y } = cellCoords(city, cell);
   const origin = cellToWorld(city, x, y);
   const gy = cellHeight(city, x, y);
+  if (parked) {
+    return { x: origin.x + 2.6, y: gy + 0.62, z: origin.z - 3.15, rotY: 0.12 };
+  }
   const cycle = 24;
   const t = ((time % cycle) + cycle) % cycle;
   let px = origin.x;
-  let py = gy + 2.15;
+  let py = gy + 1.35;
   let pz = origin.z;
   let vx = 1;
   let vz = 0;
@@ -1987,18 +2011,18 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
     const u = t / 7;
     const ease = (1 - u) * (1 - u);
     px = origin.x - 88 + u * 88;
-    py = gy + 2.15 + ease * 26;
+    py = gy + 0.95 + ease * 28;
     vx = 1;
   } else if (t < 11) {
     const u = (t - 7) / 4;
     px = origin.x + u * 8;
-    py = gy + 2.12;
+    py = gy + 0.95;
     vx = 1;
   } else if (t < 19) {
     const u = (t - 11) / 8;
     const climb = u * u * (3 - 2 * u);
     px = origin.x + 8 + u * 108;
-    py = gy + 2.15 + climb * 34;
+    py = gy + 0.95 + climb * 36;
     vx = 1;
   } else {
     const u = (t - 19) / 5;
@@ -2007,7 +2031,7 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
     pz = origin.z - 16;
     vx = -1;
   }
-  return { x: px, y: py, z: pz, rotY: Math.atan2(vx, vz) };
+  return { x: px, y: py, z: pz, rotY: Math.atan2(vx, vz) - Math.PI / 2 };
 }
 
 function isHubService(kind: number): boolean {
@@ -2022,19 +2046,25 @@ function boatPose(
   time: number,
   kind: "cargo" | "fish" | "ferry",
   lane = 0,
+  docked = false,
 ): { x: number; y: number; z: number; rotY: number; rx: number; rz: number; speed: number } {
   const { x, y } = cellCoords(city, cell);
   const origin = cellToWorld(city, x, y);
   const step = waterDir(city, x, y);
   const wx = step.dx;
   const wz = step.dy;
-  const side = (lane - 0.6) * 3.2;
-  const dockX = origin.x + wx * 8.6 + wz * side;
-  const dockZ = origin.z + wz * 8.6 - wx * side;
+  const pierAlong = kind === "fish" ? 6.2 : 4.2 + lane * 2.15;
+  const side = kind === "fish" ? (lane % 2 === 0 ? 5.2 : -5.2) : 5.6;
+  const dockX = origin.x + wx * pierAlong + wz * side;
+  const dockZ = origin.z + wz * pierAlong - wx * side;
   const heading = Math.atan2(wx, wz);
   const bob = Math.sin(time * 1.7 + lane) * 0.07;
   const roll = Math.sin(time * 1.15 + lane * 0.7) * 0.05;
   const keepSea = (px: number, pz: number) => keepOnWater(city, px, pz, wx, wz);
+  if (docked || (kind !== "fish" && (((time % 36) + 36) % 36) / 36 < 0.02)) {
+    const kept = keepSea(dockX, dockZ);
+    return { x: kept.x, y: BOAT_SEA_Y + bob * 0.35, z: kept.z, rotY: heading, rx: roll * 0.25, rz: 0, speed: 0 };
+  }
   if (kind === "fish") {
     const cycle = 22;
     const t = (((time % cycle) + cycle) % cycle) / cycle;
@@ -2062,18 +2092,18 @@ function boatPose(
   let along: number;
   let outbound: boolean;
   let speed = 0;
-  if (t < 0.16) {
+  if (t < 0.34) {
     along = 0;
     outbound = true;
-  } else if (t < 0.5) {
-    along = ((t - 0.16) / 0.34) * reach;
+  } else if (t < 0.58) {
+    along = ((t - 0.34) / 0.24) * reach;
     outbound = true;
     speed = 1;
-  } else if (t < 0.62) {
+  } else if (t < 0.7) {
     along = reach;
     outbound = false;
   } else {
-    along = (1 - (t - 0.62) / 0.38) * reach;
+    along = (1 - (t - 0.7) / 0.3) * reach;
     outbound = false;
     speed = 1;
   }
@@ -2165,8 +2195,6 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const grass = new THREE.Color();
   const earth = new THREE.Color(biome === "arid" ? 0xb08650 : 0xc48442);
   const earthDeep = new THREE.Color(biome === "arid" ? 0x8a6438 : 0x9a5a28);
-  const water = new THREE.Color(0x0f6a86);
-  const shallow = new THREE.Color(0x4ec8c6);
   const sand = new THREE.Color(biome === "arid" ? 0xd8c48c : 0xead6a0);
   const ca = new THREE.Color();
   const cb = new THREE.Color();
@@ -2234,8 +2262,8 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
       nx = -nx;
       nz = -nz;
     }
-    const out = sandy ? 1.6 : 5.2;
-    const bottom = sandy ? -0.32 : SKIRT_Y;
+    const out = sandy ? 3.6 : 5.2;
+    const bottom = sandy ? WATER_Y + 0.01 : SKIRT_Y;
     const lip = sandy ? sand : earth;
     const deep = sandy ? sand : earthDeep;
     const bx0 = x0 + nx * out;
@@ -2244,31 +2272,12 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
     const bz1 = z1 + nz * out;
     addTri(x0, y0, z0, x1, y1, z1, bx1, bottom, bz1, lip, lip, deep);
     addTri(x0, y0, z0, bx1, bottom, bz1, bx0, bottom, bz0, lip, deep, deep);
-    if (sandy) {
-      const shelf = 3.4;
-      const sx0 = bx0 + nx * shelf;
-      const sz0 = bz0 + nz * shelf;
-      const sx1 = bx1 + nx * shelf;
-      const sz1 = bz1 + nz * shelf;
-      addTri(bx0, WATER_Y + 0.02, bz0, bx1, WATER_Y + 0.02, bz1, sx1, WATER_Y - 0.04, sz1, shallow, shallow, water);
-      addTri(bx0, WATER_Y + 0.02, bz0, sx1, WATER_Y - 0.04, sz1, sx0, WATER_Y - 0.04, sz0, shallow, water, water);
-    }
   };
 
   const plot: number[] = [];
   for (let y = 0; y < city.height; y += 1) {
     for (let x = 0; x < city.width; x += 1) {
-      if (!landHere(x, y)) {
-        if (!ocean[y * city.width + x]) {
-          const i0 = y * cols + x;
-          const i1 = i0 + 1;
-          const i2 = i0 + cols + 1;
-          const i3 = i0 + cols;
-          addTri(pointX[i0], WATER_Y, pointZ[i0], pointX[i2], WATER_Y, pointZ[i2], pointX[i1], WATER_Y, pointZ[i1], water, water, water);
-          addTri(pointX[i0], WATER_Y, pointZ[i0], pointX[i3], WATER_Y, pointZ[i3], pointX[i2], WATER_Y, pointZ[i2], water, water, water);
-        }
-        continue;
-      }
+      if (!landHere(x, y)) continue;
       const corners = [y * cols + x, y * cols + x + 1, (y + 1) * cols + x + 1, (y + 1) * cols + x];
       const h0 = vertexHeight(city, x, y);
       const h1 = vertexHeight(city, x + 1, y);

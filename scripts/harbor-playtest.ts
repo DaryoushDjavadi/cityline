@@ -54,7 +54,7 @@ async function shot(page: Page, name: string, hour: number, aim: "overview" | "h
     e2e.setHour(hour);
     e2e.lookSea(aim === "night" ? "overview" : aim);
   }, { hour, aim });
-  await page.waitForTimeout(aim === "boats" ? 2600 : 1600);
+  await page.waitForTimeout(aim === "boats" ? 2200 : aim === "harbor" ? 900 : 1600);
   await page.screenshot({ path: path.join(ARTIFACTS, name), type: "png" });
 }
 

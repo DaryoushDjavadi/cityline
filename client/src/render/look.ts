@@ -92,6 +92,8 @@ export function poseSun(hour: number, target: THREE.Vector3): THREE.Vector3 {
 }
 
 export function seaMaterial(): THREE.ShaderMaterial {
+  const blank = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat);
+  blank.needsUpdate = true;
   return new THREE.ShaderMaterial({
     fog: false,
     uniforms: {
@@ -99,10 +101,14 @@ export function seaMaterial(): THREE.ShaderMaterial {
       uShade: { value: 1 },
       uNight: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.55, 0.28, -0.4) },
-      uDeep: { value: new THREE.Color(0x0f6a86) },
-      uMid: { value: new THREE.Color(0x1a8aa4) },
-      uShallow: { value: new THREE.Color(0x3db8c2) },
+      uDeep: { value: new THREE.Color(0x17608c) },
+      uMid: { value: new THREE.Color(0x2176a4) },
+      uShallow: { value: new THREE.Color(0x2c88b2) },
+      uLagoon: { value: new THREE.Color(0x7ee8d6) },
       uHorizon: { value: new THREE.Color(0xf0c48a) },
+      uLand: { value: blank },
+      uMapHalf: { value: 320 },
+      uMapExtent: { value: 640 },
     },
     vertexShader: `
       uniform float uTime;
@@ -126,18 +132,31 @@ export function seaMaterial(): THREE.ShaderMaterial {
     fragmentShader: `
       uniform float uShade;
       uniform float uNight;
+      uniform float uTime;
       uniform vec3 uSunDir;
       uniform vec3 uDeep;
       uniform vec3 uMid;
       uniform vec3 uShallow;
+      uniform vec3 uLagoon;
       uniform vec3 uHorizon;
+      uniform sampler2D uLand;
+      uniform float uMapHalf;
+      uniform float uMapExtent;
       varying vec3 vWorld;
       varying vec3 vNormalW;
       void main() {
         float dist = length(vWorld.xz);
-        float near = smoothstep(420.0, 110.0, dist);
-        vec3 color = mix(uDeep, uMid, 0.32 + near * 0.38);
-        color = mix(color, uShallow, near * 0.38);
+        vec2 uv = (vWorld.xz + uMapHalf) / max(uMapExtent, 1.0);
+        float land = 0.0;
+        if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+          land = texture2D(uLand, uv).r;
+        }
+        float nearShore = smoothstep(0.02, 0.42, land);
+        float foam = smoothstep(0.18, 0.36, land) * smoothstep(0.5, 0.34, land);
+        foam *= 0.55 + 0.45 * sin(uTime * 1.7 + vWorld.x * 0.31 + vWorld.z * 0.27);
+        vec3 color = mix(uDeep, uMid, 0.38);
+        color = mix(color, uShallow, 0.16);
+        color = mix(color, uLagoon, nearShore * mix(0.92, 0.35, uNight));
         vec3 n = normalize(vNormalW);
         vec3 view = normalize(cameraPosition - vWorld);
         vec3 sun = normalize(uSunDir);
@@ -150,10 +169,11 @@ export function seaMaterial(): THREE.ShaderMaterial {
           * (1.0 - smoothstep(380.0, 1200.0, dist));
         vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
         color += glitter * (spec * 0.12 * (1.0 - smoothstep(320.0, 980.0, dist)) + streak * mix(0.22, 0.08, uNight));
+        color = mix(color, vec3(0.94, 0.98, 1.0), foam * mix(0.45, 0.12, uNight));
         vec3 ray = normalize(vWorld - cameraPosition);
-        float horizonFade = smoothstep(0.04, -0.02, ray.y) * smoothstep(140.0, 780.0, dist);
-        vec3 hazeCol = mix(uMid, uHorizon, mix(0.55, 0.12, uNight));
-        color = mix(color, hazeCol, max(horizonFade, smoothstep(220.0, 860.0, dist) * 0.42) * mix(0.85, 0.18, uNight));
+        float horizonFade = smoothstep(0.002, -0.003, ray.y) * smoothstep(1500.0, 2800.0, dist);
+        vec3 hazeCol = mix(uMid, uHorizon, mix(0.32, 0.1, uNight));
+        color = mix(color, hazeCol, horizonFade * mix(0.12, 0.06, uNight));
         float fresnel = pow(1.0 - max(dot(n, view), 0.0), 5.0);
         color = mix(color, uMid, fresnel * 0.06 * (1.0 - uNight));
         color *= uShade;
@@ -190,12 +210,12 @@ export function applyLook(
     ? tmp.set(0x1a3d66)
     : rainy
       ? tmp.set(0x7a93a8)
-      : tmp.set(goldenAmt > 0.45 ? 0x4a9edc : 0x3a8ed4);
+      : tmp.set(goldenAmt > 0.45 ? 0x3a8ed4 : 0x2d7fc8);
   const horizon = night
     ? tmpB.set(0x2a4a72)
     : rainy
       ? tmpB.set(0xb7c4ce)
-      : tmpB.set(goldenAmt > 0.45 ? 0xf6d3b0 : 0xcfe4f4);
+      : tmpB.set(goldenAmt > 0.45 ? 0xf4c992 : 0xd5e4f0);
 
   skyMaterial.uniforms.uZenith.value.copy(zenith);
   skyMaterial.uniforms.uHorizon.value.copy(horizon);
@@ -210,9 +230,9 @@ export function applyLook(
   const sunDir = sunPos.clone().sub(target).normalize();
   skyMaterial.uniforms.uSunDir.value.copy(sunDir);
 
-  fog.color.copy(night || rainy ? zenith : tmp.set(goldenAmt > 0.35 ? 0xf0d4b8 : 0x9ecfe0));
-  fog.near = rainy ? 280 : 1180;
-  fog.far = rainy ? 1200 : 3800;
+  fog.color.copy(night || rainy ? zenith : tmp.set(0x17608c));
+  fog.near = rainy ? 280 : 4200;
+  fog.far = rainy ? 1200 : 9000;
 
   hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
   hemi.groundColor.set(night ? 0x3a4a42 : 0x5a7a38);
@@ -235,12 +255,14 @@ export function applyLook(
     seaMaterial.uniforms.uDeep.value.set(0x143a66);
     seaMaterial.uniforms.uMid.value.set(0x1d5580);
     seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
+    seaMaterial.uniforms.uLagoon.value.set(0x3d8aa8);
     seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
   } else {
-    seaMaterial.uniforms.uDeep.value.set(0x0f6a86);
-    seaMaterial.uniforms.uMid.value.set(0x1a8aa4);
-    seaMaterial.uniforms.uShallow.value.set(0x3db8c2);
-    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8c49a : 0x7ec8c8);
+    seaMaterial.uniforms.uDeep.value.set(0x17608c);
+    seaMaterial.uniforms.uMid.value.set(0x2176a4);
+    seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
+    seaMaterial.uniforms.uLagoon.value.set(0x7ee8d6);
+    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8);
   }
 
   clouds.visible = quality.clouds && !night;

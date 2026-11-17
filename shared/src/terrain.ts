@@ -365,13 +365,31 @@ export function rawHill(city: CityState, x: number, y: number): number {
   const index = cellIndex(city, x, y);
   if (city.terrain[index] === TERRAIN_WATER) return -0.14;
   const seed = city.gen.seed >>> 0;
-  const n = fbm(x, y, seed + 77, 0.048);
-  const ridge = fbm(x, y, seed + 201, 0.11);
-  const alpine = city.gen.biome === "alpine" ? 1.18 : 1;
-  let height = ((n - 0.28) * 8.2 + (ridge - 0.42) * 3.1) * alpine;
-  if (city.terrain[index] === TERRAIN_BEACH) height = 0.04 + n * 0.1;
-  else if (touchesWater(city, x, y)) height = Math.max(0.06, height * 0.18);
-  return Math.max(0, Math.min(8.4, height));
+  const n = fbm(x, y, seed + 77, 0.042);
+  const ridge = fbm(x, y, seed + 201, 0.09);
+  const roll = fbm(x, y, seed + 411, 0.021);
+  const alpine = city.gen.biome === "alpine" ? 1.22 : 1;
+  const inland = waterDistance(city, x, y);
+  const lift = Math.max(0, (n - 0.12) * 7.2 + (ridge - 0.34) * 4.1 + (roll - 0.38) * 8.6);
+  let height = (lift * (0.1 + Math.min(1, inland / 6) * 1.7) + Math.max(0, inland - 2) * 0.42) * alpine;
+  if (city.terrain[index] === TERRAIN_BEACH) height = 0.05 + n * 0.12;
+  else if (touchesWater(city, x, y)) height = Math.max(0.05, height * 0.12);
+  return Math.max(0, Math.min(9.5, height));
+}
+
+const WATER_SCAN = [
+  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+] as const;
+
+function waterDistance(city: CityState, x: number, y: number): number {
+  for (let radius = 1; radius <= 10; radius += 1) {
+    for (const [dx, dy] of WATER_SCAN) {
+      const nx = x + dx * radius;
+      const ny = y + dy * radius;
+      if (!inBounds(city, nx, ny) || city.terrain[cellIndex(city, nx, ny)] === TERRAIN_WATER) return radius;
+    }
+  }
+  return 10;
 }
 
 /** 0 = grass, 1 = sand. Narrow noisy strip at the waterline. */

@@ -364,14 +364,14 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
           if ((hash(home * 83 + member.slot * 5 + rotate) % 2) !== 0) continue;
         }
         const poseRoll = hash(home * 17 + member.name.length + 9) % 10;
-        const pose: BeachPose = poseRoll <= 3 ? "lie" : poseRoll <= 6 ? "sit" : poseRoll <= 8 ? "idle" : "swim";
+        const pose: BeachPose = poseRoll <= 2 ? "lie" : poseRoll <= 4 ? "sit" : poseRoll <= 6 ? "idle" : "swim";
         const spot = cellCoords(city, cell);
         const dir = waterDir(city, spot.x, spot.y);
         const intoWater = pose === "swim"
-          ? 7.4 + (hash(home * 13 + member.name.length) % 8) * 0.35
-          : 3.6 + (hash(home * 19 + member.name.length) % 10) * 0.22;
+          ? 10.4 + (hash(home * 13 + member.name.length) % 8) * 0.5
+          : 3.2 + (hash(home * 19 + member.name.length) % 10) * 0.18;
         const along = intoWater;
-        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.42;
+        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.85;
         visitors.push({
           id: `beach-${home}-${member.name}`,
           home,
@@ -388,8 +388,15 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
     }
   }
   if (visitors.length <= limit) return visitors;
-  const start = Math.floor(city.tick / 18) % visitors.length;
-  return Array.from({ length: limit }, (_, offset) => visitors[(start + offset) % visitors.length]);
+  const swimmers = visitors.filter((visitor) => visitor.pose === "swim");
+  const rest = visitors.filter((visitor) => visitor.pose !== "swim");
+  const swimKeep = Math.min(4, swimmers.length);
+  const start = Math.floor(city.tick / 18) % Math.max(1, rest.length);
+  const picked = swimmers.slice(0, swimKeep);
+  for (let offset = 0; picked.length < limit && rest.length > 0; offset += 1) {
+    picked.push(rest[(start + offset) % rest.length]!);
+  }
+  return picked;
 }
 
 export interface TradeTourist {

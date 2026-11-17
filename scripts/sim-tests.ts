@@ -168,6 +168,15 @@ export function runSimTests(): void {
       }
     }
     if (peaked < 8) fail(`hills should be visible, peaked=${peaked}`);
+    const coastMap = createCity(undefined, undefined, { seed: 1842, biome: "temperate", water: 40 });
+    let inlandPeak = 0;
+    for (let y = 8; y < 56; y += 1) {
+      for (let x = 8; x < 56; x += 1) {
+        if (coastMap.terrain[cellIndex(coastMap, x, y)] === 1) continue;
+        inlandPeak = Math.max(inlandPeak, cellHeight(coastMap, x, y));
+      }
+    }
+    if (inlandPeak < 2.4) fail(`temperate hills should roll, peak=${inlandPeak}`);
     if (buildable < 20) fail("slopes stay buildable");
     hills.funds = 50_000;
     let placed = false;
