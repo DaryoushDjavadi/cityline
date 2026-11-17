@@ -107,6 +107,7 @@ export type Command =
   | { type: "bulldoze"; cells: number[] }
   | { type: "line"; cells: number[] }
   | { type: "pipe"; cells: number[] }
+  | { type: "strip"; cells: number[]; layer: "line" | "pipe" }
   | { type: "service"; index: number; kind: ServiceId }
   | { type: "budget"; index: number; value: number }
   | { type: "gift"; index: number }

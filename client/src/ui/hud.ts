@@ -214,7 +214,7 @@ export interface Hud {
   setDemandOpen: (open: boolean) => void;
   setStatsOpen: (open: boolean) => void;
   setPeerCursors: (cursors: { id: string; name: string; x: number; y: number }[]) => void;
-  setBuildCursor: (view: { x: number; y: number; label: string; hint?: string; kind?: "build" | "orbit" } | null) => void;
+  setBuildCursor: (view: { x: number; y: number; label: string; hint?: string; kind?: "build" | "orbit" | "line" | "pipe" | "erase" } | null) => void;
   pulseFunds: (tone?: "good" | "bad") => void;
   setInspecting: (open: boolean) => void;
   showNameGate: (open: boolean, preset?: string) => void;
@@ -747,7 +747,13 @@ export function createHud(events: HudControls): Hud {
       pop.textContent = compactMoney(meta.stats.population);
       jobs.textContent = compactMoney(meta.stats.jobs);
       power.textContent = `${meta.stats.powerUsed}/${meta.stats.powerCapacity}`;
+      power.title = meta.stats.powerCapacity > 0
+        ? `Verbrauch ${meta.stats.powerUsed} · Kapazität ${meta.stats.powerCapacity}`
+        : "Kein Kraftwerk";
       water.textContent = `${meta.stats.waterUsed}/${meta.stats.waterCapacity}`;
+      water.title = meta.stats.waterCapacity > 0
+        ? `Verbrauch ${meta.stats.waterUsed} · Kapazität ${meta.stats.waterCapacity}`
+        : "Kein Wasserwerk";
       food.textContent = compactMoney(meta.stats.foodStock);
       foodStock.textContent = `Bedarf ${compactMoney(meta.stats.foodUsed)} · Erzeugung ${compactMoney(meta.stats.foodCapacity)}`;
       const hungry = meta.stats.foodUsed > 0 && meta.stats.foodUsed > meta.stats.foodCapacity + meta.stats.foodStock;

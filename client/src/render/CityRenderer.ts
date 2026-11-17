@@ -14,7 +14,9 @@ import {
   inBounds,
   computeTraffic,
   helpBadges,
+  powerOutageBadges,
   utilityOutageBadges,
+  waterOutageBadges,
   isBeach,
   isBridge,
   isLine,
@@ -196,9 +198,13 @@ export class CityRenderer {
   private readonly idleBadges: THREE.Sprite[] = [];
   private readonly jobBadges: THREE.Sprite[] = [];
   private readonly utilityBadges: THREE.Sprite[] = [];
+  private readonly powerOutBadges: THREE.Sprite[] = [];
+  private readonly waterOutBadges: THREE.Sprite[] = [];
   private readonly idleMaterial: THREE.SpriteMaterial;
   private readonly jobMaterial: THREE.SpriteMaterial;
   private readonly utilityMaterial: THREE.SpriteMaterial;
+  private readonly powerOutMaterial: THREE.SpriteMaterial;
+  private readonly waterOutMaterial: THREE.SpriteMaterial;
   private badgeTime = 0;
   private readonly hover: THREE.LineLoop;
   private readonly peerMarks: THREE.Group[] = [];
@@ -289,9 +295,13 @@ export class CityRenderer {
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-Math.PI / 2);
     this.zones = mesh(plane, flat(0xffffff, 0.42));
-    this.power = mesh(plane, flat(0x7ed0ff, 0.7));
-    this.water = mesh(plane, flat(0x3d7ed6, 0.65));
-    this.preview = mesh(plane, flat(0xffffff, 0.72));
+    const pad = new THREE.BoxGeometry(1, 1, 1);
+    this.power = mesh(pad, flat(0xf0c14a, 0.78));
+    this.water = mesh(pad, flat(0x3d88c8, 0.76));
+    this.preview = mesh(pad, flat(0xffffff, 1));
+    this.power.renderOrder = 3;
+    this.water.renderOrder = 3;
+    this.preview.renderOrder = 12;
     this.radiusRing = mesh(plane, flat(0x7eb8e6, 0.18), 48);
     this.locks = mesh(plane, flat(0xff9a3c, 0.45));
     const carMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.18 });
@@ -423,6 +433,8 @@ export class CityRenderer {
     this.idleMaterial = new THREE.SpriteMaterial({ map: personBadge(), transparent: true, depthWrite: false });
     this.jobMaterial = new THREE.SpriteMaterial({ map: jobBadge(), transparent: true, depthWrite: false });
     this.utilityMaterial = new THREE.SpriteMaterial({ map: utilityBadge(), transparent: true, depthWrite: false });
+    this.powerOutMaterial = new THREE.SpriteMaterial({ map: powerOutBadge(), transparent: true, depthWrite: false, depthTest: false });
+    this.waterOutMaterial = new THREE.SpriteMaterial({ map: waterOutBadge(), transparent: true, depthWrite: false, depthTest: false });
     this.scene.add(
       this.curbs,
       this.cornerCurbs,
@@ -602,9 +614,9 @@ export class CityRenderer {
         const raised = isBridge(city, index) ? bridgeCrest(city, index) + 3.4 : isWater(city, index) ? 4.6 : this.heightOf(index) + 2.45;
         this.put(this.poles, poles, world.x, raised / 2, world.z, 0.35, raised, 0.35, 0, 0x6d6458);
         poles += 1;
-        cables = this.layConductor(this.cables, cables, index, city.lines, world.x, world.z, raised, 0.16, color);
-        if (overlays.power && live) {
-          this.put(this.power, powerCount, world.x, 0.22, world.z, CELL_SIZE * 0.4, 1, CELL_SIZE * 0.4, 0, 0x8ad8ff);
+        cables = this.layConductor(this.cables, cables, index, city.lines, world.x, world.z, raised, overlays.power ? 0.28 : 0.16, color);
+        if (overlays.power) {
+          this.put(this.power, powerCount, world.x, this.heightOf(index) + 0.42, world.z, CELL_SIZE * 0.94, 0.48, CELL_SIZE * 0.94, 0, live ? 0xffd45a : 0x6a6358);
           powerCount += 1;
         }
       }
@@ -612,11 +624,22 @@ export class CityRenderer {
         const live = (city.utility[index] & WATER_BIT) !== 0;
         const color = live ? 0x3d88c8 : 0x6a7c86;
         const pipeY = isBridge(city, index) ? bridgeCrest(city, index) + 0.45 : isWater(city, index) ? 0.55 : this.heightOf(index) + 0.22;
-        pipes = this.layConductor(this.pipeMesh, pipes, index, city.pipes, world.x, world.z, pipeY, 0.35, color);
-        if (overlays.water && live) {
-          this.put(this.water, waterCount, world.x, 0.24, world.z, CELL_SIZE * 0.36, 1, CELL_SIZE * 0.36, 0, 0x3f86d8);
+        pipes = this.layConductor(this.pipeMesh, pipes, index, city.pipes, world.x, world.z, pipeY, overlays.water ? 0.48 : 0.35, color);
+        if (overlays.water) {
+          this.put(this.water, waterCount, world.x, this.heightOf(index) + 0.36, world.z, CELL_SIZE * 0.9, 0.42, CELL_SIZE * 0.9, 0, live ? 0x4ea6e6 : 0x6a7c86);
           waterCount += 1;
         }
+      }
+
+      if (overlays.power && (city.levels[index] > 0 || city.services[index] === ServiceKind.Power || isHubService(city.services[index]))) {
+        const live = (city.utility[index] & POWER_BIT) !== 0;
+        this.put(this.power, powerCount, world.x, this.heightOf(index) + 0.4, world.z, CELL_SIZE * 0.86, 0.55, CELL_SIZE * 0.86, 0, live ? 0xffe08a : 0x8a3d36);
+        powerCount += 1;
+      }
+      if (overlays.water && (city.levels[index] > 0 || city.services[index] === ServiceKind.Water || isHubService(city.services[index]))) {
+        const live = (city.utility[index] & WATER_BIT) !== 0;
+        this.put(this.water, waterCount, world.x, this.heightOf(index) + 0.28, world.z, CELL_SIZE * 0.78, 0.42, CELL_SIZE * 0.78, 0, live ? 0x6cbcf0 : 0x4a5a66);
+        waterCount += 1;
       }
 
       if (overlays.zones && city.zones[index] !== Zone.None && !isRoad(city, index)) {
@@ -702,9 +725,12 @@ export class CityRenderer {
     this.finish(this.tufts, this.quality.level === "low" ? 0 : tufts);
     for (const [key, instances] of this.models) this.finish(instances, this.modelSlot.get(key) ?? 0);
     const badges = this.decorations ? helpBadges(city) : { homes: [], workplaces: [] };
-    this.placeBadges(this.idleBadges, this.idleMaterial, badges.homes, city);
-    this.placeBadges(this.jobBadges, this.jobMaterial, badges.workplaces, city);
-    this.placeBadges(this.utilityBadges, this.utilityMaterial, this.decorations ? utilityOutageBadges(city) : [], city);
+    this.placeBadges(this.idleBadges, this.idleMaterial, overlays.power || overlays.water ? [] : badges.homes, city, 4.8);
+    this.placeBadges(this.jobBadges, this.jobMaterial, overlays.power || overlays.water ? [] : badges.workplaces, city, 4.6);
+    const mixedOut = this.decorations && !overlays.power && !overlays.water;
+    this.placeBadges(this.utilityBadges, this.utilityMaterial, mixedOut ? utilityOutageBadges(city) : [], city, 5.4);
+    this.placeBadges(this.powerOutBadges, this.powerOutMaterial, overlays.power ? powerOutageBadges(city) : [], city, 8.2);
+    this.placeBadges(this.waterOutBadges, this.waterOutMaterial, overlays.water ? waterOutageBadges(city) : [], city, 8.2);
     this.paintCars();
     this.paintPedestrians();
     this.paintPlanes();
@@ -714,11 +740,12 @@ export class CityRenderer {
     this.paintLocalLights();
   }
 
-  setPreview(city: CityState, cells: number[], legal: boolean[], radius = 0): void {
+  setPreview(city: CityState, cells: number[], legal: boolean[], radius = 0, supplied: boolean[] = []): void {
     cells.forEach((index, slot) => {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
-      this.put(this.preview, slot, world.x, this.heightOf(index) + 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, legal[slot] ? 0x8ee7a0 : 0xe36d62);
+      const color = !legal[slot] ? 0xff6b5b : supplied[slot] === false ? 0xffc14a : 0xb8ff4a;
+      this.put(this.preview, slot, world.x, this.heightOf(index) + 0.72, world.z, CELL_SIZE * 0.96, 0.9, CELL_SIZE * 0.96, 0, color);
     });
     this.finish(this.preview, cells.length);
     let rings = 0;
@@ -776,7 +803,17 @@ export class CityRenderer {
     for (const sprite of this.utilityBadges) {
       if (!sprite.visible) continue;
       sprite.position.y = Number(sprite.userData.baseY) + bob;
-      sprite.scale.setScalar(4.8 * pulse);
+      sprite.scale.setScalar((Number(sprite.userData.scale) || 5.4) * pulse);
+    }
+    for (const sprite of this.powerOutBadges) {
+      if (!sprite.visible) continue;
+      sprite.position.y = Number(sprite.userData.baseY) + bob;
+      sprite.scale.setScalar((Number(sprite.userData.scale) || 8.2) * pulse);
+    }
+    for (const sprite of this.waterOutBadges) {
+      if (!sprite.visible) continue;
+      sprite.position.y = Number(sprite.userData.baseY) + bob;
+      sprite.scale.setScalar((Number(sprite.userData.scale) || 8.2) * pulse);
     }
     if (this.shown && this.births.size > 0) this.sync(this.shown, this.lastOverlays);
     this.flightTime += dt;
@@ -1465,12 +1502,12 @@ export class CityRenderer {
     return cellToWorld({ width: GRID_SIZE, height: GRID_SIZE }, x, y);
   }
 
-  private placeBadges(pool: THREE.Sprite[], material: THREE.SpriteMaterial, cells: number[], city: CityState): void {
+  private placeBadges(pool: THREE.Sprite[], material: THREE.SpriteMaterial, cells: number[], city: CityState, scale = 4.8): void {
     while (pool.length < cells.length) {
       const sprite = new THREE.Sprite(material);
-      sprite.scale.set(4.8, 4.8, 1);
+      sprite.scale.set(scale, scale, 1);
       sprite.visible = false;
-      sprite.renderOrder = 5;
+      sprite.renderOrder = 8;
       this.scene.add(sprite);
       pool.push(sprite);
     }
@@ -1482,10 +1519,12 @@ export class CityRenderer {
           ? modelForFarm(city.skills[cell])
           : modelForZone(city.zones[cell], city.levels[cell]))
         ?? modelForService(city.services[cell]);
-      const top = this.heightOf(cell) + (shape?.height ?? 4) + 2.4;
+      const top = this.heightOf(cell) + (shape?.height ?? 4) + 3.2;
       const sprite = pool[slot];
       sprite.visible = true;
       sprite.userData.baseY = top;
+      sprite.userData.scale = scale;
+      sprite.scale.set(scale, scale, 1);
       sprite.position.set(spot.x, top, spot.z);
     });
     for (let index = cells.length; index < pool.length; index += 1) pool[index].visible = false;
@@ -1812,6 +1851,66 @@ function jobBadge(): THREE.CanvasTexture {
   ctx.fillStyle = "#2a2116";
   ctx.fillRect(18, 28, 28, 18);
   ctx.fillRect(26, 22, 12, 8);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function powerOutBadge(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, 96, 96);
+  ctx.fillStyle = "#2a2422";
+  ctx.beginPath();
+  ctx.arc(48, 48, 42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#e36d62";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.fillStyle = "#e36d62";
+  ctx.beginPath();
+  ctx.moveTo(44, 16);
+  ctx.lineTo(26, 48);
+  ctx.lineTo(42, 48);
+  ctx.lineTo(36, 80);
+  ctx.lineTo(70, 42);
+  ctx.lineTo(52, 42);
+  ctx.closePath();
+  ctx.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function waterOutBadge(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, 96, 96);
+  ctx.fillStyle = "#1e2628";
+  ctx.beginPath();
+  ctx.arc(48, 48, 42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#8aa0aa";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.fillStyle = "#7eb8e6";
+  ctx.beginPath();
+  ctx.moveTo(48, 18);
+  ctx.bezierCurveTo(70, 42, 70, 62, 48, 76);
+  ctx.bezierCurveTo(26, 62, 26, 42, 48, 18);
+  ctx.fill();
+  ctx.fillStyle = "#2a3336";
+  ctx.beginPath();
+  ctx.moveTo(48, 34);
+  ctx.bezierCurveTo(58, 46, 58, 56, 48, 64);
+  ctx.bezierCurveTo(38, 56, 38, 46, 48, 34);
+  ctx.fill();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

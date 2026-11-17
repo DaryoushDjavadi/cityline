@@ -123,10 +123,18 @@ export function parseChatMessage(raw: unknown): ChatMessage | null {
 
 export function parseCommand(raw: unknown): Command | null {
   if (!raw || typeof raw !== "object") return null;
-  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown; deal?: unknown; action?: unknown };
+  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown; deal?: unknown; action?: unknown; layer?: unknown };
   if (command.type === "road" || command.type === "bridge" || command.type === "fill" || command.type === "bulldoze" || command.type === "line" || command.type === "pipe") {
     if (!Array.isArray(command.cells)) return null;
     return { type: command.type, cells: command.cells.filter((cell) => Number.isInteger(cell)) as number[] };
+  }
+  if (command.type === "strip") {
+    if (!Array.isArray(command.cells) || (command.layer !== "line" && command.layer !== "pipe")) return null;
+    return {
+      type: "strip",
+      layer: command.layer,
+      cells: command.cells.filter((cell) => Number.isInteger(cell)) as number[],
+    };
   }
   if (command.type === "build") {
     if (!Array.isArray(command.cells) || typeof command.kind !== "string" || !buildingInfo(command.kind)) return null;

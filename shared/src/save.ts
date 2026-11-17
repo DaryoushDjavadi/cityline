@@ -1,4 +1,4 @@
-import { createCity } from "./city.ts";
+import { afterLoadCity, createCity } from "./city.ts";
 import { goalMask } from "./goals.ts";
 import { buildMeta } from "./sim.ts";
 import { asUint8Array, packCells, writeCity, type CityState, type SimMeta } from "./types.ts";
@@ -55,5 +55,6 @@ export function saveToCity(raw: unknown): CityState | null {
   if (save.gen && typeof save.gen === "object") city.gen = save.gen as CityState["gen"];
   if (typeof city.tradeHeat !== "number") city.tradeHeat = 0;
   if (!Array.isArray(city.shipments)) city.shipments = [];
+  afterLoadCity(city);
   return city;
 }

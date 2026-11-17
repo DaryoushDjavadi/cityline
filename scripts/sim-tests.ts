@@ -2,12 +2,16 @@ import {
   AIRPORT_DELAY,
   DAY_TICKS,
   HARBOR_DELAY,
+  POWER_BIT,
   ROAD_FLAG,
   ServiceKind,
+  WATER_BIT,
+  afterLoadCity,
   applyCommand,
   beachVisitors,
   buildMeta,
   canPlace,
+  canPlaceHarbor,
   cellCoords,
   cellHeight,
   cellIndex,
@@ -16,14 +20,19 @@ import {
   houseHappiness,
   hubSlots,
   isBeach,
+  isWater,
   logisticsPartner,
   marketMultiplier,
   packCells,
+  placeBlockReason,
   quoteTrade,
   refreshUtilities,
+  resolveHarborCell,
   saveToCity,
   stepSimulation,
+  supplyMissingHint,
   tradeDeal,
+  wouldReceiveSupply,
   writeCity,
 } from "../shared/src/index.ts";
 
@@ -254,6 +263,101 @@ export function runSimTests(): void {
     const due = city.shipments?.[0]?.due ?? 0;
     while (city.tick < due) stepSimulation(city);
     if ((city.shipments ?? []).length !== 0) fail("shipment should settle");
+  }
+
+  {
+    const city = createCity(undefined, undefined, { seed: 1842, biome: "temperate", water: 42 });
+    city.funds = 400_000;
+    let site = -1;
+    for (let y = 3; y < city.height - 3 && site < 0; y += 1) {
+      for (let x = 3; x < city.width - 3 && site < 0; x += 1) {
+        const index = cellIndex(city, x, y);
+        if (!canPlaceHarbor(city, index) || isWater(city, index)) continue;
+        const placed = applyCommand(city, { type: "service", index, kind: ServiceKind.Harbor });
+        if (placed.ok) site = placed.applied[0] ?? index;
+      }
+    }
+    if (site < 0) fail("gen map must accept a harbor without a road");
+    if (isWater(city, site)) fail("harbor must sit on land/sand");
+    const inland = cellIndex(city, 32, 32);
+    if (canPlace(city, inland, "service", { kind: ServiceKind.Harbor })) fail("inland harbor");
+    const inlandWhy = placeBlockReason(city, inland, "service", { kind: ServiceKind.Harbor });
+    if (!inlandWhy || !inlandWhy.includes("Wasser")) fail(`inland reason ${inlandWhy}`);
+    if (canPlace(city, site, "service", { kind: ServiceKind.Airport })) fail("airport must not replace the harbor");
+    let water = -1;
+    const spot = cellCoords(city, site);
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      const index = cellIndex(city, spot.x + dx, spot.y + dy);
+      if (isWater(city, index)) water = index;
+    }
+    if (water < 0) fail("placed harbor must touch water");
+  }
+
+  {
+    const city = createCity();
+    city.terrain.fill(0);
+    city.gen = undefined;
+    city.funds = 400_000;
+    afterLoadCity(city);
+    let water = 0;
+    for (let i = 0; i < city.terrain.length; i += 1) if (city.terrain[i] === 1) water += 1;
+    if (water < 40) fail(`old flat save should gain a coast, water=${water}`);
+    let harbor = -1;
+    for (let y = 1; y < city.height - 1 && harbor < 0; y += 1) {
+      for (let x = 1; x < city.width - 1 && harbor < 0; x += 1) {
+        const index = cellIndex(city, x, y);
+        if (applyCommand(city, { type: "service", index, kind: ServiceKind.Harbor }).ok) harbor = index;
+      }
+    }
+    if (harbor < 0) fail("old flat save must place a harbor on the restored coast");
+  }
+
+  {
+    const city = createCity();
+    city.terrain.fill(0);
+    city.gen = undefined;
+    city.funds = 50_000;
+    for (let y = 0; y <= 3; y += 1) city.terrain[cellIndex(city, 4, y)] = 1;
+    afterLoadCity(city);
+    const sea = cellIndex(city, 4, 3);
+    const snapped = resolveHarborCell(city, sea);
+    if (snapped === sea || isWater(city, snapped)) fail("sea click must snap onto land");
+    if (!canPlaceHarbor(city, sea)) fail("clicking the sea next to shore must be legal");
+    const placed = applyCommand(city, { type: "service", index: sea, kind: ServiceKind.Harbor });
+    if (!placed.ok) fail(`snap-from-water harbor ${placed.reason}`);
+    if (city.services[sea] === ServiceKind.Harbor) fail("pier cell must stay water, building on land");
+    if (city.services[snapped] !== ServiceKind.Harbor) fail("harbor should occupy the shore");
+  }
+
+  {
+    const city = createCity();
+    city.terrain.fill(0);
+    city.funds = 80_000;
+    const road = [cellIndex(city, 4, 4), cellIndex(city, 5, 4), cellIndex(city, 6, 4)];
+    if (!applyCommand(city, { type: "road", cells: road }).ok) fail("supply road");
+    if (!applyCommand(city, { type: "service", index: cellIndex(city, 4, 3), kind: ServiceKind.Power }).ok) fail("supply plant");
+    if (!applyCommand(city, { type: "service", index: cellIndex(city, 6, 3), kind: ServiceKind.Water }).ok) fail("supply water");
+    if (!applyCommand(city, { type: "line", cells: [cellIndex(city, 4, 4), cellIndex(city, 5, 4)] }).ok) fail("supply line");
+    if (!applyCommand(city, { type: "pipe", cells: [cellIndex(city, 6, 4), cellIndex(city, 5, 4)] }).ok) fail("supply pipe");
+    if (!applyCommand(city, { type: "build", kind: "cottage", cells: [cellIndex(city, 5, 5)] }).ok) fail("supply house");
+    refreshUtilities(city);
+    const house = cellIndex(city, 5, 5);
+    if (!wouldReceiveSupply(city, house, POWER_BIT) || !wouldReceiveSupply(city, house, WATER_BIT)) fail("adjacent house should be supplied");
+    if ((city.utility[house] & (POWER_BIT | WATER_BIT)) !== (POWER_BIT | WATER_BIT)) fail("sim utility bits");
+    const far = cellIndex(city, 10, 10);
+    if (!applyCommand(city, { type: "road", cells: [cellIndex(city, 10, 11)] }).ok) fail("far road");
+    if (!applyCommand(city, { type: "build", kind: "cottage", cells: [far] }).ok) fail("far house");
+    refreshUtilities(city);
+    if (wouldReceiveSupply(city, far, POWER_BIT)) fail("radius must not skip a gap");
+    const hint = supplyMissingHint(city, far);
+    if (!hint || !hint.includes("Strom")) fail(`hint ${hint}`);
+    const stripped = applyCommand(city, { type: "strip", cells: [cellIndex(city, 4, 4), cellIndex(city, 5, 4)], layer: "line" });
+    if (!stripped.ok) fail("strip line");
+    if (city.roads[cellIndex(city, 5, 4)] === 0) fail("strip must keep the road");
+    refreshUtilities(city);
+    if ((city.utility[house] & POWER_BIT) !== 0) fail("house should lose power after the line is stripped");
+    const stats = buildMeta(city).stats;
+    if (stats.powerCapacity <= 0 || stats.waterCapacity <= 0) fail(`plants should add capacity ${stats.powerCapacity}/${stats.waterCapacity}`);
   }
 
   console.log("sim-tests ok");

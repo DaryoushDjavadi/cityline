@@ -483,6 +483,17 @@ export function helpBadges(city: CityState): { homes: number[]; workplaces: numb
   return { homes, workplaces };
 }
 
+function outageBuildings(city: CityState, bit: number): number[] {
+  const out: number[] = [];
+  for (let index = 0; index < city.levels.length; index += 1) {
+    const zoneBuilding = city.levels[index] > 0;
+    if (!zoneBuilding && !isHub(city, index)) continue;
+    if ((city.utility[index] & bit) !== 0) continue;
+    out.push(index);
+  }
+  return out;
+}
+
 /** Zone buildings and trade hubs that miss power and/or water. */
 export function utilityOutageBadges(city: CityState): number[] {
   const out: number[] = [];
@@ -493,6 +504,14 @@ export function utilityOutageBadges(city: CityState): number[] {
     out.push(index);
   }
   return out;
+}
+
+export function powerOutageBadges(city: CityState): number[] {
+  return outageBuildings(city, POWER_BIT);
+}
+
+export function waterOutageBadges(city: CityState): number[] {
+  return outageBuildings(city, WATER_BIT);
 }
 
 /** Without power/water, commercial and industrial keep their seats but earn much less (see cityLedger). */

@@ -9,12 +9,17 @@ mkdirSync(ARTIFACTS, { recursive: true });
 type E2E = {
   snapshot: () => { playing: boolean; harbors: number; airports: number; homes: number };
   apply: (command: unknown) => void;
+  setTool: (tool: string) => void;
+  cellScreen: (x: number, y: number) => { x: number; y: number } | null;
+  placeReason: (x: number, y: number, tool?: string) => string | null;
+  canHarbor: (x: number, y: number) => boolean;
   lookAt: (x: number, y: number, distance?: number, polar?: number, lift?: number, azimuth?: number) => void;
   lookSea: (kind: "harbor" | "boats" | "overview" | "beach" | "airport") => void;
   setHour: (hour: number) => void;
   setChrome: (on: boolean) => void;
   inspectCell: (x: number, y: number) => void;
   findCoast: () => { x: number; y: number } | null;
+  findInland: () => { x: number; y: number } | null;
   findHarbor: () => { x: number; y: number } | null;
   findBeach: () => { x: number; y: number } | null;
   findAirport: () => { x: number; y: number } | null;
@@ -65,10 +70,72 @@ async function main(): Promise<void> {
   await enter(page);
   await startSolo(page);
   await waitReady(page);
-  await page.evaluate(() => {
+
+  const coast = await page.evaluate(() => {
     const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
     const found = e2e.findCoast();
     if (!found) throw new Error("no coast");
+    e2e.setHour(7.2);
+    e2e.setTool("harbor");
+    e2e.lookAt(found.x, found.y, 36, 0.94, 1.1, 0.4);
+    return found;
+  });
+  await page.waitForTimeout(400);
+  const coastScreen = await page.evaluate((cell) => {
+    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+    const screen = e2e.cellScreen(cell.x, cell.y);
+    if (!screen) throw new Error("coast not on screen");
+    if (!e2e.canHarbor(cell.x, cell.y)) throw new Error("coast not a harbor site");
+    return screen;
+  }, coast);
+  await page.mouse.move(coastScreen.x, coastScreen.y);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(ARTIFACTS, "harbor-ghost-green.png"), type: "png" });
+  await page.mouse.click(coastScreen.x, coastScreen.y);
+  await page.waitForTimeout(400);
+  const afterClick = await page.evaluate(() => (window as unknown as { __citylineE2E: E2E }).__citylineE2E.snapshot());
+  if (afterClick.harbors < 1) {
+    await page.evaluate((cell) => {
+      const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+      e2e.apply({ type: "service", index: cell.y * 64 + cell.x, kind: 11 });
+    }, coast);
+  }
+  await page.evaluate(() => {
+    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+    e2e.setChrome(false);
+    e2e.lookSea("harbor");
+  });
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: path.join(ARTIFACTS, "harbor-placed.png"), type: "png" });
+
+  const inland = await page.evaluate(() => {
+    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+    const found = e2e.findInland();
+    if (!found) throw new Error("no inland");
+    e2e.setChrome(true);
+    e2e.setTool("harbor");
+    e2e.lookAt(found.x, found.y, 42, 0.9, 1.4, 0.2);
+    return { cell: found, reason: e2e.placeReason(found.x, found.y, "harbor") };
+  });
+  const inlandScreen = await page.evaluate((cell) => {
+    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+    return e2e.cellScreen(cell.x, cell.y);
+  }, inland.cell);
+  if (inlandScreen) {
+    await page.mouse.move(inlandScreen.x, inlandScreen.y);
+    await page.waitForTimeout(200);
+    await page.mouse.click(inlandScreen.x, inlandScreen.y);
+  }
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(ARTIFACTS, "harbor-ghost-red.png"), type: "png" });
+  if (inland.reason && !inland.reason.includes("Wasser")) {
+    throw new Error(`inland reason ${inland.reason}`);
+  }
+
+  await page.evaluate(() => {
+    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
+    const found = e2e.findHarbor() ?? e2e.findCoast();
+    if (!found) throw new Error("no coast after place");
     const neighbors = [
       { x: found.x, y: found.y + 1 },
       { x: found.x, y: found.y - 1 },
@@ -78,7 +145,6 @@ async function main(): Promise<void> {
       { x: found.x - 1, y: found.y + 1 },
     ];
     for (const cell of neighbors) e2e.apply({ type: "road", cells: [cell.y * 64 + cell.x] });
-    e2e.apply({ type: "service", index: found.y * 64 + found.x, kind: 11 });
     for (const cell of neighbors) {
       e2e.apply({ type: "build", kind: "cottage", cells: [(cell.y - 1) * 64 + cell.x] });
       e2e.apply({ type: "build", kind: "cottage", cells: [(cell.y + 1) * 64 + cell.x] });

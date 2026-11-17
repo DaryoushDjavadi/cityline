@@ -25,7 +25,9 @@ import {
   brushCells,
   buildMeta,
   adjacentToOcean,
+  afterLoadCity,
   canPlace,
+  canPlaceHarbor,
   cellBudget,
   cellCoords,
   cellIndex,
@@ -77,7 +79,10 @@ import {
   lineStroke,
   packCells,
   placeBlockReason,
+  resolveHarborCell,
   strokeConnected,
+  supplyMissingHint,
+  wouldReceiveSupply,
   parseChatMessage,
   parseCursor,
   parseLevelRoom,
@@ -130,8 +135,8 @@ const HINTS: Partial<Record<ToolId, string>> = {
   factory: `${BUILDINGS.factory.name}, direkt an einer Straße. ${BUILDINGS.factory.cost} €.`,
   plant: `${BUILDINGS.plant.name}, direkt an einer Straße. ${BUILDINGS.plant.cost} €.`,
   farm: `${BUILDINGS.farm.name}. Startet mit Getreide. Im Infofenster Tiere kaufen oder Hof verbessern. ${BUILDINGS.farm.cost} €.`,
-  line: `Stromleitung, auch über Straßen, Brücken und Wasser. ${COST.line} €.`,
-  pipe: `Wasserrohr, auch über Straßen, Brücken und Wasser. ${COST.pipe} €.`,
+  line: `Stromleitung: klicken und L ziehen. Kosten am Zeiger. Rechtsklick reißt nur die Leitung ab.`,
+  pipe: `Wasserrohr: klicken und L ziehen. Kosten am Zeiger. Rechtsklick reißt nur das Rohr ab.`,
   power: `Kraftwerk direkt neben eine Straße. ${COST.power} €.`,
   water: `Wasserwerk direkt neben eine Straße. ${COST.water} €.`,
   school: `Schule, damit Bewohner einen Abschluss bekommen. ${COST.school} €.`,
@@ -141,9 +146,9 @@ const HINTS: Partial<Record<ToolId, string>> = {
   fire: `Feuerwehr. ${COST.fire} €.`,
   park: `Park. ${COST.park} €.`,
   airport: `Flughafen. ${COST.airport.toLocaleString("de-DE")} €. Schneller, teurer Handel. Logistik-Verbund mit einem Hafen in der Nähe.`,
-  harbor: `Hafen an der Küste. ${COST.harbor.toLocaleString("de-DE")} €. Günstiges Massengut, langsamer. Braucht Straße, Strom und Wasser.`,
+  harbor: `Hafen direkt am Meer, auf Sand oder Land. ${COST.harbor.toLocaleString("de-DE")} €. Der Steg ragt ins Wasser. Straße, Strom und Wasser danach anschließen.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
-  bulldoze: "Ein einzelnes Feld abreißen.",
+  bulldoze: "Ziehen reißt Felder in einer Linie ab. Bei Leitungen reicht auch Rechtsklick auf die Leitung.",
 };
 
 const SERVICES: Partial<Record<ToolId, ServiceId>> = {
@@ -276,6 +281,8 @@ export class Game {
   private pushQueue: Promise<unknown> = Promise.resolve();
   private overlays = loadOverlays();
   private strokeComplete = true;
+  private erasing = false;
+  private hoverCell: { x: number; y: number } | null = null;
   private statusUntil = 0;
   private lastFrame = performance.now();
   private lastLook = 0;
@@ -385,6 +392,34 @@ export class Game {
         self.applyLocal(command);
         return { funds: self.city.funds, revision: self.city.revision };
       },
+      setTool(tool: ToolId) {
+        self.setTool(tool);
+      },
+      cellScreen(x: number, y: number): { x: number; y: number } | null {
+        self.camera.update(0);
+        self.camera.camera.updateMatrixWorld(true);
+        const width = self.canvas.clientWidth || window.innerWidth;
+        const height = self.canvas.clientHeight || window.innerHeight;
+        const rect = self.canvas.getBoundingClientRect();
+        const world = cellToWorld(self.city, x, y);
+        self.cursorNdc.set(world.x, 0.2, world.z).project(self.camera.camera);
+        if (self.cursorNdc.z < -1 || self.cursorNdc.z > 1) return null;
+        return {
+          x: rect.left + (self.cursorNdc.x * 0.5 + 0.5) * width,
+          y: rect.top + (-self.cursorNdc.y * 0.5 + 0.5) * height,
+        };
+      },
+      placeReason(x: number, y: number, tool?: ToolId): string | null {
+        const index = cellIndex(self.city, x, y);
+        const used = tool ?? self.tool;
+        const kind = SERVICES[used];
+        if (kind) return placeBlockReason(self.city, index, "service", { kind });
+        if (BUILDINGS[used as keyof typeof BUILDINGS]) return placeBlockReason(self.city, index, "build");
+        return placeBlockReason(self.city, index, used as "line");
+      },
+      canHarbor(x: number, y: number): boolean {
+        return canPlaceHarbor(self.city, cellIndex(self.city, x, y));
+      },
       lookAt(x: number, y: number, distance = 48, polar?: number, lift?: number, azimuth?: number) {
         const world = cellToWorld(self.city, x, y);
         self.camera.target.set(world.x, 0, world.z);
@@ -430,10 +465,29 @@ export class Game {
         for (let y = 3; y < self.city.height - 3; y += 1) {
           for (let x = 3; x < self.city.width - 3; x += 1) {
             const index = cellIndex(self.city, x, y);
+            if (!canPlaceHarbor(self.city, index)) continue;
+            return { x, y, screen: { x: 0, y: 0 } };
+          }
+        }
+        for (let y = 3; y < self.city.height - 3; y += 1) {
+          for (let x = 3; x < self.city.width - 3; x += 1) {
+            const index = cellIndex(self.city, x, y);
             if (self.city.terrain[index] === 1) continue;
             if (self.city.services[index] !== ServiceKind.None || self.city.levels[index] > 0) continue;
             if (!isBeach(self.city, index) && !adjacentToOcean(self.city, index)) continue;
             return { x, y, screen: { x: 0, y: 0 } };
+          }
+        }
+        return null;
+      },
+      findInland(): { x: number; y: number } | null {
+        for (let y = 16; y < self.city.height - 16; y += 1) {
+          for (let x = 16; x < self.city.width - 16; x += 1) {
+            const index = cellIndex(self.city, x, y);
+            if (self.city.terrain[index] === 1) continue;
+            if (adjacentToOcean(self.city, index) || isBeach(self.city, index)) continue;
+            if (self.city.services[index] !== ServiceKind.None) continue;
+            return { x, y };
           }
         }
         return null;
@@ -550,6 +604,91 @@ export class Game {
         }
         return null;
       },
+      stats() {
+        return buildMeta(self.city).stats;
+      },
+      dismissUi() {
+        self.hud.closeOverlays();
+        self.hud.clearToast();
+        document.querySelector<HTMLButtonElement>("#quest-hint-ok")?.click();
+        const quest = document.querySelector<HTMLElement>("#quest");
+        if (quest) {
+          quest.hidden = true;
+          quest.dataset.collapsed = "on";
+          document.body.dataset.quest = "collapsed";
+        }
+        const rail = document.querySelector<HTMLButtonElement>("#toggle-rail");
+        if (document.body.dataset.menu === "open") rail?.click();
+        if (document.body.dataset.demand === "open") {
+          document.querySelector<HTMLButtonElement>("#toggle-demand")?.click();
+        }
+        const demand = document.querySelector<HTMLElement>("#demand");
+        if (demand) demand.style.display = "none";
+        const toast = document.querySelector<HTMLElement>("#toast");
+        if (toast) toast.hidden = true;
+      },
+      setOverlay(flags: { zones?: boolean; power?: boolean; water?: boolean }) {
+        self.overlays = { ...self.overlays, ...flags };
+        saveOverlays(self.overlays);
+        self.publish();
+        const stats = buildMeta(self.city).stats;
+        self.hud.setStatus(`Strom ${stats.powerUsed}/${stats.powerCapacity} · Wasser ${stats.waterUsed}/${stats.waterCapacity}`);
+      },
+      hideCursor() {
+        self.hideBuildCursor();
+      },
+      findPlot(): { x: number; y: number } | null {
+        const need = 14;
+        for (let y = 18; y < self.city.height - 18; y += 1) {
+          for (let x = 18; x < self.city.width - 18; x += 1) {
+            let ok = true;
+            for (let dy = 0; dy < need && ok; dy += 1) {
+              for (let dx = 0; dx < need && ok; dx += 1) {
+                const index = cellIndex(self.city, x + dx, y + dy);
+                if (self.city.terrain[index] === 1 || isBeach(self.city, index) || adjacentToOcean(self.city, index)) ok = false;
+              }
+            }
+            if (ok) return { x, y };
+          }
+        }
+        return null;
+      },
+      previewStroke(x0: number, y0: number, x1: number, y1: number, erase = false) {
+        self.erasing = erase;
+        self.building = true;
+        self.anchor = { x: x0, y: y0 };
+        self.painted.clear();
+        self.denied.clear();
+        self.updateStroke({ x: x1, y: y1 });
+        self.hoverCell = { x: x1, y: y1 };
+        const screen = (window as unknown as { __citylineE2E: { cellScreen: (x: number, y: number) => { x: number; y: number } | null } }).__citylineE2E.cellScreen(x1, y1);
+        if (screen) self.paintBuildCursor(screen.x, screen.y);
+        self.describe({ x: x1, y: y1 });
+        return { cells: self.stroke.length, hint: self.cursorHint(), label: self.cursorLabel() };
+      },
+      hoverAt(x: number, y: number) {
+        const index = cellIndex(self.city, x, y);
+        self.statusUntil = 0;
+        self.hoverCell = { x, y };
+        self.stroke = [index];
+        self.strokeComplete = true;
+        self.refreshPreview();
+        const screen = (window as unknown as { __citylineE2E: { cellScreen: (xx: number, yy: number) => { x: number; y: number } | null } }).__citylineE2E.cellScreen(x, y);
+        if (screen) self.paintBuildCursor(screen.x, screen.y);
+        self.describe({ x, y });
+        return {
+          screen,
+          reason: placeBlockReason(self.city, index, "build"),
+          miss: supplyMissingHint(self.city, index, BUILDINGS.cottage.zone),
+          hint: self.cursorHint(),
+        };
+      },
+      commitStroke() {
+        if (!self.building && self.stroke.length === 0) return { ok: false };
+        self.building = false;
+        self.commit();
+        return { ok: true, lines: [...self.city.lines].filter((v) => v !== 0).length };
+      },
     };
   }
 
@@ -595,6 +734,20 @@ export class Game {
     this.refreshHint();
     this.cancelStroke(false);
     if (tool === "inspect") this.hideBuildCursor();
+    this.publish();
+  }
+
+  private liveOverlays(): { zones: boolean; power: boolean; water: boolean } {
+    return {
+      zones: this.overlays.zones,
+      power: this.overlays.power || this.tool === "line" || this.tool === "power",
+      water: this.overlays.water || this.tool === "pipe" || this.tool === "water",
+    };
+  }
+
+  private adoptCity(cells: Uint8Array, meta: SimMeta): void {
+    writeCity(this.city, cells, meta);
+    afterLoadCity(this.city);
   }
 
   private setPanMode(on: boolean): void {
@@ -645,7 +798,7 @@ export class Game {
     this.hud.setLobbyBackVisible(false);
     this.beginSession(false);
     const showcase = buildLookCity(Number.isFinite(hour) ? hour : 7);
-    writeCity(this.city, packCells(showcase.city), buildMeta(showcase.city));
+    this.adoptCity(packCells(showcase.city), buildMeta(showcase.city));
     this.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
     this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 7);
     refreshUtilities(this.city);
@@ -680,9 +833,14 @@ export class Game {
   }
 
   private hideBuildCursor(): void {
-    if (!this.buildCursorOn) return;
-    this.buildCursorOn = false;
-    this.hud.setBuildCursor(null);
+    if (this.buildCursorOn) {
+      this.buildCursorOn = false;
+      this.hud.setBuildCursor(null);
+    }
+    if (!this.building) {
+      this.stroke = [];
+      this.view.setPreview(this.city, [], []);
+    }
   }
 
   private paintBuildCursor(clientX: number, clientY: number): void {
@@ -702,13 +860,72 @@ export class Game {
       return;
     }
     this.buildCursorOn = true;
+    const hint = this.cursorHint();
     this.hud.setBuildCursor({
       x: clientX,
       y: clientY,
-      label: this.toolLabel(),
-      hint: "Doppelklick beendet",
-      kind: "build",
+      label: this.cursorLabel(),
+      hint,
+      kind: this.erasing ? "erase" : this.tool === "line" ? "line" : this.tool === "pipe" ? "pipe" : "build",
     });
+  }
+
+  private cursorLabel(): string {
+    if (this.erasing) return this.tool === "pipe" ? "Rohr abreißen" : "Leitung abreißen";
+    if (this.tool === "line" || this.tool === "pipe") {
+      const cell = this.hoverCell;
+      const index = cell ? cellIndex(this.city, cell.x, cell.y) : -1;
+      const cells = this.stroke.length > 0 ? this.stroke : index >= 0 ? [index] : [];
+      let n = 0;
+      for (const item of cells) {
+        if (this.isExistingLink(item)) continue;
+        if (this.canUse(item)) n += 1;
+      }
+      const cost = n * this.cost();
+      return `${this.toolLabel()} · ${cost.toLocaleString("de-DE")} €`;
+    }
+    return this.toolLabel();
+  }
+
+  private cursorHint(): string {
+    if (this.erasing) return "Leitung abreißen";
+    const cell = this.hoverCell;
+    const index = cell ? cellIndex(this.city, cell.x, cell.y) : -1;
+    if (this.tool === "line" || this.tool === "pipe") {
+      const cells = this.stroke.length > 0 ? this.stroke : index >= 0 ? [index] : [];
+      let n = 0;
+      for (const item of cells) {
+        if (this.isExistingLink(item)) continue;
+        if (this.canUse(item)) n += 1;
+      }
+      const cost = n * this.cost();
+      const stats = buildMeta(this.city).stats;
+      const cap = this.tool === "line"
+        ? `Netz ${stats.powerUsed}/${stats.powerCapacity}`
+        : `Netz ${stats.waterUsed}/${stats.waterCapacity}`;
+      return `${n} Feld${n === 1 ? "" : "er"} · ${cost.toLocaleString("de-DE")} € · ${cap}`;
+    }
+    if (index >= 0 && BUILDINGS[this.tool as keyof typeof BUILDINGS]) {
+      const reason = placeBlockReason(this.city, index, "build");
+      if (reason) return reason;
+      const miss = supplyMissingHint(this.city, index, BUILDINGS[this.tool as keyof typeof BUILDINGS].zone);
+      if (miss) return miss;
+      return `${this.cost().toLocaleString("de-DE")} € · versorgt`;
+    }
+    if (index >= 0 && this.tool === "harbor") {
+      return placeBlockReason(this.city, index, "service", { kind: ServiceKind.Harbor }) ?? `${COST.harbor.toLocaleString("de-DE")} €`;
+    }
+    const kind = SERVICES[this.tool];
+    if (index >= 0 && kind) {
+      const reason = placeBlockReason(this.city, index, "service", { kind });
+      if (reason) return reason;
+    }
+    if (this.stroke.length > 0) {
+      const n = this.stroke.filter((item) => this.canUse(item) && !this.isExistingLink(item)).length;
+      const cost = n * this.cost();
+      if (cost > 0) return `${n} Feld${n === 1 ? "" : "er"} · ${cost.toLocaleString("de-DE")} €`;
+    }
+    return "Doppelklick beendet";
   }
 
   private refreshHint(): void {
@@ -724,11 +941,11 @@ export class Game {
         : compact
           ? this.tool === "inspect"
             ? "Ein Finger tippt. Ziehen mit der Lupe verschiebt, zwei Finger zoomen. Doppeltipp auf Gebäude zoomt nah ran."
-            : "Bauen: tippen. Doppeltipp beendet den Baumodus."
+            : ""
           : this.tool === "inspect"
             ? "Doppelklick auf Gebäude zoomt nah ran. Rechte Taste oder Drehen schaut um, Verschieben schiebt, Mausrad zoomt, Q/E dreht, WASD fährt."
-            : "Bauen bleibt aktiv. Doppelklick beendet den Baumodus. Escape zurück zur Lupe.";
-    this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."} ${camera}`);
+            : "";
+    this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."}${camera ? ` ${camera}` : ""}`);
   }
 
   private bindInput(): void {
@@ -747,7 +964,9 @@ export class Game {
       if (document.activeElement !== this.canvas) this.canvas.focus({ preventScroll: true });
       this.paintBuildCursor(event.clientX, event.clientY);
     });
-    this.canvas.addEventListener("pointerleave", () => this.hideBuildCursor());
+    this.canvas.addEventListener("pointerleave", () => {
+      if (!this.building) this.hideBuildCursor();
+    });
     window.addEventListener("pointerdown", () => unlockAudio(), { once: true });
     window.addEventListener("keydown", (event) => this.onKey(event, true));
     window.addEventListener("keyup", (event) => this.onKey(event, false));
@@ -807,6 +1026,18 @@ export class Game {
       this.canvas.setPointerCapture(event.pointerId);
       return;
     }
+    if (event.button === 2 && (this.tool === "line" || this.tool === "pipe") && !this.panMode && !this.orbitMode) {
+      const cell = this.pick(event);
+      if (!cell) return;
+      this.erasing = true;
+      this.building = true;
+      this.anchor = cell;
+      this.painted.clear();
+      this.denied.clear();
+      this.updateStroke(cell);
+      this.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     if (this.camera.begin(event.button, event.clientX, event.clientY, this.panMode, this.orbitMode)) {
       if (event.button === 0) {
         this.anchor = this.pick(event);
@@ -826,6 +1057,7 @@ export class Game {
       if (event.pointerType !== "mouse") this.canvas.setPointerCapture(event.pointerId);
       return;
     }
+    this.erasing = false;
     this.building = true;
     this.painted.clear();
     this.denied.clear();
@@ -855,11 +1087,17 @@ export class Game {
     }
     this.camera.move(event.clientX, event.clientY);
     this.emitCursor(event);
-    this.paintBuildCursor(event.clientX, event.clientY);
     const cell = this.pick(event);
+    this.hoverCell = cell;
     this.view.setHover(this.city, cell ? cellIndex(this.city, cell.x, cell.y) : null);
     this.describe(cell);
     if (this.building && cell) this.updateStroke(cell);
+    else if (!this.building && cell && this.tool !== "inspect" && !this.panMode && !this.orbitMode) {
+      this.stroke = [cellIndex(this.city, cell.x, cell.y)];
+      this.strokeComplete = true;
+      this.refreshPreview();
+    }
+    this.paintBuildCursor(event.clientX, event.clientY);
   }
 
   private onPointerUp(event: PointerEvent): void {
@@ -894,7 +1132,8 @@ export class Game {
       this.anchor = null;
       return;
     }
-    if (event.button !== 0) return;
+    if (event.button !== 0 && event.button !== 2) return;
+    if (event.button === 2 && !this.erasing) return;
     if (this.tool === "inspect") {
       if (this.tryZoomToBuilding()) {
         this.pickInspect();
@@ -987,9 +1226,9 @@ export class Game {
   private updateStroke(cell: { x: number; y: number }): void {
     if (!this.anchor) return;
     this.strokeComplete = true;
-    if (this.tool === "bulldoze" || this.tool === "fill") {
+    if (this.tool === "fill") {
       this.stroke = [cellIndex(this.city, cell.x, cell.y)];
-    } else if (this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe") {
+    } else if (this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe" || this.tool === "bulldoze" || this.erasing) {
       const stroke = lineStroke(this.city, this.anchor.x, this.anchor.y, cell.x, cell.y);
       this.stroke = stroke.cells;
       this.strokeComplete = stroke.complete;
@@ -1007,23 +1246,49 @@ export class Game {
   }
 
   private refreshPreview(): void {
-    const linked = this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe";
+    const linked = this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe" || this.tool === "bulldoze" || this.erasing;
     const broken = linked && (!this.strokeComplete || this.strokeHasGap());
     const legal: boolean[] = [];
+    const supplied: boolean[] = [];
     let running = 0;
     for (const index of this.stroke) {
-      const allowed = !broken && this.canUse(index) && !this.denied.has(index);
-      const cost = allowed ? this.cost() : 0;
+      const existing = this.isExistingLink(index);
+      const allowed = !broken && (this.canUse(index) || existing) && !this.denied.has(index);
+      const cost = allowed && !existing && !this.erasing && this.tool !== "bulldoze" ? this.cost() : 0;
       const accept = allowed && this.city.funds >= running + cost;
       legal.push(accept);
-      if (accept) running += cost;
+      if (accept && cost > 0) running += cost;
+      supplied.push(accept && this.ghostSupplied(index));
     }
     const service = SERVICES[this.tool];
     const radius = service ? (serviceInfo(service)?.radius ?? 0) : 0;
-    this.view.setPreview(this.city, this.stroke, legal, radius);
+    this.view.setPreview(this.city, this.stroke, legal, radius, supplied);
+  }
+
+  private isExistingLink(index: number): boolean {
+    if (this.erasing) return false;
+    if (this.tool === "line") return isLine(this.city, index);
+    if (this.tool === "pipe") return isPipe(this.city, index);
+    if (this.tool === "road" || this.tool === "bridge") return isRoad(this.city, index);
+    return false;
+  }
+
+  private ghostSupplied(index: number): boolean {
+    const building = BUILDINGS[this.tool as keyof typeof BUILDINGS];
+    if (!building) return true;
+    return wouldReceiveSupply(this.city, index, POWER_BIT, building.zone) && wouldReceiveSupply(this.city, index, WATER_BIT, building.zone);
   }
 
   private strokeHasGap(): boolean {
+    if (this.erasing) return !strokeConnected(this.city, this.stroke);
+    if (this.tool === "line") {
+      const placeable = this.stroke.filter((index) => this.canUse(index) || isLine(this.city, index));
+      return !strokeConnected(this.city, placeable);
+    }
+    if (this.tool === "pipe") {
+      const placeable = this.stroke.filter((index) => this.canUse(index) || isPipe(this.city, index));
+      return !strokeConnected(this.city, placeable);
+    }
     if (this.tool !== "road" && this.tool !== "bridge") return !strokeConnected(this.city, this.stroke);
     const placeable = this.stroke.filter((index) => this.canUse(index) || isRoad(this.city, index));
     return !strokeConnected(this.city, placeable);
@@ -1031,14 +1296,22 @@ export class Game {
 
   private commit(): void {
     const preview = this.stroke;
-    const linked = this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe";
+    const stripping = this.erasing;
+    const linked = this.tool === "road" || this.tool === "bridge" || this.tool === "line" || this.tool === "pipe" || this.tool === "bulldoze" || stripping;
     const broken = linked && (!this.strokeComplete || this.strokeHasGap());
     const legal: number[] = [];
     let running = 0;
     if (!broken) {
       for (const index of preview) {
-        if (!this.canUse(index) || this.denied.has(index)) continue;
-        const cost = this.cost();
+        if (this.denied.has(index)) continue;
+        if (stripping) {
+          if (this.tool === "line" && isLine(this.city, index)) legal.push(index);
+          else if (this.tool === "pipe" && isPipe(this.city, index)) legal.push(index);
+          continue;
+        }
+        if (this.isExistingLink(index)) continue;
+        if (!this.canUse(index)) continue;
+        const cost = this.tool === "bulldoze" ? 0 : this.cost();
         if (this.city.funds < running + cost) continue;
         legal.push(index);
         running += cost;
@@ -1046,6 +1319,7 @@ export class Game {
     }
     this.stroke = [];
     this.strokeComplete = true;
+    this.erasing = false;
     this.painted.clear();
     this.anchor = null;
     this.lockSig = "";
@@ -1073,7 +1347,9 @@ export class Game {
         return;
       }
     }
-    const command = this.command(legal);
+    const command = stripping
+      ? { type: "strip" as const, cells: legal, layer: this.tool === "pipe" ? "pipe" as const : "line" as const }
+      : this.command(legal);
     const result = applyCommand(this.city, command);
     if (result.applied.length > 0) {
       refreshUtilities(this.city);
@@ -1184,6 +1460,7 @@ export class Game {
     this.anchor = null;
     this.painted.clear();
     this.stroke = [];
+    this.erasing = false;
     this.lockSig = "";
     this.view.setPreview(this.city, [], []);
     if (this.mode === "multi") this.socket?.emit("unlock");
@@ -1401,8 +1678,12 @@ export class Game {
 
   private publish(meta: SimMeta = buildMeta(this.city)): void {
     this.noticeArrivals();
+    const live = this.liveOverlays();
+    document.body.dataset.powerNet = live.power ? "on" : "off";
+    document.body.dataset.waterNet = live.water ? "on" : "off";
+    this.hud.setOverlays(live);
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
-    this.view.sync(this.city, this.overlays);
+    this.view.sync(this.city, live);
     if (this.playKind === "level") this.syncLevel();
     else this.maybeAutoSave();
     // Only refresh an open building panel; never auto-switch to a car (B1).
@@ -1466,6 +1747,34 @@ export class Game {
       return;
     }
     const index = cellIndex(this.city, cell.x, cell.y);
+    if ((this.building || this.tool === "line" || this.tool === "pipe") && (this.tool === "line" || this.tool === "pipe" || this.erasing)) {
+      this.hud.setStatus(this.cursorHint());
+      return;
+    }
+    if (this.tool !== "inspect" && !this.panMode && !this.orbitMode) {
+      const kind = SERVICES[this.tool];
+      const building = BUILDINGS[this.tool as keyof typeof BUILDINGS];
+      const reason = kind
+        ? placeBlockReason(this.city, index, "service", { kind })
+        : building
+          ? placeBlockReason(this.city, index, "build")
+          : this.tool === "road" || this.tool === "bridge" || this.tool === "fill" || this.tool === "bulldoze"
+            ? placeBlockReason(this.city, index, this.tool)
+            : null;
+      if (reason) {
+        this.hud.setStatus(reason);
+        return;
+      }
+      if (building) {
+        const miss = supplyMissingHint(this.city, index, building.zone);
+        if (miss) {
+          this.hud.setStatus(miss);
+          return;
+        }
+        this.hud.setStatus(`${this.cost().toLocaleString("de-DE")} € · versorgt`);
+        return;
+      }
+    }
     const parts = [`Feld ${cell.x}, ${cell.y}`];
     if (isRoad(this.city, index)) parts.push("Straße");
     if (isLine(this.city, index)) parts.push((this.city.utility[index] & POWER_BIT) !== 0 ? "Stromleitung aktiv" : "Stromleitung ohne Strom");
@@ -1533,7 +1842,13 @@ export class Game {
     const point = this.raycaster.ray.intersectPlane(this.ground, this.hit);
     if (!point) return null;
     if (this.tool === "fill") return this.fillTarget(point.x, point.z);
-    return worldToCell(this.city, point.x, point.z);
+    const cell = worldToCell(this.city, point.x, point.z);
+    if (!cell) return null;
+    if (this.tool === "harbor") {
+      const snapped = resolveHarborCell(this.city, cellIndex(this.city, cell.x, cell.y));
+      return cellCoords(this.city, snapped);
+    }
+    return cell;
   }
 
   private fillTarget(worldX: number, worldZ: number): { x: number; y: number } | null {
@@ -1591,7 +1906,7 @@ export class Game {
     this.hud.setLobbyBackVisible(true);
     this.beginSession(false);
     const fresh = createCity(undefined, undefined, this.hud.mapGenOptions());
-    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    this.adoptCity(packCells(fresh), buildMeta(fresh));
     this.city.gen = fresh.gen ? { ...fresh.gen } : undefined;
     refreshUtilities(this.city);
     this.persistActiveCity(typed || id);
@@ -1625,7 +1940,7 @@ export class Game {
     this.hud.setLobby(false);
     this.hud.setLobbyBackVisible(true);
     this.beginSession(false);
-    writeCity(this.city, packCells(loaded), buildMeta(loaded));
+    this.adoptCity(packCells(loaded), buildMeta(loaded));
     this.city.gen = loaded.gen ? { ...loaded.gen } : undefined;
     refreshUtilities(this.city);
     this.rememberWorker(true);
@@ -1674,7 +1989,7 @@ export class Game {
       return;
     }
     const fresh = createCity(undefined, undefined, this.hud.mapGenOptions());
-    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    this.adoptCity(packCells(fresh), buildMeta(fresh));
     this.city.gen = fresh.gen ? { ...fresh.gen } : undefined;
     this.activeCityId = id;
     this.hud.setRoomName(id);
@@ -1770,7 +2085,7 @@ export class Game {
     this.playing = true;
     this.resetUiForCityChange();
     const fresh = createLevelCity(level);
-    writeCity(this.city, packCells(fresh), buildMeta(fresh));
+    this.adoptCity(packCells(fresh), buildMeta(fresh));
     refreshUtilities(this.city);
     this.enterLevel(id, `Level ${id} · ${level.title}`);
     this.rememberWorker(true);

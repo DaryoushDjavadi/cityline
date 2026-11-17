@@ -101,19 +101,19 @@ export const BUILD_MENU: BuildCategory[] = [
       { tool: "bridge", label: "Brücke", name: "Brücke", cost: COST.bridge, per: "pro Feld", blurb: "Straße über Wasser, angeschlossen an bestehende Straßen." },
       service("lamp", ServiceKind.Lamp, "Laterne"),
       service("airport", ServiceKind.Airport, "Flughafen", "Schneller Handel, wenig Kapazität. Logistik-Verbund mit einem nahen Hafen."),
-      service("harbor", ServiceKind.Harbor, "Hafen", "An die Küste. Günstiges Massengut, langsam. Fischerboote brauchen Arbeiter."),
+      service("harbor", ServiceKind.Harbor, "Hafen", "Direkt an die Meeresküste, auf Sand oder Land. Der Steg ragt ins Wasser. Danach Straße, Strom und Wasser anschließen."),
     ],
   },
   {
     id: "utility",
     label: "Versorgung",
     icon: "utility",
-    blurb: "Strom und Wasser lassen Gebäude wachsen. Leitungen verteilen beides.",
+    blurb: "Ziehen legt eine gerade oder L-förmige Leitung. Ein Gebäude ist versorgt, wenn Leitung oder Werk ein Feld daneben liegt.",
     items: [
       service("power", ServiceKind.Power, "Kraftwerk"),
       service("water", ServiceKind.Water, "Wasserwerk"),
-      { tool: "line", label: "Leitung", name: "Stromleitung", cost: COST.line, per: "pro Feld", blurb: "Verteilt Strom, auch über Straßen, Brücken und Wasser." },
-      { tool: "pipe", label: "Rohr", name: "Wasserrohr", cost: COST.pipe, per: "pro Feld", blurb: "Verteilt Wasser, auch über Straßen, Brücken und Wasser." },
+      { tool: "line", label: "Leitung", name: "Stromleitung", cost: COST.line, per: "pro Feld", blurb: "Ziehen: gerade oder mit einer Ecke. Über Straße und Wasser. Rechtsklick reißt nur die Leitung ab. Gebäude direkt daneben gelten als versorgt." },
+      { tool: "pipe", label: "Rohr", name: "Wasserrohr", cost: COST.pipe, per: "pro Feld", blurb: "Wie die Stromleitung, für Wasser. Rechtsklick entfernt nur das Rohr." },
     ],
   },
   {
