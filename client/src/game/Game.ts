@@ -700,12 +700,18 @@ export class Game {
       this.lastLook = time;
       this.socket.emit("look", { x: this.camera.target.x, z: this.camera.target.z });
     }
+    const updateStart = performance.now();
     this.view.update(dt, this.camera.target);
+    this.view.lastUpdateMs = performance.now() - updateStart;
     this.view.render(this.camera.camera);
     this.paintPeerCursors();
-    const stats = window as Window & { __cityline?: { frameMs: number; quality: string; ready: boolean } };
+    const stats = window as Window & { __cityline?: Record<string, unknown> };
     stats.__cityline = {
       frameMs: this.view.lastFrameMs,
+      updateMs: this.view.lastUpdateMs,
+      syncMs: this.view.lastSyncMs,
+      drawCalls: this.view.drawCalls,
+      triangles: this.view.triangles,
       quality: this.view.gfxLevel().level,
       ready: true,
     };
@@ -806,7 +812,8 @@ export class Game {
     this.view.setDecorations(false);
     this.overlays.zones = false;
     this.hud.setOverlays(this.overlays);
-    this.rememberWorker(false);
+    this.rememberWorker(params.get("run") === "1");
+    (window as unknown as { __citylineView?: unknown }).__citylineView = this.view;
     this.setTool("inspect");
     this.camera.resetOverview();
     this.camera.lookAt(showcase.focusX, showcase.focusZ);
@@ -1683,7 +1690,9 @@ export class Game {
     document.body.dataset.waterNet = live.water ? "on" : "off";
     this.hud.setOverlays(live);
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
+    const syncStart = performance.now();
     this.view.sync(this.city, live);
+    this.view.lastSyncMs = performance.now() - syncStart;
     if (this.playKind === "level") this.syncLevel();
     else this.maybeAutoSave();
     // Only refresh an open building panel; never auto-switch to a car (B1).

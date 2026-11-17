@@ -139,6 +139,11 @@ export class CityRenderer {
   private weatherOverride: Climate["weather"] | null = null;
   private frameIndex = 0;
   lastFrameMs = 16;
+  /** Perf probes (rolling, exposed via window.__cityline). */
+  lastSyncMs = 0;
+  lastUpdateMs = 0;
+  drawCalls = 0;
+  triangles = 0;
   private readonly shadowCasters: THREE.Object3D[] = [];
   private decorations = true;
   private readonly people: THREE.InstancedMesh;
@@ -174,7 +179,6 @@ export class CityRenderer {
   private readonly preview: THREE.InstancedMesh;
   private readonly radiusRing: THREE.InstancedMesh;
   private readonly births = new Map<number, number>();
-  private lastOverlays: Overlays = { zones: true, power: false, water: false };
   private readonly locks: THREE.InstancedMesh;
   private readonly carMeshes = new Map<string, THREE.InstancedMesh>();
   private readonly carSlots = new Map<string, number>();
@@ -212,6 +216,10 @@ export class CityRenderer {
   private shown: CityState | null = null;
   private walkers: Walker[] = [];
   private roadStamp = "";
+  /** Signature of everything the static grid pass draws; unchanged ticks skip the rebuild. */
+  private staticStamp = "";
+  /** Instances still popping in; animated in place instead of a full rebuild per frame. */
+  private birthSlots: { mesh: THREE.InstancedMesh; slot: number; x: number; y: number; z: number; rotY: number; color: number; cell: number; base: number }[] = [];
   private traffic: Uint8Array<ArrayBufferLike> = new Uint8Array(CAP);
   private readonly planes: THREE.InstancedMesh;
   private readonly cargoBoats: THREE.InstancedMesh;
@@ -231,6 +239,7 @@ export class CityRenderer {
     this.quality = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.level !== "low", powerPreference: "high-performance" });
     this.renderer.setPixelRatio(this.quality.pixelRatio);
+    this.renderer.info.autoReset = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -542,7 +551,6 @@ export class CityRenderer {
 
   sync(city: CityState, overlays: Overlays): void {
     this.shown = city;
-    this.lastOverlays = overlays;
     this.traffic = computeTraffic(city).load;
     if (this.roadsChanged(city)) this.rebuildGraph(city);
     this.syncCars(city);
@@ -552,6 +560,16 @@ export class CityRenderer {
     this.beachCrowd = beachVisitors(city, this.quality.level === "low" ? 10 : this.quality.level === "medium" ? 22 : 36);
     this.tourists = tradeTourists(city, this.quality.level === "low" ? 4 : this.quality.level === "medium" ? 8 : 12);
     this.rebuildGround(city);
+    const stamp = this.staticSignature(city, overlays);
+    if (stamp === this.staticStamp) {
+      this.paintCars();
+      this.paintPedestrians();
+      this.paintPlanes();
+      this.paintBoats();
+      return;
+    }
+    this.staticStamp = stamp;
+    this.birthSlots = [];
 
     let curbs = 0;
     let roads = 0;
@@ -815,7 +833,7 @@ export class CityRenderer {
       sprite.position.y = Number(sprite.userData.baseY) + bob;
       sprite.scale.setScalar((Number(sprite.userData.scale) || 8.2) * pulse);
     }
-    if (this.shown && this.births.size > 0) this.sync(this.shown, this.lastOverlays);
+    if (this.birthSlots.length > 0) this.animateBirths();
     this.flightTime += dt;
     if (this.flights.length > 0) this.paintPlanes();
     if (this.boats.length > 0) this.paintBoats();
@@ -847,6 +865,7 @@ export class CityRenderer {
 
   render(camera: THREE.Camera): void {
     const started = performance.now();
+    this.renderer.info.reset();
     this.frameIndex += 1;
     if (this.quality.shadows && this.quality.shadowEvery > 0 && this.frameIndex % this.quality.shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
@@ -857,6 +876,8 @@ export class CityRenderer {
       this.composer.render();
     } else this.renderer.render(this.scene, camera);
     this.lastFrameMs = performance.now() - started;
+    this.drawCalls = this.renderer.info.render.calls;
+    this.triangles = this.renderer.info.render.triangles;
   }
 
   private roadsChanged(city: CityState): boolean {
@@ -1258,7 +1279,11 @@ export class CityRenderer {
     this.renderer.toneMappingExposure = stamped.exposure;
     this.scene.background = this.atmosphere.skyMaterial.uniforms.uZenith.value;
     this.rain.visible = lookClimate.weather === "rain";
-    if (this.bloom) this.bloom.strength = this.nightLit ? 0.1 : 0.05;
+    if (this.bloom) {
+      this.bloom.strength = this.nightLit ? 0.1 : 0.05;
+      // Daytime bloom at 0.05 is invisible but costs ~10 full-screen passes.
+      this.bloom.enabled = this.nightLit || goldenAmount(lookClimate.hour) > 0.4;
+    }
     this.paintLocalLights();
   }
 
@@ -1550,7 +1575,11 @@ export class CityRenderer {
       this.smileyDummy.updateMatrix();
       this.smileys.setMatrixAt(slot, this.smileyDummy.matrix);
     }
-    if (this.smileys.count > 0) this.smileys.instanceMatrix.needsUpdate = true;
+    if (this.smileys.count > 0) {
+      this.smileys.instanceMatrix.clearUpdateRanges();
+      this.smileys.instanceMatrix.addUpdateRange(0, this.smileys.count * 16);
+      this.smileys.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private layBridge(
@@ -1743,9 +1772,40 @@ export class CityRenderer {
     if (!instances) return;
     const slot = this.modelSlot.get(key) ?? 0;
     if (slot >= 700) return;
-    const scale = (cell >= 0 ? this.birthScale(cell) : 1) * (key === "airport" ? 1.28 : 1);
+    const base = key === "airport" ? 1.28 : 1;
+    const scale = (cell >= 0 ? this.birthScale(cell) : 1) * base;
     this.put(instances, slot, x, y, z, scale, scale, scale, rotY, color);
+    if (cell >= 0 && this.births.has(cell)) this.birthSlots.push({ mesh: instances, slot, x, y, z, rotY, color, cell, base });
     this.modelSlot.set(key, slot + 1);
+  }
+
+  /** Grow freshly built models in place (no full grid rebuild per frame). */
+  private animateBirths(): void {
+    const touched = new Set<THREE.InstancedMesh>();
+    this.birthSlots = this.birthSlots.filter((entry) => {
+      const scale = this.birthScale(entry.cell) * entry.base;
+      this.put(entry.mesh, entry.slot, entry.x, entry.y, entry.z, scale, scale, scale, entry.rotY, entry.color);
+      touched.add(entry.mesh);
+      return this.births.has(entry.cell);
+    });
+    for (const mesh of touched) {
+      mesh.instanceMatrix.clearUpdateRanges();
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private staticSignature(city: CityState, overlays: Overlays): string {
+    let hash = 2166136261;
+    const layers = [city.roads, city.zones, city.levels, city.utility, city.services, city.lines, city.pipes, city.skills, city.terrain];
+    for (const layer of layers) {
+      for (let index = 0; index < layer.length; index += 1) {
+        hash ^= layer[index];
+        hash = Math.imul(hash, 16777619);
+      }
+    }
+    let posts = 0;
+    for (let index = 0; index < city.posts.length; index += 1) posts = (Math.imul(posts, 31) + city.posts[index]) | 0;
+    return `${hash >>> 0}:${posts}:${overlays.zones ? 1 : 0}${overlays.power ? 1 : 0}${overlays.water ? 1 : 0}:${this.nightLit ? 1 : 0}:${this.decorations ? 1 : 0}:${this.quality.level}:${city.width}`;
   }
 
   private birthScale(index: number): number {
@@ -1781,10 +1841,20 @@ export class CityRenderer {
     this.seaMaterial.uniforms.uMapExtent.value = city.width * CELL_SIZE;
   }
 
+  /** Upload only the live instance range; empty-to-empty meshes upload nothing. */
   private finish(mesh: THREE.InstancedMesh, count: number): void {
+    const before = mesh.count;
     mesh.count = count;
+    if (count === 0 && before === 0) return;
+    const used = Math.max(1, count);
+    mesh.instanceMatrix.clearUpdateRanges();
+    mesh.instanceMatrix.addUpdateRange(0, used * 16);
     mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.clearUpdateRanges();
+      mesh.instanceColor.addUpdateRange(0, used * 3);
+      mesh.instanceColor.needsUpdate = true;
+    }
   }
 }
 
