@@ -92,6 +92,8 @@ export function poseSun(hour: number, target: THREE.Vector3): THREE.Vector3 {
 }
 
 export function seaMaterial(): THREE.ShaderMaterial {
+  const blank = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat);
+  blank.needsUpdate = true;
   return new THREE.ShaderMaterial({
     fog: false,
     uniforms: {
@@ -99,10 +101,14 @@ export function seaMaterial(): THREE.ShaderMaterial {
       uShade: { value: 1 },
       uNight: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.55, 0.28, -0.4) },
-      uDeep: { value: new THREE.Color(0x1a5f8a) },
-      uMid: { value: new THREE.Color(0x2474a0) },
-      uShallow: { value: new THREE.Color(0x2f88b0) },
+      uDeep: { value: new THREE.Color(0x17608c) },
+      uMid: { value: new THREE.Color(0x2176a4) },
+      uShallow: { value: new THREE.Color(0x2c88b2) },
+      uLagoon: { value: new THREE.Color(0x7ee8d6) },
       uHorizon: { value: new THREE.Color(0xf0c48a) },
+      uLand: { value: blank },
+      uMapHalf: { value: 320 },
+      uMapExtent: { value: 640 },
     },
     vertexShader: `
       uniform float uTime;
@@ -126,18 +132,31 @@ export function seaMaterial(): THREE.ShaderMaterial {
     fragmentShader: `
       uniform float uShade;
       uniform float uNight;
+      uniform float uTime;
       uniform vec3 uSunDir;
       uniform vec3 uDeep;
       uniform vec3 uMid;
       uniform vec3 uShallow;
+      uniform vec3 uLagoon;
       uniform vec3 uHorizon;
+      uniform sampler2D uLand;
+      uniform float uMapHalf;
+      uniform float uMapExtent;
       varying vec3 vWorld;
       varying vec3 vNormalW;
       void main() {
         float dist = length(vWorld.xz);
-        float near = smoothstep(420.0, 140.0, dist);
-        vec3 color = mix(uDeep, uMid, 0.38 + near * 0.28);
-        color = mix(color, uShallow, near * 0.16);
+        vec2 uv = (vWorld.xz + uMapHalf) / max(uMapExtent, 1.0);
+        float land = 0.0;
+        if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+          land = texture2D(uLand, uv).r;
+        }
+        float nearShore = smoothstep(0.02, 0.42, land);
+        float foam = smoothstep(0.18, 0.36, land) * smoothstep(0.5, 0.34, land);
+        foam *= 0.55 + 0.45 * sin(uTime * 1.7 + vWorld.x * 0.31 + vWorld.z * 0.27);
+        vec3 color = mix(uDeep, uMid, 0.38);
+        color = mix(color, uShallow, 0.16);
+        color = mix(color, uLagoon, nearShore * mix(0.92, 0.35, uNight));
         vec3 n = normalize(vNormalW);
         vec3 view = normalize(cameraPosition - vWorld);
         vec3 sun = normalize(uSunDir);
@@ -150,6 +169,7 @@ export function seaMaterial(): THREE.ShaderMaterial {
           * (1.0 - smoothstep(380.0, 1200.0, dist));
         vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
         color += glitter * (spec * 0.12 * (1.0 - smoothstep(320.0, 980.0, dist)) + streak * mix(0.22, 0.08, uNight));
+        color = mix(color, vec3(0.94, 0.98, 1.0), foam * mix(0.45, 0.12, uNight));
         vec3 ray = normalize(vWorld - cameraPosition);
         float horizonFade = smoothstep(0.002, -0.003, ray.y) * smoothstep(1500.0, 2800.0, dist);
         vec3 hazeCol = mix(uMid, uHorizon, mix(0.32, 0.1, uNight));
@@ -235,11 +255,13 @@ export function applyLook(
     seaMaterial.uniforms.uDeep.value.set(0x143a66);
     seaMaterial.uniforms.uMid.value.set(0x1d5580);
     seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
+    seaMaterial.uniforms.uLagoon.value.set(0x3d8aa8);
     seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
   } else {
     seaMaterial.uniforms.uDeep.value.set(0x17608c);
     seaMaterial.uniforms.uMid.value.set(0x2176a4);
     seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
+    seaMaterial.uniforms.uLagoon.value.set(0x7ee8d6);
     seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8);
   }
 
@@ -351,16 +373,16 @@ function skyGradient(): THREE.ShaderMaterial {
       void main() {
         vec3 ray = normalize(vWorld - cameraPosition);
         float h = ray.y;
-        float band = smoothstep(-0.002, 0.012, h);
+        float band = pow(clamp((h + 0.18) / 0.72, 0.0, 1.0), 0.72);
         vec3 color = mix(uHorizon, uZenith, band);
         vec3 sun = normalize(uSunDir);
         float sunDot = max(dot(ray, sun), 0.0);
-        float glow = pow(sunDot, 8.0) * uGlow * (1.0 - uNight);
-        float halo = pow(sunDot, 3.4) * 0.16 * uGlow * (1.0 - uNight);
-        float low = pow(1.0 - clamp(h + 0.008, 0.0, 1.0), 6.5);
-        color += vec3(1.0, 0.74, 0.34) * glow * 0.85;
-        color += vec3(1.0, 0.82, 0.5) * halo * low;
-        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.06);
+        float glow = pow(sunDot, 10.0) * uGlow * (1.0 - uNight);
+        float halo = pow(sunDot, 3.8) * 0.14 * uGlow * (1.0 - uNight);
+        float low = pow(1.0 - clamp(h + 0.04, 0.0, 1.0), 4.2);
+        color += vec3(1.0, 0.78, 0.42) * glow * 0.7;
+        color += vec3(1.0, 0.86, 0.58) * halo * low;
+        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.04);
         color = mix(color, vec3(0.07, 0.12, 0.24), uNight * 0.72);
         gl_FragColor = vec4(color, 1.0);
       }

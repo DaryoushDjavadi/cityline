@@ -110,6 +110,11 @@ export interface InspectTrade {
   enabled: boolean;
   /** Why the deal is locked, if any. */
   hint?: string | null;
+  route?: string;
+  goods?: string;
+  time?: string;
+  capacity?: string;
+  profit?: string;
 }
 
 export interface InspectView {
@@ -1266,6 +1271,16 @@ function tradePanel(deals: InspectTrade[], onTrade: (id: string) => void): HTMLE
       const detail = document.createElement("span");
       detail.textContent = deal.enabled ? deal.detail : (deal.hint || deal.detail);
       copy.append(name, detail);
+      if (deal.route || deal.time || deal.capacity) {
+        const meta = document.createElement("div");
+        meta.className = "insp-trade-meta";
+        if (deal.route) meta.append(tradeChip(deal.route));
+        if (deal.goods) meta.append(tradeChip(deal.goods));
+        if (deal.time) meta.append(tradeChip(deal.time));
+        if (deal.capacity) meta.append(tradeChip(deal.capacity));
+        if (deal.profit) meta.append(tradeChip(deal.profit));
+        copy.append(meta);
+      }
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = deal.price;
@@ -1279,6 +1294,12 @@ function tradePanel(deals: InspectTrade[], onTrade: (id: string) => void): HTMLE
     nodes.push(block);
   }
   return nodes;
+}
+
+function tradeChip(text: string): HTMLElement {
+  const chip = document.createElement("em");
+  chip.textContent = text;
+  return chip;
 }
 
 function hireRow(hire: InspectHire, onHire: () => void): HTMLElement {

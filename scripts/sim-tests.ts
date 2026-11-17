@@ -168,6 +168,15 @@ export function runSimTests(): void {
       }
     }
     if (peaked < 8) fail(`hills should be visible, peaked=${peaked}`);
+    const coastMap = createCity(undefined, undefined, { seed: 1842, biome: "temperate", water: 40 });
+    let inlandPeak = 0;
+    for (let y = 8; y < 56; y += 1) {
+      for (let x = 8; x < 56; x += 1) {
+        if (coastMap.terrain[cellIndex(coastMap, x, y)] === 1) continue;
+        inlandPeak = Math.max(inlandPeak, cellHeight(coastMap, x, y));
+      }
+    }
+    if (inlandPeak < 2.4) fail(`temperate hills should roll, peak=${inlandPeak}`);
     if (buildable < 20) fail("slopes stay buildable");
     hills.funds = 50_000;
     let placed = false;
@@ -211,6 +220,40 @@ export function runSimTests(): void {
     const again = saveToCity(packed);
     if (!again?.gen || again.gen.seed !== 3) fail("new saves keep gen");
     if (buildMeta(again).gen?.seed !== 3) fail("meta carries gen");
+  }
+
+  {
+    const { city, harbor } = placeCoastalHarbor();
+    const before = city.goals;
+    city.tick += 1;
+    stepSimulation(city);
+    if ((city.goals & 1024) === 0) fail("harbor quest should complete");
+    if (city.funds <= 0) fail("harbor quest should pay");
+    const airport = placeAirportNear(city, harbor);
+    if (airport < 0) fail("airport for logistics quest");
+    const spot = cellCoords(city, harbor);
+    let home = -1;
+    for (let dy = -5; dy <= 5 && home < 0; dy += 1) {
+      for (let dx = -5; dx <= 5 && home < 0; dx += 1) {
+        const index = cellIndex(city, spot.x + dx, spot.y + dy);
+        if (applyCommand(city, { type: "build", kind: "cottage", cells: [index] }).ok) home = index;
+      }
+    }
+    if (home < 0) fail("beach house for logistics quest");
+    stepSimulation(city);
+    if ((city.goals & 2048) === 0 && logisticsPartner(city, harbor) !== null) {
+      fail("logistics quest should complete when linked and a beach house exists");
+    }
+    void before;
+  }
+
+  {
+    const { city, harbor } = placeCoastalHarbor();
+    city.food = 40;
+    applyCommand(city, { type: "trade", index: harbor, deal: "food_out" });
+    const due = city.shipments?.[0]?.due ?? 0;
+    while (city.tick < due) stepSimulation(city);
+    if ((city.shipments ?? []).length !== 0) fail("shipment should settle");
   }
 
   console.log("sim-tests ok");

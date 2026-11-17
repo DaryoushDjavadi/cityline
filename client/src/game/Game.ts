@@ -88,6 +88,7 @@ import {
   serviceInfo,
   serviceNearby,
   unemployedAdults,
+  waterDir,
   worldToCell,
   writeCity,
   tradeBlockReason as hubTradeReason,
@@ -254,6 +255,7 @@ export class Game {
   private selected = -1;
   private playing = false;
   private lastSave = 0;
+  private lastShipments: { cell: number; due: number; money: number; food: number }[] = [];
   private building = false;
   private anchor: { x: number; y: number } | null = null;
   private readonly painted = new Set<number>();
@@ -393,8 +395,35 @@ export class Game {
         self.camera.update(0);
         self.camera.camera.updateMatrixWorld(true);
       },
+      lookSea(kind: "harbor" | "boats" | "overview" | "beach" | "airport") {
+        const e2e = (window as unknown as { __citylineE2E: { findHarbor: () => { x: number; y: number } | null; findBeach: () => { x: number; y: number } | null; findAirport: () => { x: number; y: number } | null; findCoast: () => { x: number; y: number } | null; lookAt: (x: number, y: number, distance?: number, polar?: number, lift?: number, azimuth?: number) => void } }).__citylineE2E;
+        const harbor = e2e.findHarbor();
+        const beach = e2e.findBeach();
+        const airport = e2e.findAirport();
+        const coast = harbor ?? beach ?? e2e.findCoast();
+        if (!coast) return;
+        const dir = waterDir(self.city, coast.x, coast.y);
+        const inland = Math.atan2(-dir.dx, -dir.dy);
+        if (kind === "boats") e2e.lookAt(coast.x + dir.dx * 2, coast.y + dir.dy * 2, 42, 0.92, 1.4, inland + 0.18);
+        else if (kind === "harbor") e2e.lookAt(coast.x + dir.dx * 1.2, coast.y + dir.dy * 1.2, 32, 0.94, 1.1, inland + 0.62);
+        else if (kind === "beach") {
+          const target = beach ?? coast;
+          e2e.lookAt(target.x + dir.dx * 1.4, target.y + dir.dy * 1.4, 22, 1.05, 0.9, inland + 0.18);
+        } else if (kind === "airport") {
+          const target = airport ?? coast;
+          e2e.lookAt(target.x + 1, target.y, 36, 0.85, 1.7, 0.18);
+        } else e2e.lookAt(coast.x - dir.dx * 7, coast.y - dir.dy * 8, 118, 0.96, 12, inland + 0.06);
+      },
       setHour(hour: number) {
         self.city.tick = Math.round(((hour % 24) / 24) * 600);
+        self.rememberWorker(false);
+        self.publish();
+      },
+      setChrome(on: boolean) {
+        self.view.setDecorations(on);
+        if (on) delete document.body.dataset.look;
+        else document.body.dataset.look = "shot";
+        self.setQuality("high");
         self.publish();
       },
       findCoast(): { x: number; y: number; screen: { x: number; y: number } } | null {
@@ -414,6 +443,15 @@ export class Game {
           if (self.city.services[i] === ServiceKind.Harbor) return cellCoords(self.city, i);
         }
         return null;
+      },
+      findAirport(): { x: number; y: number } | null {
+        for (let i = 0; i < self.city.services.length; i += 1) {
+          if (self.city.services[i] === ServiceKind.Airport) return cellCoords(self.city, i);
+        }
+        return null;
+      },
+      inspectCell(x: number, y: number) {
+        self.showCell({ x, y });
       },
       findBeach(): { x: number; y: number } | null {
         const crowd = beachVisitors(self.city, 36);
@@ -1362,6 +1400,7 @@ export class Game {
   }
 
   private publish(meta: SimMeta = buildMeta(this.city)): void {
+    this.noticeArrivals();
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
     this.view.sync(this.city, this.overlays);
     if (this.playKind === "level") this.syncLevel();
@@ -1370,9 +1409,41 @@ export class Game {
     if (this.focus === "cell" && this.selected >= 0) this.showCell(cellCoords(this.city, this.selected));
   }
 
+  private frameOpening(): void {
+    this.camera.resetOverview();
+    for (let y = this.city.height - 8; y >= 8; y -= 1) {
+      for (let x = 10; x < this.city.width - 10; x += 1) {
+        const index = cellIndex(this.city, x, y);
+        if (!isBeach(this.city, index) && !adjacentToOcean(this.city, index)) continue;
+        if (this.city.terrain[index] === 1) continue;
+        const world = cellToWorld(this.city, x, y);
+        this.camera.lookAt(world.x, world.z - 18);
+        this.camera.distance = 175;
+        this.camera.polar = 0.98;
+        this.camera.lookLift = 10;
+        this.camera.azimuth = 0.58;
+        return;
+      }
+    }
+  }
+
+  private noticeArrivals(): void {
+    const now = this.city.shipments ?? [];
+    if (this.lastShipments.length > 0) {
+      for (const prev of this.lastShipments) {
+        const still = now.some((entry) => entry.cell === prev.cell && entry.due === prev.due && entry.money === prev.money && entry.food === prev.food);
+        if (still) continue;
+        if (prev.money > 0) this.flash(`Lieferung angekommen: +${prev.money.toLocaleString("de-DE")} €`);
+        else if (prev.food > 0) this.flash(`Fracht angekommen: +${prev.food} Nahrung`);
+      }
+    }
+    this.lastShipments = now.map((entry) => ({ cell: entry.cell, due: entry.due, money: entry.money, food: entry.food }));
+  }
+
   private resetUiForCityChange(): void {
     this.focus = null;
     this.selected = -1;
+    this.lastShipments = [];
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -1526,7 +1597,7 @@ export class Game {
     this.persistActiveCity(typed || id);
     this.rememberWorker(true);
     this.setTool("inspect");
-    this.camera.resetOverview();
+    this.frameOpening();
     this.lastSave = performance.now();
     this.publish();
     void this.refreshLobby();
@@ -2132,6 +2203,12 @@ export class Game {
         trade: TRADE.map((deal) => {
           const quote = quoteTrade(this.city, index, deal);
           const enabled = this.canTrade(deal.id);
+          const delay = quote?.delay ?? 0;
+          const profit = quote && deal.side === "export"
+            ? `+${quote.price.toLocaleString("de-DE")} €`
+            : quote
+              ? `−${quote.price.toLocaleString("de-DE")} €`
+              : "";
           return {
             id: deal.id,
             name: deal.name,
@@ -2140,6 +2217,11 @@ export class Game {
             price: `${(quote?.price ?? deal.price).toLocaleString("de-DE")} €`,
             enabled,
             hint: enabled ? null : this.tradeBlockReason(deal.id),
+            route: kind === "harbor" ? "Schiff → Hafen" : "Flug → Flughafen",
+            goods: deal.food ? `${quote?.food ?? deal.food} Nahrung` : deal.requires === "industrial" ? "Maschinen" : deal.requires === "commercial" ? "Waren" : deal.name,
+            time: delay <= 0 ? "sofort" : `${delay} Ticks`,
+            capacity: quote ? `${quote.used}/${quote.slots} Plätze` : "",
+            profit,
           };
         }),
         note: [
@@ -2290,7 +2372,13 @@ export class Game {
       if (this.focus === "cell") this.showCell(cellCoords(this.city, this.selected));
       return;
     }
+    const listed = TRADE.find((entry) => entry.id === deal);
+    const quote = listed ? quoteTrade(this.city, this.selected, listed) : null;
     this.applyLocal({ type: "trade", index: this.selected, deal });
+    if (quote && quote.delay <= 0) {
+      if (quote.side === "export") this.flash(`Ankunft: +${quote.price.toLocaleString("de-DE")} €`);
+      else if (quote.food > 0) this.flash(`Ankunft: +${quote.food} Nahrung`);
+    }
     if (this.focus === "cell") this.showCell(cellCoords(this.city, this.selected));
   }
 

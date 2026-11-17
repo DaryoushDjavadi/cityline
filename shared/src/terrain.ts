@@ -365,13 +365,31 @@ export function rawHill(city: CityState, x: number, y: number): number {
   const index = cellIndex(city, x, y);
   if (city.terrain[index] === TERRAIN_WATER) return -0.14;
   const seed = city.gen.seed >>> 0;
-  const n = fbm(x, y, seed + 77, 0.048);
-  const ridge = fbm(x, y, seed + 201, 0.11);
-  const alpine = city.gen.biome === "alpine" ? 1.18 : 1;
-  let height = ((n - 0.36) * 5.6 + (ridge - 0.48) * 2.1) * alpine;
-  if (city.terrain[index] === TERRAIN_BEACH) height = 0.04 + n * 0.05;
-  else if (touchesWater(city, x, y)) height = Math.max(0.05, height * 0.22);
-  return Math.max(0, Math.min(7.2, height));
+  const n = fbm(x, y, seed + 77, 0.042);
+  const ridge = fbm(x, y, seed + 201, 0.09);
+  const roll = fbm(x, y, seed + 411, 0.021);
+  const alpine = city.gen.biome === "alpine" ? 1.22 : 1;
+  const inland = waterDistance(city, x, y);
+  const lift = Math.max(0, (n - 0.12) * 7.2 + (ridge - 0.34) * 4.1 + (roll - 0.38) * 8.6);
+  let height = (lift * (0.1 + Math.min(1, inland / 6) * 1.7) + Math.max(0, inland - 2) * 0.42) * alpine;
+  if (city.terrain[index] === TERRAIN_BEACH) height = 0.05 + n * 0.12;
+  else if (touchesWater(city, x, y)) height = Math.max(0.05, height * 0.12);
+  return Math.max(0, Math.min(9.5, height));
+}
+
+const WATER_SCAN = [
+  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+] as const;
+
+function waterDistance(city: CityState, x: number, y: number): number {
+  for (let radius = 1; radius <= 10; radius += 1) {
+    for (const [dx, dy] of WATER_SCAN) {
+      const nx = x + dx * radius;
+      const ny = y + dy * radius;
+      if (!inBounds(city, nx, ny) || city.terrain[cellIndex(city, nx, ny)] === TERRAIN_WATER) return radius;
+    }
+  }
+  return 10;
 }
 
 /** 0 = grass, 1 = sand. Narrow noisy strip at the waterline. */
@@ -386,9 +404,17 @@ export function vertexSand(city: CityState, vx: number, vy: number): number {
       water = Math.min(water, Math.hypot(dx, dy) * 10);
     }
   }
-  const dither = (hash2(vx, vy, (city.gen?.seed ?? 1) + 91) - 0.5) * 2.6;
-  const mix = 1 - smoothstep(0.7, 5.4, water + dither);
-  return Math.max(0, Math.min(1, mix));
+  let beach = 0;
+  for (let y = vy - 1; y <= vy; y += 1) {
+    for (let x = vx - 1; x <= vx; x += 1) {
+      if (!inBounds(city, x, y)) continue;
+      if (city.terrain[cellIndex(city, x, y)] === TERRAIN_BEACH) beach += 1;
+    }
+  }
+  const dither = (hash2(vx, vy, (city.gen?.seed ?? 1) + 91) - 0.5) * 4.6;
+  const shore = 1 - smoothstep(0.2, 9.4, water + dither);
+  const dune = beach * 0.22 + (hash2(vx + 3, vy - 2, (city.gen?.seed ?? 1) + 44) - 0.35) * 0.18;
+  return Math.max(0, Math.min(1, Math.max(shore, dune)));
 }
 
 function smoothstep(edge0: number, edge1: number, x: number): number {

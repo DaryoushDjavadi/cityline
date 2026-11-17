@@ -1,5 +1,7 @@
 import { isBridge, isRoad } from "./city.ts";
 import { BRIDGE_FLAG } from "./grid.ts";
+import { nearBeach } from "./people.ts";
+import { logisticsPartner } from "./trade.ts";
 import { POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
 
 export interface CityGoal {
@@ -20,6 +22,8 @@ export const GOALS: CityGoal[] = [
   { bit: 128, title: "Schule", text: "Bau eine Schule. Gebildete zahlen mehr Steuern.", reward: 7_000 },
   { bit: 256, title: "Brücke", text: "Bau eine Brücke über Wasser.", reward: 8_000 },
   { bit: 512, title: "Richtige Stadt", text: "120 Einwohner und acht besetzte Jobs.", reward: 20_000 },
+  { bit: 1024, title: "Hafenstadt", text: "Bau einen Hafen an der Küste.", reward: 12_000 },
+  { bit: 2048, title: "Logistik-Verbund", text: "Hafen und Flughafen nah beieinander, plus ein Haus am Strand.", reward: 18_000 },
 ];
 
 export interface GoalProgress {
@@ -39,6 +43,10 @@ interface GoalCounts {
   park: boolean;
   school: boolean;
   bridge: boolean;
+  harbor: boolean;
+  airport: boolean;
+  linked: boolean;
+  beachHome: boolean;
 }
 
 function countGoals(city: CityState): GoalCounts {
@@ -52,17 +60,23 @@ function countGoals(city: CityState): GoalCounts {
   let park = false;
   let school = false;
   let bridge = false;
+  let harbor = false;
+  let airport = false;
+  let beachHome = false;
   for (let index = 0; index < city.zones.length; index += 1) {
     if (isRoad(city, index) && !isBridge(city, index)) roads += 1;
     if ((city.roads[index] & BRIDGE_FLAG) !== 0) bridge = true;
     if (city.services[index] === ServiceKind.Park) park = true;
     if (city.services[index] === ServiceKind.School) school = true;
+    if (city.services[index] === ServiceKind.Harbor) harbor = true;
+    if (city.services[index] === ServiceKind.Airport) airport = true;
     const level = city.levels[index];
     if (level <= 0) continue;
     if (city.zones[index] === Zone.Residential) {
       homes += 1;
       population += level * 12;
       if ((city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT)) lit = true;
+      if (nearBeach(city, index)) beachHome = true;
     } else if (city.zones[index] === Zone.Commercial) commercial = true;
     else if (city.zones[index] === Zone.Industrial) industrial = true;
   }
@@ -72,11 +86,21 @@ function countGoals(city: CityState): GoalCounts {
     const zone = city.zones[workplace];
     if (city.levels[workplace] > 0 && (zone === Zone.Commercial || zone === Zone.Industrial || zone === Zone.Farm)) jobs += 1;
   }
-  return { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge };
+  let linked = false;
+  if (harbor && airport) {
+    for (let index = 0; index < city.services.length; index += 1) {
+      if (city.services[index] !== ServiceKind.Harbor) continue;
+      if (logisticsPartner(city, index) !== null) {
+        linked = true;
+        break;
+      }
+    }
+  }
+  return { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge, harbor, airport, linked, beachHome };
 }
 
 export function goalMask(city: CityState): number {
-  const { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge } = countGoals(city);
+  const { roads, homes, lit, jobs, population, commercial, industrial, park, school, bridge, harbor, linked, beachHome } = countGoals(city);
   let mask = 0;
   if (roads >= 6) mask |= 1;
   if (homes >= 1) mask |= 2;
@@ -88,6 +112,8 @@ export function goalMask(city: CityState): number {
   if (school) mask |= 128;
   if (bridge) mask |= 256;
   if (population >= 120 && jobs >= 8) mask |= 512;
+  if (harbor) mask |= 1024;
+  if (linked && beachHome) mask |= 2048;
   return mask;
 }
 
@@ -109,6 +135,11 @@ export function goalProgress(city: CityState, bit: number): GoalProgress {
     case 64: return flag(c.park);
     case 128: return flag(c.school);
     case 256: return flag(c.bridge);
+    case 1024: return flag(c.harbor);
+    case 2048: {
+      const parts = Number(c.linked) + Number(c.beachHome);
+      return { ratio: parts / 2, label: `${c.linked ? "Verbund" : "ohne Verbund"} · ${c.beachHome ? "Strandhaus" : "kein Strandhaus"}` };
+    }
     case 512: {
       const pop = Math.min(1, c.population / 120);
       const jobs = Math.min(1, c.jobs / 8);

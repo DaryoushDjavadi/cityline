@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.42",
+    at: "17. Nov 2026",
+    title: "Hafen, Meer und Handel im Feinschliff",
+    items: [
+      "Hafen mit Kai, Pier, Kran (bewegt Container), Lager, Leuchtturm und bunten Containern. Schiffe haben Rumpf, Kajüte und Kielwasser, legen am Pier an und bleiben auf dem Wasser.",
+      "Flughafen mit Startbahn-Markierungen, Glas-Terminal und Tower. Flugzeuge rollen, starten und landen mit weicher Höhenkurve.",
+      "Hügel und Küste: weiches Licht, Sand-Gras-Übergang, türkises Flachwasser als weicher Shader-Verlauf (keine Treppen am Ufer) und bewegte Gischt. Am Strand: gestreifte Schirme, bunte Tücher, Schwimmer und grüne Smileys.",
+      "Handelspanel zeigt Route, Ware, Zeit, Plätze und Gewinn. Ankunft eines Schiffs oder Flugzeugs bringt eine kurze +€-Meldung. Touristen laufen vom Verbund zum Strand.",
+      "Neue Aufträge: Hafenstadt und Logistik-Verbund. Grafikqualität Auto/Hoch/Mittel/Schonend bleibt gültig.",
+    ],
+  },
+  {
     version: "0.41",
     at: "16. Nov 2026",
     title: "Hafen, Hügel und Strandglück",

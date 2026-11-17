@@ -2,7 +2,7 @@ import { climateAt, isOnDuty } from "./climate.ts";
 import { serviceInfo } from "./catalog.ts";
 import { ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
 import { isBeach, waterDir } from "./terrain.ts";
-import { hubJobs, isHub } from "./trade.ts";
+import { hubJobs, isHub, logisticsPartner } from "./trade.ts";
 import { POST_SLOTS, POWER_BIT, ServiceKind, WATER_BIT, Zone, type CityState } from "./types.ts";
 
 export const BEACH_HAPPINESS_RADIUS = 5;
@@ -73,7 +73,7 @@ export interface StreetPedestrian {
   happy: boolean;
 }
 
-export type BeachPose = "idle" | "sit" | "lie";
+export type BeachPose = "idle" | "sit" | "lie" | "swim";
 
 export interface BeachVisitor {
   id: string;
@@ -363,12 +363,15 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
           if (isOnDuty(home, member.slot, workplace, climate)) continue;
           if ((hash(home * 83 + member.slot * 5 + rotate) % 2) !== 0) continue;
         }
-        const poseRoll = hash(home * 17 + member.name.length + 9) % 8;
-        const pose: BeachPose = poseRoll <= 3 ? "lie" : poseRoll <= 6 ? "sit" : "idle";
+        const poseRoll = hash(home * 17 + member.name.length + 9) % 10;
+        const pose: BeachPose = poseRoll <= 2 ? "lie" : poseRoll <= 4 ? "sit" : poseRoll <= 6 ? "idle" : "swim";
         const spot = cellCoords(city, cell);
         const dir = waterDir(city, spot.x, spot.y);
-        const along = 2.4 + (hash(home * 19 + member.name.length) % 10) * 0.16;
-        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.42;
+        const intoWater = pose === "swim"
+          ? 10.4 + (hash(home * 13 + member.name.length) % 8) * 0.5
+          : 3.2 + (hash(home * 19 + member.name.length) % 10) * 0.18;
+        const along = intoWater;
+        const side = ((hash(home * 29 + member.slot + 4) % 11) - 5) * 0.85;
         visitors.push({
           id: `beach-${home}-${member.name}`,
           home,
@@ -385,8 +388,55 @@ export function beachVisitors(city: CityState, limit = 36): BeachVisitor[] {
     }
   }
   if (visitors.length <= limit) return visitors;
-  const start = Math.floor(city.tick / 18) % visitors.length;
-  return Array.from({ length: limit }, (_, offset) => visitors[(start + offset) % visitors.length]);
+  const swimmers = visitors.filter((visitor) => visitor.pose === "swim");
+  const rest = visitors.filter((visitor) => visitor.pose !== "swim");
+  const swimKeep = Math.min(4, swimmers.length);
+  const start = Math.floor(city.tick / 18) % Math.max(1, rest.length);
+  const picked = swimmers.slice(0, swimKeep);
+  for (let offset = 0; picked.length < limit && rest.length > 0; offset += 1) {
+    picked.push(rest[(start + offset) % rest.length]!);
+  }
+  return picked;
+}
+
+export interface TradeTourist {
+  id: string;
+  from: number;
+  to: number;
+  color: number;
+  child: boolean;
+  happy: boolean;
+  phase: number;
+}
+
+/** Visible visitors walking from ferry/airport toward a beach when the logistics link is active. */
+export function tradeTourists(city: CityState, limit = 10): TradeTourist[] {
+  if (limit <= 0) return [];
+  const sand = beachCells(city).filter((cell) => isOpenSand(city, cell));
+  if (sand.length === 0) return [];
+  const hubs: number[] = [];
+  for (let index = 0; index < city.services.length; index += 1) {
+    if (!isHub(city, index)) continue;
+    if (logisticsPartner(city, index) === null) continue;
+    hubs.push(index);
+  }
+  if (hubs.length === 0) return [];
+  const out: TradeTourist[] = [];
+  const n = Math.min(limit, hubs.length * 4);
+  for (let i = 0; i < n; i += 1) {
+    const hub = hubs[i % hubs.length]!;
+    const beach = nearestBeach(city, hub, sand) ?? sand[i % sand.length]!;
+    out.push({
+      id: `tour-${hub}-${i}`,
+      from: hub,
+      to: beach,
+      color: PED_COLORS[i % PED_COLORS.length],
+      child: i % 5 === 0,
+      happy: true,
+      phase: (i * 2.4 + (city.tick % 20) * 0.15) % 12,
+    });
+  }
+  return out;
 }
 
 export function trimPosts(city: CityState, index: number): void {
