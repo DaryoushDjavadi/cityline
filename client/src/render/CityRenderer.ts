@@ -8,23 +8,28 @@ import {
   WATER_BIT,
   Zone,
   cellCoords,
+  cellHeight,
   cellToWorld,
   climateAt,
   inBounds,
   computeTraffic,
   helpBadges,
   utilityOutageBadges,
+  isBeach,
   isBridge,
   isLine,
   isPipe,
   isRoad,
   isWater,
+  occupancyStamp,
+  oceanMask,
   vegetationRoll,
+  vertexHeight,
   type BiomeId,
   type CityState,
   type Climate,
 } from "../../../shared/src/index.ts";
-import { streetCars, streetPedestrians, type StreetCar, type StreetPedestrian } from "../../../shared/src/people.ts";
+import { beachVisitors, streetCars, streetPedestrians, type BeachVisitor, type StreetCar, type StreetPedestrian } from "../../../shared/src/people.ts";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -32,7 +37,20 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
 import { gfxProfile, loadGfxPreset, type GfxPreset, type GfxProfile } from "./quality.ts";
-import { buildCarModels, buildModels, buildPlaneGeometry, buildTreeModels, modelForFarm, modelForService, modelForZone } from "./models.ts";
+import {
+  buildBoatGeometry,
+  buildCarModels,
+  buildModels,
+  buildPersonModels,
+  buildPlaneGeometry,
+  buildTowelGeometry,
+  buildUmbrellaGeometry,
+  buildTreeModels,
+  modelForFarm,
+  modelForService,
+  modelForZone,
+  type PersonPose,
+} from "./models.ts";
 
 const CORNER_ROT: Record<number, number> = {
   3: 0,
@@ -75,6 +93,7 @@ interface Pedestrian {
   side: number;
   x: number;
   z: number;
+  happy: boolean;
 }
 
 interface Overlays {
@@ -120,6 +139,15 @@ export class CityRenderer {
   private readonly rain: THREE.Points;
   private readonly rainPositions: Float32Array;
   private pedestrians: Pedestrian[] = [];
+  private beachCrowd: BeachVisitor[] = [];
+  private readonly personBodies = new Map<PersonPose, THREE.InstancedMesh>();
+  private readonly personHeads = new Map<PersonPose, THREE.InstancedMesh>();
+  private readonly personBodySlot = new Map<PersonPose, number>();
+  private readonly personHeadSlot = new Map<PersonPose, number>();
+  private readonly towels: THREE.InstancedMesh;
+  private readonly umbrellas: THREE.InstancedMesh;
+  private readonly smileys: THREE.InstancedMesh;
+  private readonly smileyDummy = new THREE.Object3D();
   private climateStamp = "";
   private streetActivity = 0.4;
   private nightLit = false;
@@ -171,7 +199,11 @@ export class CityRenderer {
   private roadStamp = "";
   private traffic: Uint8Array<ArrayBufferLike> = new Uint8Array(CAP);
   private readonly planes: THREE.InstancedMesh;
+  private readonly cargoBoats: THREE.InstancedMesh;
+  private readonly fishBoats: THREE.InstancedMesh;
+  private readonly ferryBoats: THREE.InstancedMesh;
   private flights: Flight[] = [];
+  private boats: { cell: number; phase: number; kind: "cargo" | "fish" | "ferry" }[] = [];
   private flightTime = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -257,7 +289,32 @@ export class CityRenderer {
       this.carSlots.set(model.key, 0);
       this.scene.add(instances);
     }
-    this.people = mesh(new THREE.CapsuleGeometry(0.28, 0.85, 3, 6), lit, 80);
+    this.people = mesh(new THREE.CapsuleGeometry(0.28, 0.85, 3, 6), lit, 8);
+    const personMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.04 });
+    const personCap = 96;
+    for (const model of buildPersonModels()) {
+      const bodies = new THREE.InstancedMesh(model.body, personMat, personCap);
+      bodies.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(personCap * 3), 3);
+      bodies.count = 0;
+      bodies.frustumCulled = false;
+      const heads = new THREE.InstancedMesh(model.head, personMat, personCap);
+      heads.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(personCap * 3), 3);
+      heads.count = 0;
+      heads.frustumCulled = false;
+      this.personBodies.set(model.key, bodies);
+      this.personHeads.set(model.key, heads);
+      this.personBodySlot.set(model.key, 0);
+      this.personHeadSlot.set(model.key, 0);
+      this.scene.add(bodies, heads);
+    }
+    this.towels = mesh(buildTowelGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), 48);
+    this.umbrellas = mesh(buildUmbrellaGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }), 24);
+    const smileMap = smileyTexture();
+    this.smileys = mesh(
+      new THREE.PlaneGeometry(0.55, 0.55),
+      new THREE.MeshBasicMaterial({ map: smileMap, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+      80,
+    );
     this.headlights = mesh(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshBasicMaterial({ color: 0xfff2c4 }),
@@ -281,6 +338,10 @@ export class CityRenderer {
       700,
     );
     this.planes = mesh(buildPlaneGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.12 }), 24);
+    const boatMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.12 });
+    this.cargoBoats = mesh(buildBoatGeometry("cargo"), boatMat, 16);
+    this.fishBoats = mesh(buildBoatGeometry("fish"), boatMat, 16);
+    this.ferryBoats = mesh(buildBoatGeometry("ferry"), boatMat, 12);
     this.rainPositions = new Float32Array(900 * 3);
     for (let i = 0; i < 900; i += 1) {
       this.rainPositions[i * 3] = (Math.random() - 0.5) * 220;
@@ -356,6 +417,12 @@ export class CityRenderer {
       this.radiusRing,
       this.locks,
       this.people,
+      this.towels,
+      this.umbrellas,
+      this.smileys,
+      this.cargoBoats,
+      this.fishBoats,
+      this.ferryBoats,
       this.headlights,
       this.lampPoles,
       this.streetLamps,
@@ -438,6 +505,8 @@ export class CityRenderer {
     this.syncCars(city);
     this.syncPedestrians(city);
     this.syncFlights(city);
+    this.syncBoats(city);
+    this.beachCrowd = beachVisitors(city, this.quality.level === "low" ? 10 : this.quality.level === "medium" ? 22 : 36);
     this.rebuildGround(city);
 
     let curbs = 0;
@@ -472,29 +541,30 @@ export class CityRenderer {
         const mask = city.roads[index] & 0b1111;
         const bend = CORNER_ROT[mask];
         const asphalt = this.asphaltColor(this.traffic[index] ?? 0);
+        const gy = this.heightOf(index);
         if (bend === undefined) {
-          const laid = this.layRoad(world.x, world.z, mask, asphalt, curbs, roads);
+          const laid = this.layRoad(world.x, world.z, mask, asphalt, curbs, roads, gy);
           curbs = laid.curbs;
           roads = laid.roads;
           if (mask === 0b0101 || mask === 0b1010) {
             const east = mask === 0b1010;
-            this.put(this.markings, marks, world.x, 0.18, world.z, east ? CELL_SIZE * 0.55 : CELL_SIZE * 0.08, 0.04, east ? CELL_SIZE * 0.08 : CELL_SIZE * 0.55, 0, 0xffffff);
+            this.put(this.markings, marks, world.x, gy + 0.18, world.z, east ? CELL_SIZE * 0.55 : CELL_SIZE * 0.08, 0.04, east ? CELL_SIZE * 0.08 : CELL_SIZE * 0.55, 0, 0xffffff);
             marks += 1;
             if ((x + y) % 4 === 0) {
-              this.put(this.poles, poles, world.x + (east ? 0 : 3.4), 1.1, world.z + (east ? 3.4 : 0), 0.28, 2.2, 0.28, 0, 0xded3b4);
+              this.put(this.poles, poles, world.x + (east ? 0 : 3.4), gy + 1.1, world.z + (east ? 3.4 : 0), 0.28, 2.2, 0.28, 0, 0xded3b4);
               poles += 1;
             }
           }
         } else {
-          this.put(this.cornerCurbs, bends, world.x, 0, world.z, CELL_SIZE, 1, CELL_SIZE, bend, 0xd2c8b4);
-          this.put(this.corners, bends, world.x, 0, world.z, CELL_SIZE, 1, CELL_SIZE, bend, asphalt);
+          this.put(this.cornerCurbs, bends, world.x, gy, world.z, CELL_SIZE, 1, CELL_SIZE, bend, 0xd2c8b4);
+          this.put(this.corners, bends, world.x, gy, world.z, CELL_SIZE, 1, CELL_SIZE, bend, asphalt);
           bends += 1;
         }
       }
       if (isLine(city, index)) {
         const live = (city.utility[index] & POWER_BIT) !== 0;
         const color = live ? 0xf0c14a : 0x5c5348;
-        const raised = isBridge(city, index) ? bridgeCrest(city, index) + 3.4 : isWater(city, index) ? 4.6 : 2.45;
+        const raised = isBridge(city, index) ? bridgeCrest(city, index) + 3.4 : isWater(city, index) ? 4.6 : this.heightOf(index) + 2.45;
         this.put(this.poles, poles, world.x, raised / 2, world.z, 0.35, raised, 0.35, 0, 0x6d6458);
         poles += 1;
         cables = this.layConductor(this.cables, cables, index, city.lines, world.x, world.z, raised, 0.16, color);
@@ -506,7 +576,7 @@ export class CityRenderer {
       if (isPipe(city, index)) {
         const live = (city.utility[index] & WATER_BIT) !== 0;
         const color = live ? 0x3d88c8 : 0x6a7c86;
-        const pipeY = isBridge(city, index) ? bridgeCrest(city, index) + 0.45 : isWater(city, index) ? 0.55 : 0.22;
+        const pipeY = isBridge(city, index) ? bridgeCrest(city, index) + 0.45 : isWater(city, index) ? 0.55 : this.heightOf(index) + 0.22;
         pipes = this.layConductor(this.pipeMesh, pipes, index, city.pipes, world.x, world.z, pipeY, 0.35, color);
         if (overlays.water && live) {
           this.put(this.water, waterCount, world.x, 0.24, world.z, CELL_SIZE * 0.36, 1, CELL_SIZE * 0.36, 0, 0x3f86d8);
@@ -521,7 +591,7 @@ export class CityRenderer {
           : city.zones[index] === Zone.Farm
             ? ((city.skills[index] & 0b1000) !== 0 ? 0x7a9a55 : 0xc4b44a)
           : 0xd0892b;
-        this.put(this.zones, zoneCount, world.x, 0.08, world.z, CELL_SIZE * 0.92, 1, CELL_SIZE * 0.92, 0, color);
+        this.put(this.zones, zoneCount, world.x, this.heightOf(index) + 0.08, world.z, CELL_SIZE * 0.92, 1, CELL_SIZE * 0.92, 0, color);
         zoneCount += 1;
       }
 
@@ -533,7 +603,7 @@ export class CityRenderer {
         if (shape) {
           const powered = (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
           const nightWarm = this.nightLit && (city.utility[index] & POWER_BIT) !== 0;
-          this.placeModel(shape.key, world.x, world.z, powered ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index);
+          this.placeModel(shape.key, world.x, world.z, powered ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index, this.heightOf(index));
         }
       }
 
@@ -544,10 +614,10 @@ export class CityRenderer {
       const served = modelForService(service);
       if (served) {
         const airportLit =
-          service !== ServiceKind.Airport || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
+          !isHubService(service) || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
         const nightWarm = this.nightLit && airportLit && (city.utility[index] & POWER_BIT) !== 0;
-        this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index);
-      } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index)) {
+        this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index, this.heightOf(index));
+      } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index) && !isBeach(city, index)) {
         const forest = city.gen?.forest ?? 50;
         const seed = city.gen?.seed ?? 1;
         const biome = city.gen?.biome ?? "temperate";
@@ -561,12 +631,12 @@ export class CityRenderer {
           const mesh = this.treeMeshes.get(key) ?? this.treeMeshes.get("tree0");
           const slot = this.treeSlots.get(key) ?? this.treeSlots.get("tree0") ?? 0;
           if (mesh && slot < CAP) {
-            this.put(mesh, slot, world.x + jx, 0, world.z + jz, 2.4 + (canopy % 3) * 0.35, tall * 1.15, 2.4, (scatter(x, y) % 6) * 0.5, 0xffffff);
+            this.put(mesh, slot, world.x + jx, this.heightOf(index), world.z + jz, 2.4 + (canopy % 3) * 0.35, tall * 1.15, 2.4, (scatter(x, y) % 6) * 0.5, 0xffffff);
             this.treeSlots.set(key, slot + 1);
           }
         } else if (vegetationRoll(x + 11, y + 5, seed) < stoneChance) {
           const size = 1.1 + (scatter(y, x) % 4) * 0.35;
-          this.put(this.stones, stones, world.x + jx, size * 0.35, world.z + jz, size, size * 0.7, size * 0.85, (scatter(x, y) % 5) * 0.4, biome === "arid" ? 0xa89878 : 0x8d877c);
+          this.put(this.stones, stones, world.x + jx, this.heightOf(index) + size * 0.35, world.z + jz, size, size * 0.7, size * 0.85, (scatter(x, y) % 5) * 0.4, biome === "arid" ? 0xa89878 : 0x8d877c);
           stones += 1;
         }
       }
@@ -598,6 +668,7 @@ export class CityRenderer {
     this.paintCars();
     this.paintPedestrians();
     this.paintPlanes();
+    this.paintBoats();
     this.paintLocalLights();
   }
 
@@ -605,7 +676,7 @@ export class CityRenderer {
     cells.forEach((index, slot) => {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
-      this.put(this.preview, slot, world.x, 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, legal[slot] ? 0x8ee7a0 : 0xe36d62);
+      this.put(this.preview, slot, world.x, this.heightOf(index) + 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, legal[slot] ? 0x8ee7a0 : 0xe36d62);
     });
     this.finish(this.preview, cells.length);
     let rings = 0;
@@ -626,7 +697,7 @@ export class CityRenderer {
     cells.forEach((index, slot) => {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
-      this.put(this.locks, slot, world.x, 0.24, world.z, CELL_SIZE * 0.95, 1, CELL_SIZE * 0.95, 0, 0xff9a3c);
+      this.put(this.locks, slot, world.x, this.heightOf(index) + 0.24, world.z, CELL_SIZE * 0.95, 1, CELL_SIZE * 0.95, 0, 0xff9a3c);
     });
     this.finish(this.locks, cells.length);
   }
@@ -639,7 +710,7 @@ export class CityRenderer {
     const { x, y } = cellCoords(city, index);
     const world = cellToWorld(city, x, y);
     this.hover.visible = true;
-    this.hover.position.set(world.x, 0.3, world.z);
+    this.hover.position.set(world.x, this.heightOf(index) + 0.3, world.z);
   }
 
   update(dt: number, target: THREE.Vector3): void {
@@ -668,6 +739,7 @@ export class CityRenderer {
     if (this.shown && this.births.size > 0) this.sync(this.shown, this.lastOverlays);
     this.flightTime += dt;
     if (this.flights.length > 0) this.paintPlanes();
+    if (this.boats.length > 0) this.paintBoats();
     this.updateRain(dt, target, climate);
     const jam = 0.45 + (1 - this.streetActivity) * 0.7;
     const pace = jam * this.rainyPace;
@@ -696,6 +768,7 @@ export class CityRenderer {
     if (this.quality.shadows && this.quality.shadowEvery > 0 && this.frameIndex % this.quality.shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
+    this.faceSmileys(camera);
     if (this.composer && this.renderPass) {
       this.renderPass.camera = camera;
       this.composer.render();
@@ -734,7 +807,7 @@ export class CityRenderer {
   }
 
   private syncCars(city: CityState): void {
-    const roster = streetCars(city);
+    const roster = streetCars(city, this.quality.level === "low" ? 28 : this.quality.level === "medium" ? 48 : 72);
     const previous = new Map(this.walkers.map((walker) => [walker.id, walker]));
     this.walkers = roster.map((car) => previous.get(car.id) ?? this.spawnCar(city, car));
     for (const walker of this.walkers) {
@@ -879,7 +952,7 @@ export class CityRenderer {
   }
 
   private syncPedestrians(city: CityState): void {
-    const roster = streetPedestrians(city);
+    const roster = streetPedestrians(city, this.quality.level === "low" ? 18 : this.quality.level === "medium" ? 36 : 56);
     const previous = new Map(this.pedestrians.map((ped) => [ped.id, ped]));
     this.pedestrians = roster.map((entry) => previous.get(entry.id) ?? this.spawnPedestrian(city, entry));
   }
@@ -908,6 +981,7 @@ export class CityRenderer {
       t,
       speed: entry.child ? 0.32 + (hashCode(entry.id) % 20) / 100 : 0.28 + (hashCode(entry.id) % 18) / 100,
       color: entry.color,
+      happy: entry.happy,
       side,
       x: 0,
       z: 0,
@@ -975,26 +1049,69 @@ export class CityRenderer {
   }
 
   private paintPedestrians(): void {
-    this.pedestrians.forEach((ped, slot) => {
+    for (const key of this.personBodySlot.keys()) {
+      this.personBodySlot.set(key, 0);
+      this.personHeadSlot.set(key, 0);
+    }
+    this.finish(this.people, 0);
+    let smiles = 0;
+    let towels = 0;
+    let umbrellas = 0;
+    const low = this.quality.level === "low";
+    for (const ped of this.pedestrians) {
       this.placePed(ped);
       const from = this.point(ped.from);
       const to = this.point(ped.to);
       const y = this.driveHeight(ped.from) + (this.driveHeight(ped.to) - this.driveHeight(ped.from)) * ped.t;
-      const scale = ped.child ? 0.72 : 1;
-      this.put(
-        this.people,
-        slot,
-        ped.x,
-        y + 0.85 * scale,
-        ped.z,
-        scale,
-        scale,
-        scale,
-        Math.atan2(to.x - from.x, to.z - from.z),
-        ped.color,
-      );
-    });
-    this.finish(this.people, this.pedestrians.length);
+      const scale = (ped.child ? 0.72 : 1) * (low ? 1.05 : 1.42);
+      const pose: PersonPose = low ? "low" : (Math.floor(ped.t * 8) % 2 === 0 ? "walkL" : "walkR");
+      const rotY = Math.atan2(to.x - from.x, to.z - from.z);
+      this.placePerson(pose, ped.x, y, ped.z, scale, rotY, ped.color);
+      if (ped.happy && (!low || smiles < 6) && smiles < 80) {
+        this.put(this.smileys, smiles, ped.x, y + 2.15 * scale, ped.z, 1, 1, 1, 0, 0xffffff);
+        smiles += 1;
+      }
+    }
+    for (const visitor of this.beachCrowd) {
+      if (!this.shown) continue;
+      const { x, y } = cellCoords(this.shown, visitor.cell);
+      const world = cellToWorld(this.shown, x, y);
+      const gy = this.heightOf(visitor.cell);
+      const scale = (visitor.child ? 0.7 : 1) * (low ? 1.05 : 1.42);
+      const pose: PersonPose = low ? "low" : visitor.pose === "lie" ? "lie" : visitor.pose === "sit" ? "sit" : "idle";
+      const px = world.x + visitor.ox;
+      const pz = world.z + visitor.oz;
+      this.placePerson(pose, px, gy, pz, scale, visitor.ox * 0.4, visitor.color);
+      if (visitor.pose === "lie" && towels < 48) {
+        this.put(this.towels, towels, px, gy + 0.04, pz, 1, 1, 1, visitor.ox * 0.2, visitor.color);
+        towels += 1;
+      }
+      if (!low && visitor.pose === "sit" && umbrellas < 24 && (hashCode(visitor.id) % 3) === 0) {
+        this.put(this.umbrellas, umbrellas, px + 0.35, gy, pz - 0.2, 1, 1, 1, 0, visitor.color);
+        umbrellas += 1;
+      }
+      if (visitor.happy && smiles < 80) {
+        this.put(this.smileys, smiles, px, gy + (pose === "lie" ? 0.85 : 2.15 * scale), pz, 1, 1, 1, 0, 0xffffff);
+        smiles += 1;
+      }
+    }
+    for (const [key, instances] of this.personBodies) this.finish(instances, this.personBodySlot.get(key) ?? 0);
+    for (const [key, instances] of this.personHeads) this.finish(instances, this.personHeadSlot.get(key) ?? 0);
+    this.finish(this.towels, this.quality.level === "low" ? 0 : towels);
+    this.finish(this.umbrellas, this.quality.level === "low" ? 0 : umbrellas);
+    this.finish(this.smileys, smiles);
+  }
+
+  private placePerson(pose: PersonPose, x: number, y: number, z: number, scale: number, rotY: number, cloth: number): void {
+    const bodies = this.personBodies.get(pose);
+    const heads = this.personHeads.get(pose);
+    if (!bodies || !heads) return;
+    const slot = this.personBodySlot.get(pose) ?? 0;
+    if (slot >= 96) return;
+    this.put(bodies, slot, x, y, z, scale, scale, scale, rotY, cloth);
+    this.put(heads, slot, x, y, z, scale, scale, scale, rotY, 0xffffff);
+    this.personBodySlot.set(pose, slot + 1);
+    this.personHeadSlot.set(pose, slot + 1);
   }
 
   private applyClimate(climate: Climate, target: THREE.Vector3): void {
@@ -1110,7 +1227,7 @@ export class CityRenderer {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
       if (city.services[index] === ServiceKind.Lamp) {
-        const crest = isRoad(city, index) ? this.driveHeight(index) : 0.02;
+        const crest = isRoad(city, index) ? this.driveHeight(index) : this.heightOf(index) + 0.02;
         const powered = (city.utility[index] & POWER_BIT) !== 0;
         const ox = isRoad(city, index) ? 2.4 : 0;
         const oz = isRoad(city, index) ? 2.4 : 0;
@@ -1134,8 +1251,8 @@ export class CityRenderer {
       if (!building) continue;
       if ((city.utility[index] & POWER_BIT) === 0) continue;
       if (glows >= 700) continue;
-      const height = city.levels[index] > 0 ? 1.2 + city.levels[index] * 0.55 : 2.4;
-      const radius = city.services[index] === ServiceKind.Airport ? 8 : city.levels[index] >= 5 ? 5.5 : 4.2;
+      const height = this.heightOf(index) + (city.levels[index] > 0 ? 1.2 + city.levels[index] * 0.55 : 2.4);
+      const radius = city.services[index] === ServiceKind.Airport || city.services[index] === ServiceKind.Harbor ? 8 : city.levels[index] >= 5 ? 5.5 : 4.2;
       this.put(this.nightGlows, glows, world.x, height, world.z, radius, radius * 0.45, radius, 0, 0xffe2b0);
       glows += 1;
     }
@@ -1177,6 +1294,50 @@ export class CityRenderer {
     if (this.flights.length === 0) this.finish(this.planes, 0);
   }
 
+  private syncBoats(city: CityState): void {
+    const harbors: number[] = [];
+    for (let index = 0; index < city.services.length; index += 1) {
+      if (city.services[index] === ServiceKind.Harbor) harbors.push(index);
+    }
+    const cargoN = this.quality.level === "low" ? 1 : this.quality.level === "medium" ? 2 : 3;
+    const fishN = this.quality.level === "low" ? 0 : this.quality.level === "medium" ? 1 : 2;
+    const ferryN = this.quality.level === "low" ? 0 : 1;
+    this.boats = [];
+    for (const cell of harbors) {
+      for (let i = 0; i < cargoN; i += 1) this.boats.push({ cell, phase: i * 7.5, kind: "cargo" });
+      for (let i = 0; i < fishN; i += 1) this.boats.push({ cell, phase: i * 5.2 + 1.4, kind: "fish" });
+      for (let i = 0; i < ferryN; i += 1) this.boats.push({ cell, phase: 3.2, kind: "ferry" });
+    }
+  }
+
+  private paintBoats(): void {
+    if (!this.shown) {
+      this.finish(this.cargoBoats, 0);
+      this.finish(this.fishBoats, 0);
+      this.finish(this.ferryBoats, 0);
+      return;
+    }
+    let cargo = 0;
+    let fish = 0;
+    let ferry = 0;
+    for (const boat of this.boats) {
+      const pose = boatPose(this.shown, boat.cell, this.flightTime + boat.phase, boat.kind);
+      if (boat.kind === "cargo" && cargo < 16) {
+        this.put(this.cargoBoats, cargo, pose.x, pose.y, pose.z, 1, 1, 1, pose.rotY, 0xffffff);
+        cargo += 1;
+      } else if (boat.kind === "fish" && fish < 16) {
+        this.put(this.fishBoats, fish, pose.x, pose.y, pose.z, 1, 1, 1, pose.rotY, 0xffffff);
+        fish += 1;
+      } else if (boat.kind === "ferry" && ferry < 12) {
+        this.put(this.ferryBoats, ferry, pose.x, pose.y, pose.z, 1, 1, 1, pose.rotY, 0xffffff);
+        ferry += 1;
+      }
+    }
+    this.finish(this.cargoBoats, cargo);
+    this.finish(this.fishBoats, fish);
+    this.finish(this.ferryBoats, ferry);
+  }
+
   private paintPlanes(): void {
     if (!this.shown) {
       this.finish(this.planes, 0);
@@ -1216,7 +1377,7 @@ export class CityRenderer {
           ? modelForFarm(city.skills[cell])
           : modelForZone(city.zones[cell], city.levels[cell]))
         ?? modelForService(city.services[cell]);
-      const top = (shape?.height ?? 4) + 2.4;
+      const top = this.heightOf(cell) + (shape?.height ?? 4) + 2.4;
       const sprite = pool[slot];
       sprite.visible = true;
       sprite.userData.baseY = top;
@@ -1226,8 +1387,26 @@ export class CityRenderer {
   }
 
   private driveHeight(index: number): number {
-    if (!this.shown || !isBridge(this.shown, index)) return 0.48;
+    const base = this.heightOf(index);
+    if (!this.shown || !isBridge(this.shown, index)) return base + 0.48;
     return bridgeCrest(this.shown, index) + 0.28;
+  }
+
+  private heightOf(index: number): number {
+    if (!this.shown) return 0;
+    const { x, y } = cellCoords(this.shown, index);
+    return cellHeight(this.shown, x, y);
+  }
+
+  private faceSmileys(camera: THREE.Camera): void {
+    for (let slot = 0; slot < this.smileys.count; slot += 1) {
+      this.smileys.getMatrixAt(slot, this.smileyDummy.matrix);
+      this.smileyDummy.matrix.decompose(this.smileyDummy.position, this.smileyDummy.quaternion, this.smileyDummy.scale);
+      this.smileyDummy.lookAt(camera.position);
+      this.smileyDummy.updateMatrix();
+      this.smileys.setMatrixAt(slot, this.smileyDummy.matrix);
+    }
+    if (this.smileys.count > 0) this.smileys.instanceMatrix.needsUpdate = true;
   }
 
   private layBridge(
@@ -1360,7 +1539,7 @@ export class CityRenderer {
     return slot;
   }
 
-  private layRoad(x: number, z: number, mask: number, color: number, curbs: number, roads: number): { curbs: number; roads: number } {
+  private layRoad(x: number, z: number, mask: number, color: number, curbs: number, roads: number, gy = 0): { curbs: number; roads: number } {
     const arms = [
       { bit: 1, ox: 0, oz: -1, wide: false },
       { bit: 2, ox: 1, oz: 0, wide: true },
@@ -1368,7 +1547,7 @@ export class CityRenderer {
       { bit: 8, ox: -1, oz: 0, wide: true },
     ];
     const slab = (slotMesh: THREE.InstancedMesh, slot: number, ox: number, oz: number, sx: number, sz: number, y: number, height: number, paint: number) => {
-      this.put(slotMesh, slot, x + ox * CELL_SIZE * 0.25, y, z + oz * CELL_SIZE * 0.25, sx, height, sz, 0, paint);
+      this.put(slotMesh, slot, x + ox * CELL_SIZE * 0.25, gy + y, z + oz * CELL_SIZE * 0.25, sx, height, sz, 0, paint);
     };
     slab(this.curbs, curbs, 0, 0, CELL_SIZE * 0.92, CELL_SIZE * 0.92, 0.05, 0.1, 0xd2c8b4);
     curbs += 1;
@@ -1391,13 +1570,13 @@ export class CityRenderer {
     return { curbs, roads };
   }
 
-  private placeModel(key: string, x: number, z: number, color: number, cell = -1): void {
+  private placeModel(key: string, x: number, z: number, color: number, cell = -1, y = 0): void {
     const instances = this.models.get(key);
     if (!instances) return;
     const slot = this.modelSlot.get(key) ?? 0;
     if (slot >= 700) return;
     const scale = cell >= 0 ? this.birthScale(cell) : 1;
-    this.put(instances, slot, x, 0, z, scale, scale, scale, 0, color);
+    this.put(instances, slot, x, y, z, scale, scale, scale, 0, color);
     this.modelSlot.set(key, slot + 1);
   }
 
@@ -1419,7 +1598,7 @@ export class CityRenderer {
       hash ^= city.terrain[index];
       hash = Math.imul(hash, 16777619);
     }
-    const stamp = `${hash}:${city.gen?.biome ?? "temperate"}`;
+    const stamp = `${hash}:${city.gen?.biome ?? "temperate"}:${city.gen?.seed ?? 0}:${occupancyStamp(city)}`;
     if (stamp === this.groundStamp) return;
     this.groundStamp = stamp;
     const built = islandSurface(city);
@@ -1678,7 +1857,75 @@ function planePose(city: CityState, cell: number, time: number): { x: number; y:
   return { x: px, y: py, z: pz, rotY: Math.atan2(vx, vz) };
 }
 
-const GROUND_Y = 0.02;
+function isHubService(kind: number): boolean {
+  return kind === ServiceKind.Airport || kind === ServiceKind.Harbor;
+}
+
+function boatPose(city: CityState, cell: number, time: number, kind: "cargo" | "fish" | "ferry"): { x: number; y: number; z: number; rotY: number } {
+  const { x, y } = cellCoords(city, cell);
+  const origin = cellToWorld(city, x, y);
+  const edge = nearestSeaExit(city, x, y);
+  if (kind === "fish") {
+    const cycle = 18;
+    const t = ((time % cycle) + cycle) % cycle / cycle;
+    const ang = t * Math.PI * 2;
+    const radius = 18 + (cell % 7);
+    return {
+      x: origin.x + edge.x * 14 + Math.cos(ang) * radius,
+      y: -0.05,
+      z: origin.z + edge.z * 14 + Math.sin(ang) * radius,
+      rotY: ang + Math.PI / 2,
+    };
+  }
+  const cycle = kind === "ferry" ? 28 : 36;
+  const t = ((time % cycle) + cycle) % cycle / cycle;
+  const going = t < 0.5 ? t * 2 : 1 - (t - 0.5) * 2;
+  const dist = kind === "ferry" ? 90 : 140;
+  const px = origin.x + edge.x * (12 + going * dist);
+  const pz = origin.z + edge.z * (12 + going * dist);
+  const vx = t < 0.5 ? edge.x : -edge.x;
+  const vz = t < 0.5 ? edge.z : -edge.z;
+  return { x: px, y: kind === "cargo" ? 0.05 : -0.02, z: pz, rotY: Math.atan2(vx, vz) };
+}
+
+function nearestSeaExit(city: CityState, x: number, y: number): { x: number; z: number } {
+  const left = x;
+  const right = city.width - 1 - x;
+  const up = y;
+  const down = city.height - 1 - y;
+  const best = Math.min(left, right, up, down);
+  if (best === left) return { x: -1, z: 0 };
+  if (best === right) return { x: 1, z: 0 };
+  if (best === up) return { x: 0, z: -1 };
+  return { x: 0, z: 1 };
+}
+
+function smileyTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = "#3bb85a";
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1a3d22";
+  ctx.beginPath();
+  ctx.arc(22, 26, 5, 0, Math.PI * 2);
+  ctx.arc(42, 26, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1a3d22";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(32, 34, 14, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 const WATER_Y = -0.14;
 const SKIRT_Y = -2.85;
 
@@ -1690,36 +1937,6 @@ function groundPalette(biome: BiomeId): [number, number, number] {
   return [0x90c256, 0x97c85e, 0x90c256];
 }
 
-function oceanReach(city: CityState): Uint8Array {
-  const ocean = new Uint8Array(city.width * city.height);
-  const queue: number[] = [];
-  const enqueue = (x: number, y: number) => {
-    if (!inBounds(city, x, y)) return;
-    const index = y * city.width + x;
-    if (ocean[index] || !isWater(city, index)) return;
-    ocean[index] = 1;
-    queue.push(index);
-  };
-  for (let x = 0; x < city.width; x += 1) {
-    enqueue(x, 0);
-    enqueue(x, city.height - 1);
-  }
-  for (let y = 0; y < city.height; y += 1) {
-    enqueue(0, y);
-    enqueue(city.width - 1, y);
-  }
-  for (let head = 0; head < queue.length; head += 1) {
-    const index = queue[head]!;
-    const x = index % city.width;
-    const y = (index / city.width) | 0;
-    enqueue(x - 1, y);
-    enqueue(x + 1, y);
-    enqueue(x, y - 1);
-    enqueue(x, y + 1);
-  }
-  return ocean;
-}
-
 function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: THREE.LineSegments["geometry"] } {
   const cols = city.width + 1;
   const rows = city.height + 1;
@@ -1728,7 +1945,7 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const half = (city.width * CELL_SIZE) / 2;
   const biome = city.gen?.biome ?? "temperate";
   const palette = groundPalette(biome);
-  const ocean = oceanReach(city);
+  const ocean = oceanMask(city);
   const landHere = (x: number, y: number) => inBounds(city, x, y) && !isWater(city, y * city.width + x);
   for (let y = 0; y < rows; y += 1) {
     for (let x = 0; x < cols; x += 1) {
@@ -1746,9 +1963,37 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const earth = new THREE.Color(biome === "arid" ? 0xb08650 : 0xc48442);
   const earthDeep = new THREE.Color(biome === "arid" ? 0x8a6438 : 0x9a5a28);
   const water = new THREE.Color(0x17608c);
-  const paint = (x: number, y: number) => {
-    const checker = (x + y) & 1;
-    grass.set(palette[checker] ?? palette[0]);
+  const sand = new THREE.Color(biome === "arid" ? 0xd8c48c : 0xe8d4a4);
+  const ca = new THREE.Color();
+  const cb = new THREE.Color();
+  const cc = new THREE.Color();
+  const cornerTint = (vx: number, vy: number, out: THREE.Color) => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (const [dx, dy] of [[-1, -1], [-1, 0], [0, -1], [0, 0]] as const) {
+      const cx = vx + dx;
+      const cy = vy + dy;
+      if (!inBounds(city, cx, cy) || isWater(city, cy * city.width + cx)) continue;
+      if (isBeach(city, cy * city.width + cx)) {
+        r += sand.r;
+        g += sand.g;
+        b += sand.b;
+      } else {
+        grass.set(palette[(cx + cy) & 1] ?? palette[0]);
+        r += grass.r;
+        g += grass.g;
+        b += grass.b;
+      }
+      n += 1;
+    }
+    if (n === 0) {
+      out.copy(sand);
+      return out;
+    }
+    out.setRGB(r / n, g / n, b / n);
+    return out;
   };
   const addTri = (
     ax: number, ay: number, az: number,
@@ -1767,10 +2012,14 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
     normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     colors.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
   };
-  const top = (x0: number, z0: number, x1: number, z1: number, x2: number, z2: number) => {
-    addTri(x0, GROUND_Y, z0, x1, GROUND_Y, z1, x2, GROUND_Y, z2, grass, grass, grass);
+  const top = (
+    ax: number, ay: number, az: number, ac: THREE.Color,
+    bx: number, by: number, bz: number, bc: THREE.Color,
+    cx: number, cy: number, cz: number, cc: THREE.Color,
+  ) => {
+    addTri(ax, ay, az, bx, by, bz, cx, cy, cz, ac, bc, cc);
   };
-  const skirt = (x0: number, z0: number, x1: number, z1: number, cellX: number, cellY: number) => {
+  const skirt = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, cellX: number, cellY: number) => {
     const spot = cellToWorld(city, cellX, cellY);
     let nx = z0 - z1;
     let nz = x1 - x0;
@@ -1788,8 +2037,8 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
     const bz0 = z0 + nz * out;
     const bx1 = x1 + nx * out;
     const bz1 = z1 + nz * out;
-    addTri(x0, GROUND_Y, z0, x1, GROUND_Y, z1, bx1, SKIRT_Y, bz1, earth, earth, earthDeep);
-    addTri(x0, GROUND_Y, z0, bx1, SKIRT_Y, bz1, bx0, SKIRT_Y, bz0, earth, earthDeep, earthDeep);
+    addTri(x0, y0, z0, x1, y1, z1, bx1, SKIRT_Y, bz1, earth, earth, earthDeep);
+    addTri(x0, y0, z0, bx1, SKIRT_Y, bz1, bx0, SKIRT_Y, bz0, earth, earthDeep, earthDeep);
   };
 
   const plot: number[] = [];
@@ -1807,27 +2056,34 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
         continue;
       }
       const corners = [y * cols + x, y * cols + x + 1, (y + 1) * cols + x + 1, (y + 1) * cols + x];
-      paint(x, y);
-      top(pointX[corners[0]], pointZ[corners[0]], pointX[corners[2]], pointZ[corners[2]], pointX[corners[1]], pointZ[corners[1]]);
-      top(pointX[corners[0]], pointZ[corners[0]], pointX[corners[3]], pointZ[corners[3]], pointX[corners[2]], pointZ[corners[2]]);
+      const h0 = vertexHeight(city, x, y);
+      const h1 = vertexHeight(city, x + 1, y);
+      const h2 = vertexHeight(city, x + 1, y + 1);
+      const h3 = vertexHeight(city, x, y + 1);
+      const c0 = cornerTint(x, y, ca.clone());
+      const c1 = cornerTint(x + 1, y, cb.clone());
+      const c2 = cornerTint(x + 1, y + 1, cc.clone());
+      const c3 = cornerTint(x, y + 1, grass.clone());
+      top(pointX[corners[0]], h0, pointZ[corners[0]], c0, pointX[corners[2]], h2, pointZ[corners[2]], c2, pointX[corners[1]], h1, pointZ[corners[1]], c1);
+      top(pointX[corners[0]], h0, pointZ[corners[0]], c0, pointX[corners[3]], h3, pointZ[corners[3]], c3, pointX[corners[2]], h2, pointZ[corners[2]], c2);
       const edges = [
-        { nextX: x, nextY: y - 1, a: corners[0], b: corners[1] },
-        { nextX: x + 1, nextY: y, a: corners[1], b: corners[2] },
-        { nextX: x, nextY: y + 1, a: corners[3], b: corners[2] },
-        { nextX: x - 1, nextY: y, a: corners[0], b: corners[3] },
+        { nextX: x, nextY: y - 1, a: corners[0], b: corners[1], ha: h0, hb: h1 },
+        { nextX: x + 1, nextY: y, a: corners[1], b: corners[2], ha: h1, hb: h2 },
+        { nextX: x, nextY: y + 1, a: corners[3], b: corners[2], ha: h3, hb: h2 },
+        { nextX: x - 1, nextY: y, a: corners[0], b: corners[3], ha: h0, hb: h3 },
       ];
       for (const edge of edges) {
         if (landHere(edge.nextX, edge.nextY)) continue;
-        skirt(pointX[edge.a], pointZ[edge.a], pointX[edge.b], pointZ[edge.b], x, y);
+        skirt(pointX[edge.a], edge.ha, pointZ[edge.a], pointX[edge.b], edge.hb, pointZ[edge.b], x, y);
       }
       const east = landHere(x + 1, y);
       const south = landHere(x, y + 1);
       if (east && landHere(x, y - 1) && landHere(x + 1, y - 1)) {
         const edge = pointX[corners[1]];
-        plot.push(edge, GROUND_Y + 0.04, pointZ[corners[1]], edge, GROUND_Y + 0.04, pointZ[corners[2]]);
+        plot.push(edge, h1 + 0.04, pointZ[corners[1]], edge, h2 + 0.04, pointZ[corners[2]]);
       }
       if (south && landHere(x - 1, y) && landHere(x - 1, y + 1)) {
-        plot.push(pointX[corners[3]], GROUND_Y + 0.04, pointZ[corners[3]], pointX[corners[2]], GROUND_Y + 0.04, pointZ[corners[2]]);
+        plot.push(pointX[corners[3]], h3 + 0.04, pointZ[corners[3]], pointX[corners[2]], h2 + 0.04, pointZ[corners[2]]);
       }
     }
   }

@@ -53,5 +53,7 @@ export function saveToCity(raw: unknown): CityState | null {
   writeCity(city, cells, save.meta);
   if (typeof save.meta.goals !== "number") city.goals = goalMask(city);
   if (save.gen && typeof save.gen === "object") city.gen = save.gen as CityState["gen"];
+  if (typeof city.tradeHeat !== "number") city.tradeHeat = 0;
+  if (!Array.isArray(city.shipments)) city.shipments = [];
   return city;
 }

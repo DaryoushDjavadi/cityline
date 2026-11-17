@@ -2,10 +2,13 @@ import {
   BUILDINGS,
   DAY_TICKS,
   ServiceKind,
+  adjacentToOcean,
   applyCommand,
+  isBeach,
   cellIndex,
   cellToWorld,
   createCity,
+  inBounds,
   isWater,
   refreshUtilities,
   type CityState,
@@ -95,6 +98,30 @@ export function buildLookCity(hour = 7): LookCity {
   placeService(24, bestY - 1, ServiceKind.Power);
   placeService(24, bestY + 1, ServiceKind.Water);
   placeService(42, bestY + 1, ServiceKind.Airport);
+  let harborCell = -1;
+  for (let y = 8; y < city.height - 8 && harborCell < 0; y += 1) {
+    for (let x = 8; x < city.width - 8 && harborCell < 0; x += 1) {
+      const index = cellIndex(city, x, y);
+      if (!isBeach(city, index) && !adjacentToOcean(city, index)) continue;
+      if (isWater(city, index)) continue;
+      applyCommand(city, { type: "road", cells: [cellIndex(city, x, y + 1), cellIndex(city, x + 1, y), cellIndex(city, x - 1, y)] });
+      if (applyCommand(city, { type: "service", index, kind: ServiceKind.Harbor }).ok) harborCell = index;
+    }
+  }
+  if (harborCell >= 0) {
+    const hx = harborCell % city.width;
+    const hy = Math.floor(harborCell / city.width);
+    for (const [dx, dy] of [[-2, 0], [2, 0], [0, 2], [-1, 2], [1, 2], [-2, 1], [2, 1], [-3, 2], [3, 2], [-4, 1], [4, 1], [-2, 3], [2, 3], [0, 3], [-1, 3], [1, 3]] as const) {
+      const nx = hx + dx;
+      const ny = hy + dy;
+      if (!inBounds(city, nx, ny)) continue;
+      applyCommand(city, { type: "road", cells: [cellIndex(city, nx, ny + 1), cellIndex(city, nx + 1, ny)] });
+      placeBuild(nx, ny, "cottage");
+    }
+  }
+  for (const [x, y] of [[18, bestY - 3], [20, bestY - 3], [16, bestY + 3]] as const) {
+    placeBuild(x, y, "cottage");
+  }
   placeService(34, bestY + 1, ServiceKind.School);
   placeService(36, bestY + 1, ServiceKind.Fire);
 
@@ -113,7 +140,8 @@ export function buildLookCity(hour = 7): LookCity {
   for (const index of unique(lamps)) applyCommand(city, { type: "service", index, kind: ServiceKind.Lamp });
 
   refreshUtilities(city);
-  const focus = cellToWorld(city, 32, bestY);
+  const focusCell = harborCell >= 0 ? harborCell : cellIndex(city, 32, bestY);
+  const focus = cellToWorld(city, focusCell % city.width, Math.floor(focusCell / city.width));
   return { city, focusX: focus.x, focusZ: focus.z };
 }
 

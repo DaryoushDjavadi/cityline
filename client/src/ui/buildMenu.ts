@@ -38,6 +38,7 @@ const ICONS: Record<string, string> = {
   bridge: `<path d="M2 12h20"/><path d="M4 12c2-4 5-6 8-6s6 2 8 6"/><path d="M7 12V8.3M12 12V6M17 12V8.3"/><path d="M2 17c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/>`,
   lamp: `<path d="M12 3v2"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 1.4-.8 2.2-1.5 3.2-.5.7-.8 1.3-.9 2.3h-1.2c-.1-1-.4-1.6-.9-2.3-.7-1-1.5-1.8-1.5-3.2Z"/><path d="M11 14h2v7h-2z"/><path d="M9 21h6"/>`,
   airport: `<path d="M10.5 3.5a1.5 1.5 0 0 1 3 0V9l7 4v2l-7-2v4.5l2.5 2V21L12 20l-4 1v-1.5l2.5-2V13l-7 2v-2l7-4Z"/>`,
+  harbor: `<path d="M4 14h16l-2 5H6Z"/><path d="M7 14V8h3.5v6"/><path d="M12.5 14V6H18v8"/><path d="M3 19h18"/>`,
   power: `<path d="M13 2 6 13h5l-1 9 8-12h-5Z"/>`,
   water: `<path d="M12 3s6 6.5 6 10.5a6 6 0 0 1-12 0C6 9.5 12 3 12 3Z"/><path d="M9.5 14a2.5 2.5 0 0 0 2.5 2.5"/>`,
   line: `<path d="M12 3 7 21M12 3l5 18M8.5 15h7M9.8 9.5h4.4M4 7h16"/>`,
@@ -99,7 +100,8 @@ export const BUILD_MENU: BuildCategory[] = [
       { tool: "road", label: "Straße", name: "Straße", cost: COST.road, per: "pro Feld", blurb: "Gerade oder mit einer rechtwinkligen Ecke ziehen." },
       { tool: "bridge", label: "Brücke", name: "Brücke", cost: COST.bridge, per: "pro Feld", blurb: "Straße über Wasser, angeschlossen an bestehende Straßen." },
       service("lamp", ServiceKind.Lamp, "Laterne"),
-      service("airport", ServiceKind.Airport, "Flughafen", "Privatflugplatz mit Import und Export. Braucht Strom und Wasser, bringt etwa 260 € alle 2 s."),
+      service("airport", ServiceKind.Airport, "Flughafen", "Schneller Handel: teurer, weniger Menge. Mit einem Hafen in der Nähe entsteht ein Logistik-Verbund."),
+      service("harbor", ServiceKind.Harbor, "Hafen", "An die Meeresküste. Massengut günstiger und langsamer. Fischerboote bringen Nahrung, wenn Arbeiter da sind."),
     ],
   },
   {

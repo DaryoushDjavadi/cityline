@@ -39,8 +39,10 @@ function partGeometry(part: Part): THREE.BufferGeometry {
   let geometry: THREE.BufferGeometry;
   if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, 12);
   else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 6);
-  else if (part.shape === "sphere") geometry = new THREE.SphereGeometry(part.sx, 12, 8);
-  else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
+  else if (part.shape === "sphere") {
+    geometry = new THREE.SphereGeometry(part.sx, 10, 7);
+    if (part.sy !== part.sx || part.sz !== part.sx) geometry.scale(1, part.sy / part.sx, part.sz / part.sx);
+  } else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
   if (part.rx || part.ry || part.rz) {
     geometry.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(part.rx ?? 0, part.ry ?? 0, part.rz ?? 0)));
   }
@@ -316,6 +318,21 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   farmHerdWet: { height: 7.2, parts: [...farmHerdParts(), ...farmIrrigationParts()] },
   farmHerdSilo: { height: 8.6, parts: [...farmHerdParts(), ...farmSiloParts()] },
   farmHerdWetSilo: { height: 8.6, parts: [...farmHerdParts(), ...farmIrrigationParts(), ...farmSiloParts()] },
+  harbor: {
+    height: 7.2,
+    parts: [
+      box(0, 0.12, 0.6, 9.2, 0.24, 6.4, 0xc9b896),
+      box(0, 0.55, 2.6, 9.0, 0.7, 2.2, 0x6e7c86),
+      box(-2.4, 1.7, -1.4, 4.2, 2.6, 3.4, 0xd8c4a0),
+      box(-2.4, 3.15, -1.4, 4.5, 0.28, 3.7, 0x8a6a48),
+      box(-2.4, 2.1, 0.4, 1.6, 1.0, 0.12, WIN),
+      box(2.8, 2.4, -1.1, 2.2, 4.2, 2.2, 0xe7d2a8),
+      box(2.8, 4.6, -1.1, 2.5, 0.22, 2.5, 0xc44732),
+      { shape: "cyl", x: 2.8, y: 6.2, z: -1.1, sx: 0.08, sy: 2.4, sz: 0.08, color: 0xf4efe4 },
+      box(3.6, 0.7, 1.8, 1.8, 0.9, 3.2, 0x4a5560),
+      box(-3.4, 0.45, 2.2, 2.4, 0.35, 1.1, 0x8a4a32),
+    ],
+  },
   airport: {
     height: 8.4,
     parts: [
@@ -474,7 +491,134 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.Park) return { key: "park", height: CATALOG.park.height };
   if (kind === ServiceKind.University) return { key: "university", height: CATALOG.university.height };
   if (kind === ServiceKind.Airport) return { key: "airport", height: CATALOG.airport.height };
+  if (kind === ServiceKind.Harbor) return { key: "harbor", height: CATALOG.harbor.height };
   return null;
+}
+
+export function buildBoatGeometry(kind: "cargo" | "fish" | "ferry"): THREE.BufferGeometry {
+  if (kind === "fish") {
+    return compose([
+      box(0, 0.22, 0, 1.8, 0.32, 0.7, 0xd8c8a8),
+      box(0.55, 0.42, 0, 0.7, 0.42, 0.55, 0xc44732),
+      { shape: "cyl", x: 0.2, y: 0.85, z: 0, sx: 0.05, sy: 0.9, sz: 0.05, color: 0xe7dcc4 },
+    ]);
+  }
+  if (kind === "ferry") {
+    return compose([
+      box(0, 0.28, 0, 3.4, 0.4, 1.15, 0xf4efe4),
+      box(0, 0.85, 0, 2.2, 0.7, 0.9, 0x3d88b5),
+      box(0, 1.15, 0.48, 1.4, 0.35, 0.08, WIN),
+      { shape: "cyl", x: 1.1, y: 1.5, z: 0, sx: 0.06, sy: 1.1, sz: 0.06, color: 0xc44732 },
+    ]);
+  }
+  return compose([
+    box(0, 0.35, 0, 4.6, 0.55, 1.5, 0x6a7380),
+    box(0, 0.85, 0, 3.6, 0.55, 1.25, 0xc9a46a),
+    box(-1.3, 1.35, 0, 1.3, 0.55, 1.05, 0x4e5960),
+    box(1.4, 1.15, 0, 1.4, 0.35, 1.1, 0x8a6a48),
+    { shape: "cyl", x: -1.3, y: 2.2, z: 0, sx: 0.12, sy: 1.4, sz: 0.12, color: 0xd8dde2 },
+  ]);
+}
+
+const SKIN = 0xf3c7a4;
+const SHOE = 0x1c1916;
+const HAIR = 0x3b2a20;
+const EYE = 0x1a1614;
+const CLOTH = 0xffffff;
+
+function personArm(x: number, y: number, z: number, swing: number): Part[] {
+  return [{ shape: "cyl", x, y, z, sx: 0.11, sy: 0.46, sz: 0.11, color: CLOTH, rx: swing }];
+}
+
+function personLeg(x: number, y: number, z: number, stride: number): Part[] {
+  return [
+    { shape: "cyl", x, y, z, sx: 0.13, sy: 0.48, sz: 0.13, color: CLOTH, rx: stride },
+    box(x, 0.08, z + stride * 0.14, 0.2, 0.1, 0.26, SHOE),
+  ];
+}
+
+function personTorso(y: number, z = 0): Part[] {
+  return [
+    { shape: "sphere", x: 0, y, z, sx: 0.36, sy: 0.4, sz: 0.3, color: CLOTH },
+    box(0, y - 0.06, z, 0.5, 0.48, 0.34, CLOTH),
+  ];
+}
+
+function personBody(pose: "idle" | "walkL" | "walkR" | "sit" | "lie" | "low"): Part[] {
+  if (pose === "low") {
+    return [
+      { shape: "cyl", x: 0, y: 0.55, z: 0, sx: 0.22, sy: 0.9, sz: 0.22, color: CLOTH },
+      { shape: "sphere", x: 0, y: 1.12, z: 0, sx: 0.28, sy: 0.28, sz: 0.28, color: CLOTH },
+    ];
+  }
+  if (pose === "lie") {
+    return [
+      { shape: "sphere", x: 0, y: 0.28, z: 0.12, sx: 0.36, sy: 0.26, sz: 0.32, color: CLOTH },
+      box(0, 0.26, -0.12, 0.52, 0.24, 0.55, CLOTH),
+      { shape: "cyl", x: 0.16, y: 0.2, z: -0.48, sx: 0.12, sy: 0.46, sz: 0.12, color: CLOTH, rx: Math.PI / 2 },
+      { shape: "cyl", x: -0.16, y: 0.2, z: -0.48, sx: 0.12, sy: 0.46, sz: 0.12, color: CLOTH, rx: Math.PI / 2 },
+      box(0.16, 0.12, -0.72, 0.18, 0.1, 0.22, SHOE),
+      box(-0.16, 0.12, -0.72, 0.18, 0.1, 0.22, SHOE),
+      { shape: "cyl", x: 0.34, y: 0.28, z: 0.08, sx: 0.1, sy: 0.4, sz: 0.1, color: CLOTH, rz: Math.PI / 2 },
+      { shape: "cyl", x: -0.34, y: 0.28, z: 0.08, sx: 0.1, sy: 0.4, sz: 0.1, color: CLOTH, rz: -Math.PI / 2 },
+    ];
+  }
+  if (pose === "sit") {
+    return [
+      ...personTorso(0.62, 0),
+      { shape: "cyl", x: 0.14, y: 0.28, z: 0.28, sx: 0.12, sy: 0.4, sz: 0.12, color: CLOTH, rx: Math.PI / 2 },
+      { shape: "cyl", x: -0.14, y: 0.28, z: 0.28, sx: 0.12, sy: 0.4, sz: 0.12, color: CLOTH, rx: Math.PI / 2 },
+      box(0.14, 0.1, 0.5, 0.18, 0.1, 0.22, SHOE),
+      box(-0.14, 0.1, 0.5, 0.18, 0.1, 0.22, SHOE),
+      { shape: "cyl", x: 0.3, y: 0.68, z: 0.04, sx: 0.1, sy: 0.4, sz: 0.1, color: CLOTH, rx: 0.4 },
+      { shape: "cyl", x: -0.3, y: 0.68, z: 0.04, sx: 0.1, sy: 0.4, sz: 0.1, color: CLOTH, rx: 0.4 },
+    ];
+  }
+  const left = pose === "walkL" ? 0.7 : pose === "walkR" ? -0.7 : 0.06;
+  const right = -left;
+  return [
+    ...personTorso(0.98),
+    ...personLeg(0.13, 0.46, 0, left),
+    ...personLeg(-0.13, 0.46, 0, right),
+    ...personArm(0.3, 1.08, 0, right * 0.62),
+    ...personArm(-0.3, 1.08, 0, left * 0.62),
+  ];
+}
+
+function personFace(y: number, z: number): Part[] {
+  return [
+    { shape: "sphere", x: 0, y, z, sx: 0.32, sy: 0.34, sz: 0.32, color: SKIN },
+    { shape: "sphere", x: 0, y: y + 0.1, z: z - 0.06, sx: 0.34, sy: 0.22, sz: 0.34, color: HAIR },
+    { shape: "sphere", x: -0.09, y: y + 0.02, z: z + 0.26, sx: 0.045, sy: 0.05, sz: 0.04, color: EYE },
+    { shape: "sphere", x: 0.09, y: y + 0.02, z: z + 0.26, sx: 0.045, sy: 0.05, sz: 0.04, color: EYE },
+  ];
+}
+
+function personHead(pose: "idle" | "walkL" | "walkR" | "sit" | "lie" | "low"): Part[] {
+  if (pose === "low") return [];
+  if (pose === "lie") return personFace(0.32, 0.48);
+  return personFace(pose === "sit" ? 1.08 : 1.48, 0.04);
+}
+
+export type PersonPose = "idle" | "walkL" | "walkR" | "sit" | "lie" | "low";
+
+export function buildPersonModels(): { key: PersonPose; body: THREE.BufferGeometry; head: THREE.BufferGeometry }[] {
+  return (["idle", "walkL", "walkR", "sit", "lie", "low"] as const).map((key) => ({
+    key,
+    body: compose(personBody(key)),
+    head: compose(personHead(key).length ? personHead(key) : [{ shape: "sphere", x: 0, y: 1.22, z: 0, sx: 0.01, sy: 0.01, sz: 0.01, color: SKIN }]),
+  }));
+}
+
+export function buildTowelGeometry(): THREE.BufferGeometry {
+  return compose([box(0, 0.03, 0, 0.7, 0.04, 1.15, 0xffffff)]);
+}
+
+export function buildUmbrellaGeometry(): THREE.BufferGeometry {
+  return compose([
+    { shape: "cyl", x: 0, y: 0.7, z: 0, sx: 0.04, sy: 1.4, sz: 0.04, color: 0xe7dcc4 },
+    { shape: "cone", x: 0, y: 1.45, z: 0, sx: 0.7, sy: 0.28, sz: 0.7, color: 0xffffff },
+  ]);
 }
 
 export function buildPlaneGeometry(): THREE.BufferGeometry {

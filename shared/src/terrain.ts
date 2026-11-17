@@ -1,5 +1,9 @@
-import { cellIndex, inBounds } from "./grid.ts";
-import type { BiomeId, CityState, MapGen } from "./types.ts";
+import { DIRS, ROAD_FLAG, cellIndex, inBounds } from "./grid.ts";
+import { ServiceKind, type BiomeId, type CityState, type MapGen } from "./types.ts";
+
+export const TERRAIN_LAND = 0;
+export const TERRAIN_WATER = 1;
+export const TERRAIN_BEACH = 2;
 
 export type { BiomeId, MapGen };
 
@@ -81,6 +85,7 @@ export function pourTerrain(city: CityState, opts: MapGenOptions = {}): void {
   // Soft coastal bays after rivers/lakes for organic edges.
   if (gen.biome !== "arid") etchBays(city, gen, random);
 
+  ensureBeaches(city);
   city.rng = gen.seed >>> 0;
 }
 
@@ -254,7 +259,147 @@ function stampWater(city: CityState, x: number, y: number, extra: number): void 
 
 function isWaterCell(city: CityState, x: number, y: number): boolean {
   if (!inBounds(city, x, y)) return true;
-  return city.terrain[cellIndex(city, x, y)] === 1;
+  return city.terrain[cellIndex(city, x, y)] === TERRAIN_WATER;
+}
+
+export function isBeach(city: CityState, index: number): boolean {
+  return index >= 0 && index < city.terrain.length && city.terrain[index] === TERRAIN_BEACH;
+}
+
+/** Water connected to the map edge (sea), not inland lakes. */
+export function oceanMask(city: CityState): Uint8Array {
+  const ocean = new Uint8Array(city.width * city.height);
+  const queue: number[] = [];
+  const enqueue = (x: number, y: number) => {
+    if (!inBounds(city, x, y)) return;
+    const index = cellIndex(city, x, y);
+    if (ocean[index] || city.terrain[index] !== TERRAIN_WATER) return;
+    ocean[index] = 1;
+    queue.push(index);
+  };
+  for (let x = 0; x < city.width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, city.height - 1);
+  }
+  for (let y = 0; y < city.height; y += 1) {
+    enqueue(0, y);
+    enqueue(city.width - 1, y);
+  }
+  for (let head = 0; head < queue.length; head += 1) {
+    const index = queue[head]!;
+    const x = index % city.width;
+    const y = (index / city.width) | 0;
+    enqueue(x - 1, y);
+    enqueue(x + 1, y);
+    enqueue(x, y - 1);
+    enqueue(x, y + 1);
+  }
+  return ocean;
+}
+
+export function adjacentToOcean(city: CityState, index: number, ocean?: Uint8Array): boolean {
+  const mask = ocean ?? oceanMask(city);
+  const x = index % city.width;
+  const y = (index / city.width) | 0;
+  for (const dir of DIRS) {
+    const nx = x + dir.dx;
+    const ny = y + dir.dy;
+    if (!inBounds(city, nx, ny)) continue;
+    if (mask[cellIndex(city, nx, ny)]) return true;
+  }
+  return false;
+}
+
+function beachBlocked(city: CityState, index: number): boolean {
+  if (city.levels[index] > 0 || city.zones[index] !== 0) return true;
+  const service = city.services[index];
+  return service !== ServiceKind.None && service !== ServiceKind.Harbor && service !== ServiceKind.Lamp;
+}
+
+/** Paint empty coastal land as Strand. Occupied cells and old buildings stay as they are. */
+export function ensureBeaches(city: CityState): void {
+  const ocean = oceanMask(city);
+  for (let index = 0; index < city.terrain.length; index += 1) {
+    if (city.terrain[index] === TERRAIN_WATER) continue;
+    const coastal = adjacentToOcean(city, index, ocean);
+    if (city.terrain[index] === TERRAIN_BEACH) {
+      if (!coastal && city.services[index] !== ServiceKind.Harbor) city.terrain[index] = TERRAIN_LAND;
+      continue;
+    }
+    if (coastal && !beachBlocked(city, index)) city.terrain[index] = TERRAIN_BEACH;
+  }
+}
+
+export function cellFlattened(city: CityState, index: number): boolean {
+  if (index < 0 || index >= city.roads.length) return false;
+  if ((city.roads[index] & ROAD_FLAG) !== 0) return true;
+  if (city.levels[index] > 0) return true;
+  const service = city.services[index];
+  return service !== ServiceKind.None && service !== ServiceKind.Lamp;
+}
+
+function touchesWater(city: CityState, x: number, y: number): boolean {
+  for (const dir of DIRS) {
+    const nx = x + dir.dx;
+    const ny = y + dir.dy;
+    if (!inBounds(city, nx, ny) || city.terrain[cellIndex(city, nx, ny)] === TERRAIN_WATER) return true;
+  }
+  return false;
+}
+
+/** Raw hill height in world units. Old saves without gen stay flat. */
+export function rawHill(city: CityState, x: number, y: number): number {
+  if (!city.gen || !inBounds(city, x, y)) return 0;
+  const index = cellIndex(city, x, y);
+  if (city.terrain[index] === TERRAIN_WATER) return -0.14;
+  const seed = city.gen.seed >>> 0;
+  const n = fbm(x, y, seed + 77, 0.072);
+  const ridge = fbm(x, y, seed + 201, 0.16);
+  let height = (n - 0.48) * 2.45 + (ridge - 0.5) * 0.7;
+  if (city.terrain[index] === TERRAIN_BEACH) height = Math.min(0.1, height * 0.12) + 0.045;
+  else if (touchesWater(city, x, y)) height *= 0.28;
+  return Math.max(city.terrain[index] === TERRAIN_BEACH ? 0.03 : 0, height);
+}
+
+export function cellHeight(city: CityState, x: number, y: number): number {
+  if (!inBounds(city, x, y)) return 0;
+  const index = cellIndex(city, x, y);
+  const raw = rawHill(city, x, y);
+  if (!cellFlattened(city, index)) return raw;
+  return 0.16 * 0.88 + raw * 0.12;
+}
+
+/** Shared-vertex height: pads flatten their corners so buildings sit level. */
+export function vertexHeight(city: CityState, vx: number, vy: number): number {
+  let sum = 0;
+  let count = 0;
+  let flatSum = 0;
+  let flatCount = 0;
+  for (const [dx, dy] of [[-1, -1], [-1, 0], [0, -1], [0, 0]] as const) {
+    const x = vx + dx;
+    const y = vy + dy;
+    if (!inBounds(city, x, y)) continue;
+    const index = cellIndex(city, x, y);
+    const height = cellHeight(city, x, y);
+    sum += height;
+    count += 1;
+    if (cellFlattened(city, index)) {
+      flatSum += height;
+      flatCount += 1;
+    }
+  }
+  if (flatCount > 0) return flatSum / flatCount;
+  return count > 0 ? sum / count : 0;
+}
+
+export function occupancyStamp(city: CityState): number {
+  let hash = 2166136261;
+  for (let index = 0; index < city.roads.length; index += 1) {
+    const bit = cellFlattened(city, index) ? 1 : 0;
+    hash ^= bit + city.terrain[index] * 3;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function fbm(x: number, y: number, seed: number, scale: number): number {

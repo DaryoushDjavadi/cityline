@@ -1,4 +1,6 @@
-import { buildingInfo, FOOD_STOCK_MAX, readBudget, refundForLevel, serviceInfo, tradeDeal } from "./catalog.ts";
+import { buildingInfo, readBudget, refundForLevel, serviceInfo } from "./catalog.ts";
+import { adjacentToOcean, ensureBeaches, isBeach } from "./terrain.ts";
+import { applyHubTrade } from "./trade.ts";
 import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
@@ -53,6 +55,8 @@ export function createCity(width = GRID_SIZE, height = GRID_SIZE, opts: MapGenOp
     demand: { residential: 70, commercial: 62, industrial: 58 },
     goals: 0,
     food: 0,
+    tradeHeat: 0,
+    shipments: [],
   };
   generateTerrain(city, opts);
   return city;
@@ -61,6 +65,8 @@ export function createCity(width = GRID_SIZE, height = GRID_SIZE, opts: MapGenOp
 export function isWater(city: CityState, index: number): boolean {
   return index >= 0 && index < city.terrain.length && city.terrain[index] === 1;
 }
+
+export { isBeach };
 
 export { generateTerrain as pourTerrain };
 
@@ -160,6 +166,7 @@ export function placeBlockReason(
   }
   if (action === "build" || action === "zone") {
     if (isWater(city, index)) return "Auf Wasser kann man nicht bauen.";
+    if (isBeach(city, index)) return "Am Strand (Sand) stehen nur Hafen und Wege, keine Häuser.";
     if (isRoad(city, index)) return "Auf Straßen kann man nicht bauen.";
     if (isLine(city, index) || isPipe(city, index)) return "Leitungen blockieren den Bau.";
     if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
@@ -184,17 +191,21 @@ export function placeBlockReason(
     if (isPipe(city, index) && !isRoad(city, index) && !isLine(city, index)) return "Nicht auf reine Wasserrohre.";
     return "Laterne braucht Straße, Stromleitung oder ein Feld direkt an der Straße.";
   }
+  if (extra?.kind === ServiceKind.Harbor) {
+    if (isWater(city, index)) return "Der Hafen steht am Ufer, nicht im Wasser.";
+    if (!adjacentToOcean(city, index)) return "Hafen nur an der Meeresküste (direkt neben Meerwasser).";
+    if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) {
+      return "Feld ist belegt.";
+    }
+    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return "Feld ist belegt.";
+    if (!orthogonalRoad(city, index)) return "Der Hafen braucht eine Straße direkt daneben.";
+    return "Hier geht der Hafen nicht.";
+  }
+  if (isBeach(city, index)) return "Am Strand (Sand) stehen nur Hafen und Wege, keine Gebäude.";
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index)) return "Feld ist belegt.";
   if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
   if (!orthogonalRoad(city, index)) return "Öffentliche Gebäude brauchen eine Straße direkt daneben (orthogonal).";
   return "Hier geht das Gebäude nicht.";
-}
-
-function zonePresent(city: CityState, zone: number): boolean {
-  for (let index = 0; index < city.zones.length; index += 1) {
-    if (city.zones[index] === zone && city.levels[index] > 0) return true;
-  }
-  return false;
 }
 
 function orthogonalRoad(city: CityState, index: number): boolean {
@@ -230,6 +241,7 @@ export function canPlace(
     return free && !isRoad(city, index) && city.levels[index] === 0 && city.zones[index] === Zone.None;
   }
   if (action === "build") {
+    if (isBeach(city, index)) return false;
     if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
     if (city.zones[index] !== Zone.None || city.levels[index] > 0) return false;
     return nearRoad(city, index);
@@ -245,6 +257,7 @@ export function canPlace(
   if (action === "zone") {
     const zone = extra?.zone ?? Zone.None;
     if (zone !== Zone.Residential && zone !== Zone.Commercial && zone !== Zone.Industrial) return false;
+    if (isBeach(city, index)) return false;
     if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
     if (city.levels[index] > 0) return false;
     if (city.zones[index] === zone) return false;
@@ -269,6 +282,14 @@ export function canPlace(
     if (isPipe(city, index) && !isRoad(city, index) && !isLine(city, index)) return false;
     return isRoad(city, index) || isLine(city, index) || orthogonalRoad(city, index);
   }
+  if (extra?.kind === ServiceKind.Harbor) {
+    if (isWater(city, index)) return false;
+    if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
+    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return false;
+    if (!adjacentToOcean(city, index)) return false;
+    return orthogonalRoad(city, index);
+  }
+  if (isBeach(city, index)) return false;
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
   return orthogonalRoad(city, index);
 }
@@ -389,34 +410,7 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
   }
 
   if (command.type === "trade") {
-    const index = command.index;
-    if (city.services[index] !== ServiceKind.Airport) {
-      return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
-    }
-    const deal = tradeDeal(command.deal);
-    if (!deal) return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
-    if (deal.side === "import") {
-      if (deal.food && city.food + deal.food > FOOD_STOCK_MAX) {
-        return { ok: false, reason: "stock_full", spent: 0, applied, rejected: [index] };
-      }
-      if (!pay(deal.price)) return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };
-      if (deal.food) city.food = Math.min(FOOD_STOCK_MAX, city.food + deal.food);
-      city.funds -= spent;
-      city.revision += 1;
-      return { ok: true, spent, applied: [index], rejected };
-    }
-    if (deal.requires === "food") {
-      const take = Math.abs(deal.food ?? 0);
-      if (city.food < take) return { ok: false, reason: "no_stock", spent: 0, applied, rejected: [index] };
-      city.food -= take;
-    } else if (deal.requires === "commercial" && !zonePresent(city, Zone.Commercial)) {
-      return { ok: false, reason: "no_market", spent: 0, applied, rejected: [index] };
-    } else if (deal.requires === "industrial" && !zonePresent(city, Zone.Industrial)) {
-      return { ok: false, reason: "no_market", spent: 0, applied, rejected: [index] };
-    }
-    city.funds = Math.min(5_000_000, city.funds + deal.price);
-    city.revision += 1;
-    return { ok: true, spent: 0, applied: [index], rejected, bonus: deal.price };
+    return applyHubTrade(city, command.index, command.deal);
   }
 
   if (command.type === "hire") {
@@ -545,6 +539,7 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
   }
 
   if (applied.length === 0) return { ok: false, reason: reason ?? "rejected", spent: 0, applied, rejected };
+  if (command.type === "fill") ensureBeaches(city);
   if (command.type === "road" || command.type === "bridge" || command.type === "bulldoze") recomputeAround(city, city.roads, cells);
   if (command.type === "line" || command.type === "bulldoze") recomputeAround(city, city.lines, cells);
   if (command.type === "pipe" || command.type === "bulldoze") recomputeAround(city, city.pipes, cells);

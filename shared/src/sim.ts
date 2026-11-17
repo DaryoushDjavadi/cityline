@@ -1,4 +1,6 @@
-import { AIRPORT_INCOME, FOOD_PER_WORKER, FOOD_STOCK_MAX, foodNeed, serviceInfo } from "./catalog.ts";
+import { FOOD_PER_WORKER, FOOD_STOCK_MAX, foodNeed, serviceInfo } from "./catalog.ts";
+import { houseHappiness } from "./people.ts";
+import { decayMarket, harborYield, hubIncome, isHub, settleShipments } from "./trade.ts";
 import { claimGoals } from "./goals.ts";
 import { cellBudget, isLink, isRoad } from "./city.ts";
 import { farmStatus } from "./farm.ts";
@@ -94,6 +96,8 @@ export function buildMeta(city: CityState): SimMeta {
     goals: city.goals >>> 0,
     food: city.food,
     ...(city.gen ? { gen: { ...city.gen } } : {}),
+    tradeHeat: city.tradeHeat ?? 0,
+    shipments: (city.shipments ?? []).map((entry) => ({ ...entry })),
   };
 }
 
@@ -158,7 +162,7 @@ function supplyNetwork(city: CityState, kind: number, bit: number, capacityEach:
   const groups: { cells: number[]; distance: number; use: number }[] = [];
   for (let index = 0; index < count; index += 1) {
     if (seen[index] || isRoad(city, index)) continue;
-    if (city.services[index] === ServiceKind.Airport) {
+    if (isHub(city, index)) {
       seen[index] = 1;
       const reach = carrierDistance(city, index, layer, distance, kind);
       if (reach >= 0) groups.push({ cells: [index], distance: reach, use: 0 });
@@ -247,6 +251,7 @@ function foodProductionFromStaff(city: CityState, staff: Uint16Array): number {
   let total = 0;
   for (let index = 0; index < city.levels.length; index += 1) {
     total += farmYield(city, index, staff[index] ?? 0);
+    total += harborYield(city, index, staff[index] ?? 0);
   }
   return total;
 }
@@ -340,8 +345,8 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
   const meals = foodRatio(city);
   let income = 0;
   for (let index = 0; index < city.services.length; index += 1) {
-    if (city.services[index] !== ServiceKind.Airport) continue;
-    income += Math.round(AIRPORT_INCOME * (cellBudget(city, index) / 100));
+    if (!isHub(city, index)) continue;
+    income += hubIncome(city, index);
   }
   for (let index = 0; index < city.levels.length; index += 1) {
     if (city.zones[index] !== Zone.Residential || city.levels[index] <= 0) continue;
@@ -350,6 +355,7 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
     let district = 1;
     if (insideCoverage(city, index, clinics)) district += 0.25;
     if (insideCoverage(city, index, parks)) district += 0.15;
+    district += houseHappiness(city, index).tax;
     const education = 1 + (city.skills[index] & 3) * 0.22;
     income += city.levels[index] * 12 * 1.5 * utility * district * education * (0.72 + 0.28 * meals) * (cellBudget(city, index) / 100);
   }
@@ -394,6 +400,7 @@ function educate(city: CityState): void {
 export function stepSimulation(city: CityState): void {
   city.tick += 1;
   refreshUtilities(city);
+  settleShipments(city);
   claimGoals(city);
   if (city.tick % GROWTH_EVERY === 0) {
     updateDemand(city);
@@ -401,6 +408,7 @@ export function stepSimulation(city: CityState): void {
     const ledger = cityLedger(city);
     city.funds = Math.max(0, Math.min(5_000_000, city.funds + ledger.income - ledger.upkeep));
     settleFood(city);
+    decayMarket(city);
   }
   city.revision += 1;
 }

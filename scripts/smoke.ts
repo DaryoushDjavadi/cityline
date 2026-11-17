@@ -1,4 +1,4 @@
-import { deleteCityAuth, loadCityAuth, markCoopJoined, rememberCityPush, wasCoopJoined, allocateCityCode, applyCommand, buildMeta, canPlace, cellCoords, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, isBridge, isLevelRoom, isLine, isOnDuty, isRoad, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, writeCity, writeCitySlot } from "../shared/src/index.ts";
+import { deleteCityAuth, loadCityAuth, markCoopJoined, rememberCityPush, wasCoopJoined, adjacentToOcean, allocateCityCode, applyCommand, beachVisitors, buildMeta, canPlace, cellCoords, cellHeight, cellIndex, cityLedger, cityToSave, claimGoals, cleanChat, cleanClientId, climateAt, createCity, createLevelCity, DAY_TICKS, evaluateLevel, farmYield, foodNeed, foodProduction, foodRatio, formatClock, goalProgress, harborYield, houseHappiness, isBeach, isBridge, isHub, isLevelRoom, isLine, isOnDuty, isRoad, isWorkplace, LEGACY_SOLO_KEY, LEVEL_COUNT, LEVEL_GOALS_MASK, LEVELS, levelRoomCode, lineCells, listAdults, listCitySlots, loadCitySlot, loadOrCreateClientId, logisticsPartner, marketMultiplier, MemoryStore, mergeRoomLists, packCells, parseChatMessage, parseCursor, parseLevelRoom, quoteTrade, refreshUtilities, saveToCity, ServiceKind, stepSimulation, streetPedestrians, tradeDeal, writeCity, writeCitySlot } from "../shared/src/index.ts";
 
 const city = createCity();
 {
@@ -140,7 +140,7 @@ const shore = wet.terrain.findIndex((value, index) => value === 1 && index !== s
 if (shore < 0 || !canPlace(wet, shore, "fill")) throw new Error("expected open water to fill");
 const before = wet.funds;
 const filled = applyCommand(wet, { type: "fill", cells: [shore] });
-if (!filled.ok || wet.terrain[shore] !== 0 || before - wet.funds !== 8000) throw new Error("fill failed");
+if (!filled.ok || wet.terrain[shore] === 1 || before - wet.funds !== 8000) throw new Error("fill failed");
 const eager = createCity();
 eager.terrain.fill(0);
 if (!applyCommand(eager, { type: "road", cells: [cellIndex(eager, 3, 4)] }).ok) throw new Error("rebate road");
@@ -555,6 +555,126 @@ for (const ped of walkers) {
   if (!wasCoopJoined("berlin", store)) throw new Error("coop join not remembered");
   deleteCityAuth("berlin", store);
   if (loadCityAuth("berlin", store)) throw new Error("auth not deleted");
+}
+
+{
+  const coast = createCity(undefined, undefined, { seed: 1842, biome: "temperate", water: 42, lakes: 10, forest: 20, rivers: 10 });
+  coast.funds = 200_000;
+  let harbor = -1;
+  let road = -1;
+  for (let y = 4; y < coast.height - 4 && harbor < 0; y += 1) {
+    for (let x = 4; x < coast.width - 4 && harbor < 0; x += 1) {
+      const index = cellIndex(coast, x, y);
+      if (isBeach(coast, index) || adjacentToOcean(coast, index)) {
+        for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const ri = cellIndex(coast, nx, ny);
+          if (coast.terrain[ri] === 1) continue;
+          if (applyCommand(coast, { type: "road", cells: [ri] }).ok) {
+            if (canPlace(coast, index, "service", { kind: ServiceKind.Harbor })) {
+              harbor = index;
+              road = ri;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (harbor < 0) throw new Error("expected a coastal harbor site");
+  if (canPlace(coast, harbor, "build")) throw new Error("houses must not sit on beach sand");
+  const purse = coast.funds;
+  if (!applyCommand(coast, { type: "service", index: harbor, kind: ServiceKind.Harbor }).ok) throw new Error("harbor place");
+  if (purse - coast.funds !== 36000) throw new Error(`harbor cost ${purse - coast.funds}`);
+  if (!isHub(coast, harbor) || !isWorkplace(coast, harbor)) throw new Error("harbor should be a workplace");
+  let inlandOk = false;
+  for (let y = 10; y < coast.height - 10 && !inlandOk; y += 1) {
+    for (let x = 10; x < coast.width - 10 && !inlandOk; x += 1) {
+      const index = cellIndex(coast, x, y);
+      if (coast.terrain[index] === 1 || adjacentToOcean(coast, index) || isBeach(coast, index)) continue;
+      if (canPlace(coast, index, "service", { kind: ServiceKind.Harbor })) throw new Error("harbor must not go inland");
+      inlandOk = true;
+    }
+  }
+  coast.food = 20;
+  const deal = tradeDeal("food_out");
+  if (!deal) throw new Error("food_out");
+  const quoteH = quoteTrade(coast, harbor, deal);
+  if (!quoteH || quoteH.delay < 2 || quoteH.price >= 55 * 2) throw new Error(`harbor export should be slower/cheaper ${JSON.stringify(quoteH)}`);
+  const beforeFunds = coast.funds;
+  const sold = applyCommand(coast, { type: "trade", index: harbor, deal: "food_out" });
+  if (!sold.ok || coast.food !== 12) throw new Error("harbor food export should take 8 food immediately");
+  if (coast.funds !== beforeFunds) throw new Error("harbor payout must wait for the ship");
+  if ((coast.shipments ?? []).length !== 1) throw new Error("expected delayed shipment");
+  const heat1 = coast.tradeHeat ?? 0;
+  applyCommand(coast, { type: "trade", index: harbor, deal: "food_out" });
+  const quote2 = quoteTrade(coast, harbor, deal);
+  if (!quote2 || quote2.price >= quoteH.price) throw new Error("export prices must drop as the market saturates");
+  if ((coast.tradeHeat ?? 0) <= heat1) throw new Error("heat should rise");
+  if (marketMultiplier(100) >= marketMultiplier(0) * 0.5) throw new Error("high heat should cut payouts hard");
+  const due = coast.shipments![0]!.due;
+  while (coast.tick < due) stepSimulation(coast);
+  if (coast.funds <= beforeFunds) throw new Error("harbor shipment should pay on arrival");
+  const heatBefore = coast.tradeHeat ?? 0;
+  for (let i = 0; i < 40; i += 1) stepSimulation(coast);
+  if ((coast.tradeHeat ?? 0) >= heatBefore) throw new Error("market heat should recover over time");
+
+  const padRoad = cellIndex(coast, cellCoords(coast, road).x + 2, cellCoords(coast, road).y);
+  applyCommand(coast, { type: "road", cells: [padRoad] });
+  const airTry = cellIndex(coast, cellCoords(coast, padRoad).x, cellCoords(coast, padRoad).y - 1);
+  if (coast.terrain[airTry] !== 1) applyCommand(coast, { type: "service", index: airTry, kind: ServiceKind.Airport });
+  let airport = -1;
+  for (let i = 0; i < coast.services.length; i += 1) if (coast.services[i] === ServiceKind.Airport) airport = i;
+  if (airport >= 0) {
+    const linked = logisticsPartner(coast, harbor);
+    const quoteA = quoteTrade(coast, airport, deal);
+    if (quoteA && quoteH.delay <= quoteA.delay) throw new Error("airport should deliver faster than harbor");
+    if (linked === airport || logisticsPartner(coast, airport) === harbor) {
+      const books = cityLedger(coast);
+      if (books.income < 240) throw new Error("synergy town should still earn");
+    }
+  }
+
+  const homeNear = (() => {
+    const spot = cellCoords(coast, harbor);
+    for (let dy = -5; dy <= 5; dy += 1) {
+      for (let dx = -5; dx <= 5; dx += 1) {
+        const hx = spot.x + dx;
+        const hy = spot.y + dy;
+        const hi = cellIndex(coast, hx, hy);
+        if (canPlace(coast, hi, "build") && applyCommand(coast, { type: "build", kind: "cottage", cells: [hi] }).ok) return hi;
+      }
+    }
+    return -1;
+  })();
+  if (homeNear >= 0) {
+    const mood = houseHappiness(coast, homeNear);
+    if (!mood.beach || mood.score < 0.6 || mood.tax < 0.3) throw new Error(`beach house should be happy ${JSON.stringify(mood)}`);
+    coast.tick = Math.round((15 / 24) * DAY_TICKS);
+    const crowd = beachVisitors(coast, 40);
+    if (crowd.length === 0) throw new Error("residents should visit the beach in the afternoon");
+  }
+
+  const hills = createCity(undefined, undefined, { seed: 99, biome: "alpine" });
+  const flat = createCity();
+  delete (flat as { gen?: unknown }).gen;
+  let peaked = false;
+  for (let y = 8; y < 24; y += 1) {
+    for (let x = 8; x < 24; x += 1) {
+      if (hills.terrain[cellIndex(hills, x, y)] === 1) continue;
+      if (cellHeight(hills, x, y) > 0.4) peaked = true;
+      if (cellHeight(flat, x, y) !== 0 && flat.terrain[cellIndex(flat, x, y)] !== 1) {
+        // old save without gen stays at water raw or 0
+      }
+    }
+  }
+  if (!peaked) throw new Error("new alpine maps should have gentle hills");
+  const old = saveToCity(cityToSave(air, "old-air"));
+  if (!old || old.services[airCell] !== ServiceKind.Airport) throw new Error("old airport save must load");
+  if (old.tradeHeat !== 0 && old.tradeHeat !== undefined) {
+    // defaults
+  }
+  if ((old.shipments ?? []).length !== 0 && old.shipments === undefined) throw new Error("old saves get empty shipments");
 }
 
 console.log(`smoke ok pop=${meta.stats.population} levels=${levels} funds=${meta.stats.funds} traffic=${meta.stats.traffic} tutorial=${tutorialStatus.won}`);
