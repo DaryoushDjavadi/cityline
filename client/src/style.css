@@ -68,14 +68,14 @@ body[data-build="on"] #view { cursor: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: min(220px, calc(100vw - 24px));
-  padding: 6px 10px 6px 8px;
-  border-radius: 999px;
-  background: rgba(20, 26, 18, 0.94);
+  max-width: min(380px, calc(100vw - 28px));
+  padding: 8px 12px 8px 8px;
+  border-radius: 18px;
+  background: rgba(20, 26, 18, 0.96);
   border: 1px solid rgba(226, 177, 90, 0.7);
   color: #f6f1e6;
   pointer-events: none;
-  transform: translate(14px, 18px);
+  transform: translate(16px, 18px);
   box-shadow: 0 8px 20px rgba(8, 10, 6, 0.35);
 }
 #build-cursor[hidden] { display: none; }
@@ -119,19 +119,22 @@ body[data-build="on"] #view { cursor: none; }
   min-width: 0;
 }
 #build-cursor b {
-  font-size: 13px;
-  line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: normal;
+  overflow: visible;
 }
 #build-cursor em {
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   color: #cbbfa6;
   letter-spacing: 0.02em;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
 }
+#build-cursor[data-kind="line"] { border-color: rgba(240, 193, 74, 0.95); }
+#build-cursor[data-kind="pipe"] { border-color: rgba(90, 168, 224, 0.95); }
+#build-cursor[data-kind="erase"] { border-color: rgba(227, 109, 98, 0.95); }
 .peer-cursor {
   position: absolute;
   width: 14px;
@@ -315,6 +318,14 @@ body[data-stats="closed"] .brand::after { display: none; }
 .stat[data-stat="jobs"] .stat-glyph { color: #8eb8ae; }
 .stat[data-stat="power"] .stat-glyph { color: #e2b15a; }
 .stat[data-stat="water"] .stat-glyph { color: #7eb8e6; }
+body[data-power-net="on"] .stat[data-stat="power"] {
+  background: rgba(240, 193, 74, 0.22);
+  border-color: rgba(240, 193, 74, 0.55);
+}
+body[data-water-net="on"] .stat[data-stat="water"] {
+  background: rgba(90, 168, 224, 0.2);
+  border-color: rgba(90, 168, 224, 0.5);
+}
 .stat[data-stat="food"] .stat-glyph { color: #9dca86; }
 .stat[data-stat="traffic"] .stat-glyph { color: #c4b08a; }
 .stat-copy {
@@ -1384,25 +1395,25 @@ footer {
   bottom: 16px;
   padding: 8px 12px;
   text-align: center;
-  max-height: 64px;
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
 }
 body[data-inspect="on"] footer,
 body[data-roster="on"] footer,
 body[data-chat="on"] footer { right: 348px; }
 footer p { margin: 0; }
 #status {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.35;
 }
 #hint {
   margin-top: 2px;
   color: #cbbfa6;
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.35;
 }
 body[data-hint="off"] #hint { display: none; }
 

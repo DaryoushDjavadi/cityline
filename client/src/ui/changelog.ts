@@ -13,8 +13,8 @@ export const CHANGELOG: PatchNote[] = [
     items: [
       "Hafen steht auf dem Küstenfeld direkt am Meer — ohne Straße. Klick ins Wasser setzt ihn aufs Ufer, der Steg ragt hinaus. Rot: „Hafen muss direkt am Wasser stehen.“",
       "Alte Speicherstände ohne Meer bekommen eine Küste am Kartenrand.",
-      "Strom- und Wasserleitungen: L-förmig ziehen, Kosten am Zeiger, bestehende Leitungen gelten als Anschluss (grün). Rechte Maustaste entfernt nur die Leitung, nicht die Straße.",
-      "Versorgt ist ein Gebäude, wenn Leitung, Rohr oder Werk im Umkreis von einem Feld liegt (oder in derselben Häuserzeile). Overlay bei Leitungs-Werkzeug: gelbes Stromnetz, blaues Wassernetz, rote Hinweise an unversorgten Häusern.",
+      "Strom- und Wasserleitungen: L-förmig ziehen, Kosten am Zeiger, bestehende Leitungen gelten als Anschluss (grün). Rechte Maustaste entfernt nur die Leitung, nicht die Straße. Hinweise unten laufen um, nicht mit … ab.",
+      "Versorgt ist ein Gebäude, wenn Leitung, Rohr oder Werk im Umkreis von einem Feld liegt (oder in derselben Häuserzeile). Overlay bei Leitungs-Werkzeug: gelbes Stromnetz, blaues Wassernetz, rotes Blitz-Icon / graues Tropfen-Icon an unversorgten Häusern. HUD zeigt Verbrauch/Kapazität sobald ein Werk steht.",
     ],
   },
   {

@@ -356,6 +356,8 @@ export function runSimTests(): void {
     if (city.roads[cellIndex(city, 5, 4)] === 0) fail("strip must keep the road");
     refreshUtilities(city);
     if ((city.utility[house] & POWER_BIT) !== 0) fail("house should lose power after the line is stripped");
+    const stats = buildMeta(city).stats;
+    if (stats.powerCapacity <= 0 || stats.waterCapacity <= 0) fail(`plants should add capacity ${stats.powerCapacity}/${stats.waterCapacity}`);
   }
 
   console.log("sim-tests ok");

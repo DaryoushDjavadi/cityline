@@ -135,8 +135,8 @@ const HINTS: Partial<Record<ToolId, string>> = {
   factory: `${BUILDINGS.factory.name}, direkt an einer Straße. ${BUILDINGS.factory.cost} €.`,
   plant: `${BUILDINGS.plant.name}, direkt an einer Straße. ${BUILDINGS.plant.cost} €.`,
   farm: `${BUILDINGS.farm.name}. Startet mit Getreide. Im Infofenster Tiere kaufen oder Hof verbessern. ${BUILDINGS.farm.cost} €.`,
-  line: `Stromleitung ziehen (gerade oder L). ${COST.line} € pro Feld, Kosten am Zeiger. Über Straße und Wasser. Rechtsklick reißt nur die Leitung ab. Gebäude ein Feld daneben gelten als versorgt.`,
-  pipe: `Wasserrohr ziehen (gerade oder L). ${COST.pipe} € pro Feld. Rechtsklick reißt nur das Rohr ab.`,
+  line: `Stromleitung: klicken und L ziehen. Kosten am Zeiger. Rechtsklick reißt nur die Leitung ab.`,
+  pipe: `Wasserrohr: klicken und L ziehen. Kosten am Zeiger. Rechtsklick reißt nur das Rohr ab.`,
   power: `Kraftwerk direkt neben eine Straße. ${COST.power} €.`,
   water: `Wasserwerk direkt neben eine Straße. ${COST.water} €.`,
   school: `Schule, damit Bewohner einen Abschluss bekommen. ${COST.school} €.`,
@@ -604,6 +604,91 @@ export class Game {
         }
         return null;
       },
+      stats() {
+        return buildMeta(self.city).stats;
+      },
+      dismissUi() {
+        self.hud.closeOverlays();
+        self.hud.clearToast();
+        document.querySelector<HTMLButtonElement>("#quest-hint-ok")?.click();
+        const quest = document.querySelector<HTMLElement>("#quest");
+        if (quest) {
+          quest.hidden = true;
+          quest.dataset.collapsed = "on";
+          document.body.dataset.quest = "collapsed";
+        }
+        const rail = document.querySelector<HTMLButtonElement>("#toggle-rail");
+        if (document.body.dataset.menu === "open") rail?.click();
+        if (document.body.dataset.demand === "open") {
+          document.querySelector<HTMLButtonElement>("#toggle-demand")?.click();
+        }
+        const demand = document.querySelector<HTMLElement>("#demand");
+        if (demand) demand.style.display = "none";
+        const toast = document.querySelector<HTMLElement>("#toast");
+        if (toast) toast.hidden = true;
+      },
+      setOverlay(flags: { zones?: boolean; power?: boolean; water?: boolean }) {
+        self.overlays = { ...self.overlays, ...flags };
+        saveOverlays(self.overlays);
+        self.publish();
+        const stats = buildMeta(self.city).stats;
+        self.hud.setStatus(`Strom ${stats.powerUsed}/${stats.powerCapacity} · Wasser ${stats.waterUsed}/${stats.waterCapacity}`);
+      },
+      hideCursor() {
+        self.hideBuildCursor();
+      },
+      findPlot(): { x: number; y: number } | null {
+        const need = 14;
+        for (let y = 18; y < self.city.height - 18; y += 1) {
+          for (let x = 18; x < self.city.width - 18; x += 1) {
+            let ok = true;
+            for (let dy = 0; dy < need && ok; dy += 1) {
+              for (let dx = 0; dx < need && ok; dx += 1) {
+                const index = cellIndex(self.city, x + dx, y + dy);
+                if (self.city.terrain[index] === 1 || isBeach(self.city, index) || adjacentToOcean(self.city, index)) ok = false;
+              }
+            }
+            if (ok) return { x, y };
+          }
+        }
+        return null;
+      },
+      previewStroke(x0: number, y0: number, x1: number, y1: number, erase = false) {
+        self.erasing = erase;
+        self.building = true;
+        self.anchor = { x: x0, y: y0 };
+        self.painted.clear();
+        self.denied.clear();
+        self.updateStroke({ x: x1, y: y1 });
+        self.hoverCell = { x: x1, y: y1 };
+        const screen = (window as unknown as { __citylineE2E: { cellScreen: (x: number, y: number) => { x: number; y: number } | null } }).__citylineE2E.cellScreen(x1, y1);
+        if (screen) self.paintBuildCursor(screen.x, screen.y);
+        self.describe({ x: x1, y: y1 });
+        return { cells: self.stroke.length, hint: self.cursorHint(), label: self.cursorLabel() };
+      },
+      hoverAt(x: number, y: number) {
+        const index = cellIndex(self.city, x, y);
+        self.statusUntil = 0;
+        self.hoverCell = { x, y };
+        self.stroke = [index];
+        self.strokeComplete = true;
+        self.refreshPreview();
+        const screen = (window as unknown as { __citylineE2E: { cellScreen: (xx: number, yy: number) => { x: number; y: number } | null } }).__citylineE2E.cellScreen(x, y);
+        if (screen) self.paintBuildCursor(screen.x, screen.y);
+        self.describe({ x, y });
+        return {
+          screen,
+          reason: placeBlockReason(self.city, index, "build"),
+          miss: supplyMissingHint(self.city, index, BUILDINGS.cottage.zone),
+          hint: self.cursorHint(),
+        };
+      },
+      commitStroke() {
+        if (!self.building && self.stroke.length === 0) return { ok: false };
+        self.building = false;
+        self.commit();
+        return { ok: true, lines: [...self.city.lines].filter((v) => v !== 0).length };
+      },
     };
   }
 
@@ -779,10 +864,27 @@ export class Game {
     this.hud.setBuildCursor({
       x: clientX,
       y: clientY,
-      label: this.toolLabel(),
+      label: this.cursorLabel(),
       hint,
-      kind: "build",
+      kind: this.erasing ? "erase" : this.tool === "line" ? "line" : this.tool === "pipe" ? "pipe" : "build",
     });
+  }
+
+  private cursorLabel(): string {
+    if (this.erasing) return this.tool === "pipe" ? "Rohr abreißen" : "Leitung abreißen";
+    if (this.tool === "line" || this.tool === "pipe") {
+      const cell = this.hoverCell;
+      const index = cell ? cellIndex(this.city, cell.x, cell.y) : -1;
+      const cells = this.stroke.length > 0 ? this.stroke : index >= 0 ? [index] : [];
+      let n = 0;
+      for (const item of cells) {
+        if (this.isExistingLink(item)) continue;
+        if (this.canUse(item)) n += 1;
+      }
+      const cost = n * this.cost();
+      return `${this.toolLabel()} · ${cost.toLocaleString("de-DE")} €`;
+    }
+    return this.toolLabel();
   }
 
   private cursorHint(): string {
@@ -839,11 +941,11 @@ export class Game {
         : compact
           ? this.tool === "inspect"
             ? "Ein Finger tippt. Ziehen mit der Lupe verschiebt, zwei Finger zoomen. Doppeltipp auf Gebäude zoomt nah ran."
-            : "Bauen: tippen. Doppeltipp beendet den Baumodus."
+            : ""
           : this.tool === "inspect"
             ? "Doppelklick auf Gebäude zoomt nah ran. Rechte Taste oder Drehen schaut um, Verschieben schiebt, Mausrad zoomt, Q/E dreht, WASD fährt."
-            : "Bauen bleibt aktiv. Doppelklick beendet den Baumodus. Escape zurück zur Lupe.";
-    this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."} ${camera}`);
+            : "";
+    this.hud.setHint(`${HINTS[this.tool] ?? "Werkzeug gewählt."}${camera ? ` ${camera}` : ""}`);
   }
 
   private bindInput(): void {
@@ -862,7 +964,9 @@ export class Game {
       if (document.activeElement !== this.canvas) this.canvas.focus({ preventScroll: true });
       this.paintBuildCursor(event.clientX, event.clientY);
     });
-    this.canvas.addEventListener("pointerleave", () => this.hideBuildCursor());
+    this.canvas.addEventListener("pointerleave", () => {
+      if (!this.building) this.hideBuildCursor();
+    });
     window.addEventListener("pointerdown", () => unlockAudio(), { once: true });
     window.addEventListener("keydown", (event) => this.onKey(event, true));
     window.addEventListener("keyup", (event) => this.onKey(event, false));
@@ -1574,8 +1678,12 @@ export class Game {
 
   private publish(meta: SimMeta = buildMeta(this.city)): void {
     this.noticeArrivals();
+    const live = this.liveOverlays();
+    document.body.dataset.powerNet = live.power ? "on" : "off";
+    document.body.dataset.waterNet = live.water ? "on" : "off";
+    this.hud.setOverlays(live);
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
-    this.view.sync(this.city, this.liveOverlays());
+    this.view.sync(this.city, live);
     if (this.playKind === "level") this.syncLevel();
     else this.maybeAutoSave();
     // Only refresh an open building panel; never auto-switch to a car (B1).
@@ -1639,6 +1747,10 @@ export class Game {
       return;
     }
     const index = cellIndex(this.city, cell.x, cell.y);
+    if ((this.building || this.tool === "line" || this.tool === "pipe") && (this.tool === "line" || this.tool === "pipe" || this.erasing)) {
+      this.hud.setStatus(this.cursorHint());
+      return;
+    }
     if (this.tool !== "inspect" && !this.panMode && !this.orbitMode) {
       const kind = SERVICES[this.tool];
       const building = BUILDINGS[this.tool as keyof typeof BUILDINGS];
@@ -1646,7 +1758,7 @@ export class Game {
         ? placeBlockReason(this.city, index, "service", { kind })
         : building
           ? placeBlockReason(this.city, index, "build")
-          : this.tool === "line" || this.tool === "pipe" || this.tool === "road" || this.tool === "bridge" || this.tool === "fill" || this.tool === "bulldoze"
+          : this.tool === "road" || this.tool === "bridge" || this.tool === "fill" || this.tool === "bulldoze"
             ? placeBlockReason(this.city, index, this.tool)
             : null;
       if (reason) {
@@ -1659,6 +1771,8 @@ export class Game {
           this.hud.setStatus(miss);
           return;
         }
+        this.hud.setStatus(`${this.cost().toLocaleString("de-DE")} € · versorgt`);
+        return;
       }
     }
     const parts = [`Feld ${cell.x}, ${cell.y}`];

@@ -134,13 +134,6 @@ async function main(): Promise<void> {
 
   await page.evaluate(() => {
     const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
-    e2e.setTool("line");
-  });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: path.join(ARTIFACTS, "supply-overlay-line.png"), type: "png" });
-
-  await page.evaluate(() => {
-    const e2e = (window as unknown as { __citylineE2E: E2E }).__citylineE2E;
     const found = e2e.findHarbor() ?? e2e.findCoast();
     if (!found) throw new Error("no coast after place");
     const neighbors = [
