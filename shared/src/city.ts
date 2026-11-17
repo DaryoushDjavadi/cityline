@@ -1,5 +1,5 @@
 import { buildingInfo, readBudget, refundForLevel, serviceInfo } from "./catalog.ts";
-import { adjacentToOcean, ensureBeaches, isBeach } from "./terrain.ts";
+import { ensureBeaches, isBeach, isCoastalLand, restoreMissingCoast } from "./terrain.ts";
 import { applyHubTrade } from "./trade.ts";
 import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
@@ -66,9 +66,47 @@ export function isWater(city: CityState, index: number): boolean {
   return index >= 0 && index < city.terrain.length && city.terrain[index] === 1;
 }
 
-export { isBeach };
+export { isBeach, isCoastalLand };
 
 export { generateTerrain as pourTerrain };
+
+/** Re-paint missing sea and beaches after loading packed cells. */
+export function afterLoadCity(city: CityState): void {
+  restoreMissingCoast(city);
+}
+
+/**
+ * Harbor sits on land/sand. A click on the sea snaps to the neighboring
+ * shore so the pier can hang over water without occupying the water cell.
+ */
+export function resolveHarborCell(city: CityState, index: number): number {
+  if (index < 0 || index >= city.terrain.length) return index;
+  if (!isWater(city, index)) return index;
+  const { x, y } = cellCoords(city, index);
+  for (const dir of DIRS) {
+    const nx = x + dir.dx;
+    const ny = y + dir.dy;
+    if (!inBounds(city, nx, ny)) continue;
+    const land = cellIndex(city, nx, ny);
+    if (isWater(city, land)) continue;
+    if (harborPadFree(city, land) && isCoastalLand(city, land)) return land;
+  }
+  return index;
+}
+
+function harborPadFree(city: CityState, index: number): boolean {
+  if (isRoad(city, index) || isLine(city, index) || isPipe(city, index)) return false;
+  if (city.services[index] !== ServiceKind.None) return false;
+  if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return false;
+  return true;
+}
+
+export function canPlaceHarbor(city: CityState, index: number): boolean {
+  const cell = resolveHarborCell(city, index);
+  if (isWater(city, cell)) return false;
+  if (!harborPadFree(city, cell)) return false;
+  return isCoastalLand(city, cell);
+}
 
 /** Guaranteed bank-to-bank river for levels that need a real crossing. */
 export function carveCrossingRiver(city: CityState, horizontal = true): void {
@@ -192,15 +230,13 @@ export function placeBlockReason(
     return "Laterne braucht Straße, Stromleitung oder ein Feld direkt an der Straße.";
   }
   if (extra?.kind === ServiceKind.Harbor) {
-    if (isWater(city, index)) return "Der Hafen steht am Ufer, nicht im Wasser.";
-    if (!adjacentToOcean(city, index)) return "Hafen nur an der Meeresküste (direkt neben Meerwasser).";
-    if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) {
-      return "Feld ist belegt.";
-    }
-    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return "Feld ist belegt.";
-    if (!orthogonalRoad(city, index)) return "Der Hafen braucht eine Straße direkt daneben.";
+    const cell = resolveHarborCell(city, index);
+    if (isWater(city, cell)) return "Hafen muss direkt am Wasser stehen — aufs Ufer klicken, der Steg ragt ins Meer.";
+    if (!isCoastalLand(city, cell)) return "Hafen muss direkt am Wasser stehen.";
+    if (!harborPadFree(city, cell)) return "Feld ist belegt.";
     return "Hier geht der Hafen nicht.";
   }
+  if (isWater(city, index) && action === "service") return "Auf Wasser kann man nicht bauen.";
   if (isBeach(city, index)) return "Am Strand (Sand) stehen nur Hafen und Wege, keine Gebäude.";
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index)) return "Feld ist belegt.";
   if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
@@ -235,6 +271,7 @@ export function canPlace(
     if (city.services[index] !== ServiceKind.None || city.levels[index] > 0 || city.zones[index] !== Zone.None) return false;
     return action === "line" ? !isLine(city, index) : !isPipe(city, index);
   }
+  if (action === "service" && extra?.kind === ServiceKind.Harbor) return canPlaceHarbor(city, index);
   if (action !== "bulldoze" && isWater(city, index)) return false;
   if (action === "road") {
     const free = city.services[index] === ServiceKind.None || city.services[index] === ServiceKind.Lamp;
@@ -281,13 +318,6 @@ export function canPlace(
     if (isWater(city, index) && !isRoad(city, index)) return false;
     if (isPipe(city, index) && !isRoad(city, index) && !isLine(city, index)) return false;
     return isRoad(city, index) || isLine(city, index) || orthogonalRoad(city, index);
-  }
-  if (extra?.kind === ServiceKind.Harbor) {
-    if (isWater(city, index)) return false;
-    if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
-    if (city.levels[index] > 0 || city.zones[index] !== Zone.None) return false;
-    if (!adjacentToOcean(city, index)) return false;
-    return orthogonalRoad(city, index);
   }
   if (isBeach(city, index)) return false;
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
@@ -425,10 +455,28 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     return { ok: true, spent: 0, applied: [workplace, home], rejected };
   }
 
+  if (command.type === "strip") {
+    const layer = command.layer === "pipe" ? city.pipes : city.lines;
+    for (const index of uniqueCells(command.cells)) {
+      if (!isLink(layer, index)) {
+        rejected.push(index);
+        reason ??= "rejected";
+        continue;
+      }
+      city.funds += 5;
+      layer[index] = 0;
+      applied.push(index);
+    }
+    if (applied.length === 0) return { ok: false, reason: reason ?? "rejected", spent: 0, applied, rejected };
+    recomputeAround(city, layer, applied);
+    city.revision += 1;
+    return { ok: true, spent: 0, applied, rejected };
+  }
+
   if (command.type === "service") {
-    const index = command.index;
+    const index = command.kind === ServiceKind.Harbor ? resolveHarborCell(city, command.index) : command.index;
     if (!canPlace(city, index, "service", { kind: command.kind })) {
-      return { ok: false, reason: "rejected", spent: 0, applied, rejected: [index] };
+      return { ok: false, reason: "rejected", spent: 0, applied, rejected: [command.index] };
     }
     if (!pay(costOf("service", command.kind))) {
       return { ok: false, reason: "funds", spent: 0, applied, rejected: [index] };

@@ -18,8 +18,10 @@ import {
   type SimMeta,
 } from "./types.ts";
 
-const POWER_CAPACITY = 420;
-const WATER_CAPACITY = 520;
+export const POWER_CAPACITY = 420;
+export const WATER_CAPACITY = 520;
+/** Chebyshev radius: a building is supplied if it (or its zone group) touches a live line, pipe, lamp, or plant. */
+export const SUPPLY_REACH = 1;
 const GROWTH_EVERY = 4;
 
 export function utilityUse(zone: number, level: number): number {
@@ -209,8 +211,8 @@ function carrierDistance(city: CityState, index: number, layer: Uint8Array, dist
   const { x, y } = cellCoords(city, index);
   const power = kind === ServiceKind.Power;
   let best = 9999;
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
+  for (let dy = -SUPPLY_REACH; dy <= SUPPLY_REACH; dy += 1) {
+    for (let dx = -SUPPLY_REACH; dx <= SUPPLY_REACH; dx += 1) {
       const nx = x + dx;
       const ny = y + dy;
       if (!inBounds(city, nx, ny)) continue;
@@ -223,6 +225,68 @@ function carrierDistance(city: CityState, index: number, layer: Uint8Array, dist
     }
   }
   return best === 9999 ? -1 : best;
+}
+
+/** Live line/pipe/lamp/plant within Chebyshev SUPPLY_REACH of this cell. */
+export function supplyTouches(city: CityState, index: number, bit: number): boolean {
+  if (index < 0 || index >= city.utility.length) return false;
+  if ((city.utility[index] & bit) !== 0 && (isLink(bit === POWER_BIT ? city.lines : city.pipes, index) || city.services[index] === (bit === POWER_BIT ? ServiceKind.Power : ServiceKind.Water))) {
+    return true;
+  }
+  const kind = bit === POWER_BIT ? ServiceKind.Power : ServiceKind.Water;
+  const layer = bit === POWER_BIT ? city.lines : city.pipes;
+  const { x, y } = cellCoords(city, index);
+  for (let dy = -SUPPLY_REACH; dy <= SUPPLY_REACH; dy += 1) {
+    for (let dx = -SUPPLY_REACH; dx <= SUPPLY_REACH; dx += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!inBounds(city, nx, ny)) continue;
+      const carrier = cellIndex(city, nx, ny);
+      if (city.services[carrier] === kind) return true;
+      if (bit === POWER_BIT && city.services[carrier] === ServiceKind.Lamp && (city.utility[carrier] & POWER_BIT) !== 0) return true;
+      if (isLink(layer, carrier) && (city.utility[carrier] & bit) !== 0) return true;
+    }
+  }
+  return false;
+}
+
+function joinsSuppliedGroup(city: CityState, index: number, zone: number, bit: number): boolean {
+  if (zone === Zone.None) return false;
+  const seen = new Uint8Array(city.zones.length);
+  const pending = [index];
+  seen[index] = 1;
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const current = pending[cursor]!;
+    if (current !== index && city.zones[current] === zone && (city.utility[current] & bit) !== 0) return true;
+    if (current !== index && supplyTouches(city, current, bit)) return true;
+    const spot = cellCoords(city, current);
+    for (const dir of DIRS) {
+      const nx = spot.x + dir.dx;
+      const ny = spot.y + dir.dy;
+      if (!inBounds(city, nx, ny)) continue;
+      const next = cellIndex(city, nx, ny);
+      if (seen[next] || city.zones[next] !== zone || isRoad(city, next)) continue;
+      seen[next] = 1;
+      pending.push(next);
+    }
+  }
+  return false;
+}
+
+/** Same shared rule the sim uses: radius, then same-zone orthogonal group, then plant/line. */
+export function wouldReceiveSupply(city: CityState, index: number, bit: number, zone = city.zones[index] ?? Zone.None): boolean {
+  if (supplyTouches(city, index, bit)) return true;
+  return joinsSuppliedGroup(city, index, zone, bit);
+}
+
+export function supplyMissingHint(city: CityState, index: number, zone?: number): string | null {
+  const power = (city.utility[index] & POWER_BIT) !== 0 || wouldReceiveSupply(city, index, POWER_BIT, zone ?? city.zones[index]);
+  const water = (city.utility[index] & WATER_BIT) !== 0 || wouldReceiveSupply(city, index, WATER_BIT, zone ?? city.zones[index]);
+  if (power && water) return null;
+  if (!power && !water) return "Nicht mit Strom oder Wasser verbunden – Leitung und Rohr bis hier legen.";
+  if (!power) return "Nicht mit Strom verbunden – Leitung bis hier legen.";
+  return "Nicht mit Wasser verbunden – Rohr bis hier legen.";
 }
 
 export function staffCounts(city: CityState): Uint16Array {

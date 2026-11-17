@@ -17,7 +17,7 @@ export const SERVICES: Record<number, ServiceInfo> = {
     cost: COST.power,
     upkeep: 22,
     radius: 0,
-    blurb: "Liefert Strom in Leitungen, die das Kraftwerk berühren, und in direkt angrenzende Gebäude.",
+    blurb: "Liefert Strom. Gebäude gelten als versorgt, wenn sie eine Leitung oder das Kraftwerk im Umkreis von einem Feld berühren.",
   },
   [ServiceKind.Water]: {
     kind: ServiceKind.Water,
@@ -25,7 +25,7 @@ export const SERVICES: Record<number, ServiceInfo> = {
     cost: COST.water,
     upkeep: 16,
     radius: 0,
-    blurb: "Speist Wasser in angeschlossene Rohre und in direkt angrenzende Gebäude.",
+    blurb: "Speist Wasser. Gebäude gelten als versorgt, wenn sie ein Rohr oder das Wasserwerk im Umkreis von einem Feld berühren.",
   },
   [ServiceKind.School]: {
     kind: ServiceKind.School,
@@ -97,7 +97,7 @@ export const SERVICES: Record<number, ServiceInfo> = {
     cost: COST.harbor,
     upkeep: 32,
     radius: 0,
-    blurb: "An die Küste. Massengut günstiger, aber langsamer als der Flughafen. Fischerboote liefern Nahrung, wenn Arbeiter da sind.",
+    blurb: "Auf Sand oder Land direkt am Meer. Der Steg ragt ins Wasser. Straße danach anschließen. Fischerboote brauchen Arbeiter.",
   },
 };
 

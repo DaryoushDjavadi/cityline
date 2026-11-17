@@ -289,8 +289,8 @@ export class CityRenderer {
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-Math.PI / 2);
     this.zones = mesh(plane, flat(0xffffff, 0.42));
-    this.power = mesh(plane, flat(0x7ed0ff, 0.7));
-    this.water = mesh(plane, flat(0x3d7ed6, 0.65));
+    this.power = mesh(plane, flat(0xf0c14a, 0.55));
+    this.water = mesh(plane, flat(0x3d88c8, 0.5));
     this.preview = mesh(plane, flat(0xffffff, 0.72));
     this.radiusRing = mesh(plane, flat(0x7eb8e6, 0.18), 48);
     this.locks = mesh(plane, flat(0xff9a3c, 0.45));
@@ -603,8 +603,8 @@ export class CityRenderer {
         this.put(this.poles, poles, world.x, raised / 2, world.z, 0.35, raised, 0.35, 0, 0x6d6458);
         poles += 1;
         cables = this.layConductor(this.cables, cables, index, city.lines, world.x, world.z, raised, 0.16, color);
-        if (overlays.power && live) {
-          this.put(this.power, powerCount, world.x, 0.22, world.z, CELL_SIZE * 0.4, 1, CELL_SIZE * 0.4, 0, 0x8ad8ff);
+        if (overlays.power) {
+          this.put(this.power, powerCount, world.x, this.heightOf(index) + 0.26, world.z, CELL_SIZE * 0.86, 1, CELL_SIZE * 0.86, 0, live ? 0xf0c14a : 0x5c5348);
           powerCount += 1;
         }
       }
@@ -613,10 +613,19 @@ export class CityRenderer {
         const color = live ? 0x3d88c8 : 0x6a7c86;
         const pipeY = isBridge(city, index) ? bridgeCrest(city, index) + 0.45 : isWater(city, index) ? 0.55 : this.heightOf(index) + 0.22;
         pipes = this.layConductor(this.pipeMesh, pipes, index, city.pipes, world.x, world.z, pipeY, 0.35, color);
-        if (overlays.water && live) {
-          this.put(this.water, waterCount, world.x, 0.24, world.z, CELL_SIZE * 0.36, 1, CELL_SIZE * 0.36, 0, 0x3f86d8);
+        if (overlays.water) {
+          this.put(this.water, waterCount, world.x, this.heightOf(index) + 0.2, world.z, CELL_SIZE * 0.78, 1, CELL_SIZE * 0.78, 0, live ? 0x3d88c8 : 0x6a7c86);
           waterCount += 1;
         }
+      }
+
+      if (overlays.power && ((city.utility[index] & POWER_BIT) !== 0) && (city.levels[index] > 0 || city.services[index] === ServiceKind.Power || isHubService(city.services[index]))) {
+        this.put(this.power, powerCount, world.x, this.heightOf(index) + 0.3, world.z, CELL_SIZE * 0.7, 1, CELL_SIZE * 0.7, 0, 0xf5d36a);
+        powerCount += 1;
+      }
+      if (overlays.water && ((city.utility[index] & WATER_BIT) !== 0) && (city.levels[index] > 0 || city.services[index] === ServiceKind.Water || isHubService(city.services[index]))) {
+        this.put(this.water, waterCount, world.x, this.heightOf(index) + 0.18, world.z, CELL_SIZE * 0.55, 1, CELL_SIZE * 0.55, 0, 0x5aa8e0);
+        waterCount += 1;
       }
 
       if (overlays.zones && city.zones[index] !== Zone.None && !isRoad(city, index)) {
@@ -714,11 +723,12 @@ export class CityRenderer {
     this.paintLocalLights();
   }
 
-  setPreview(city: CityState, cells: number[], legal: boolean[], radius = 0): void {
+  setPreview(city: CityState, cells: number[], legal: boolean[], radius = 0, supplied: boolean[] = []): void {
     cells.forEach((index, slot) => {
       const { x, y } = cellCoords(city, index);
       const world = cellToWorld(city, x, y);
-      this.put(this.preview, slot, world.x, this.heightOf(index) + 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, legal[slot] ? 0x8ee7a0 : 0xe36d62);
+      const color = !legal[slot] ? 0xe36d62 : supplied[slot] === false ? 0xe2b15a : 0x8ee7a0;
+      this.put(this.preview, slot, world.x, this.heightOf(index) + 0.28, world.z, CELL_SIZE * 0.9, 1, CELL_SIZE * 0.9, 0, color);
     });
     this.finish(this.preview, cells.length);
     let rings = 0;

@@ -322,6 +322,43 @@ export function adjacentToOcean(city: CityState, index: number, ocean?: Uint8Arr
   return false;
 }
 
+/** Land or sand with an orthogonal edge on the open sea. */
+export function isCoastalLand(city: CityState, index: number, ocean?: Uint8Array): boolean {
+  if (index < 0 || index >= city.terrain.length) return false;
+  if (city.terrain[index] === TERRAIN_WATER) return false;
+  return adjacentToOcean(city, index, ocean);
+}
+
+/**
+ * Old packed cities (stride 8/9) stored no water. Paint a sea ring on empty
+ * edge cells so a harbor can still sit on a coast, then refresh beaches.
+ */
+export function restoreMissingCoast(city: CityState): boolean {
+  for (let index = 0; index < city.terrain.length; index += 1) {
+    if (city.terrain[index] === TERRAIN_WATER) {
+      ensureBeaches(city);
+      return false;
+    }
+  }
+  if (city.gen) {
+    ensureBeaches(city);
+    return false;
+  }
+  const ring = 3;
+  for (let y = 0; y < city.height; y += 1) {
+    for (let x = 0; x < city.width; x += 1) {
+      if (x >= ring && y >= ring && x < city.width - ring && y < city.height - ring) continue;
+      const index = cellIndex(city, x, y);
+      if (city.levels[index] > 0 || city.zones[index] !== 0) continue;
+      if (city.services[index] !== ServiceKind.None && city.services[index] !== ServiceKind.Lamp) continue;
+      if ((city.roads[index] & ROAD_FLAG) !== 0) continue;
+      city.terrain[index] = TERRAIN_WATER;
+    }
+  }
+  ensureBeaches(city);
+  return true;
+}
+
 function beachBlocked(city: CityState, index: number): boolean {
   if (city.levels[index] > 0 || city.zones[index] !== 0) return true;
   const service = city.services[index];
