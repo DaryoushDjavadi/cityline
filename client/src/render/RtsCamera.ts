@@ -125,11 +125,11 @@ export class RtsCamera {
   /** Wide overview of the island, used when a level starts. */
   resetOverview(): void {
     this.focusEase = null;
-    this.target.set(0, 0, 0);
+    this.target.set(18, 0, 36);
     this.azimuth = 0.58;
-    this.polar = 1.04;
-    this.lookLift = 6;
-    this.distance = 205;
+    this.polar = 1.02;
+    this.lookLift = 5;
+    this.distance = 178;
   }
 
   update(dt: number): void {

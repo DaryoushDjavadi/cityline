@@ -100,8 +100,8 @@ export const BUILD_MENU: BuildCategory[] = [
       { tool: "road", label: "Straße", name: "Straße", cost: COST.road, per: "pro Feld", blurb: "Gerade oder mit einer rechtwinkligen Ecke ziehen." },
       { tool: "bridge", label: "Brücke", name: "Brücke", cost: COST.bridge, per: "pro Feld", blurb: "Straße über Wasser, angeschlossen an bestehende Straßen." },
       service("lamp", ServiceKind.Lamp, "Laterne"),
-      service("airport", ServiceKind.Airport, "Flughafen", "Schneller Handel: teurer, weniger Menge. Mit einem Hafen in der Nähe entsteht ein Logistik-Verbund."),
-      service("harbor", ServiceKind.Harbor, "Hafen", "An die Meeresküste. Massengut günstiger und langsamer. Fischerboote bringen Nahrung, wenn Arbeiter da sind."),
+      service("airport", ServiceKind.Airport, "Flughafen", "Schneller Handel, wenig Kapazität. Logistik-Verbund mit einem nahen Hafen."),
+      service("harbor", ServiceKind.Harbor, "Hafen", "An die Küste. Günstiges Massengut, langsam. Fischerboote brauchen Arbeiter."),
     ],
   },
   {

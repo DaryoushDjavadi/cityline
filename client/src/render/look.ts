@@ -99,9 +99,9 @@ export function seaMaterial(): THREE.ShaderMaterial {
       uShade: { value: 1 },
       uNight: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0.55, 0.28, -0.4) },
-      uDeep: { value: new THREE.Color(0x1a5f8a) },
-      uMid: { value: new THREE.Color(0x2474a0) },
-      uShallow: { value: new THREE.Color(0x2f88b0) },
+      uDeep: { value: new THREE.Color(0x0f6a86) },
+      uMid: { value: new THREE.Color(0x1a8aa4) },
+      uShallow: { value: new THREE.Color(0x3db8c2) },
       uHorizon: { value: new THREE.Color(0xf0c48a) },
     },
     vertexShader: `
@@ -135,9 +135,9 @@ export function seaMaterial(): THREE.ShaderMaterial {
       varying vec3 vNormalW;
       void main() {
         float dist = length(vWorld.xz);
-        float near = smoothstep(420.0, 140.0, dist);
-        vec3 color = mix(uDeep, uMid, 0.38 + near * 0.28);
-        color = mix(color, uShallow, near * 0.16);
+        float near = smoothstep(420.0, 110.0, dist);
+        vec3 color = mix(uDeep, uMid, 0.32 + near * 0.38);
+        color = mix(color, uShallow, near * 0.38);
         vec3 n = normalize(vNormalW);
         vec3 view = normalize(cameraPosition - vWorld);
         vec3 sun = normalize(uSunDir);
@@ -151,9 +151,9 @@ export function seaMaterial(): THREE.ShaderMaterial {
         vec3 glitter = mix(vec3(1.0, 0.86, 0.55), vec3(0.78, 0.88, 1.0), uNight);
         color += glitter * (spec * 0.12 * (1.0 - smoothstep(320.0, 980.0, dist)) + streak * mix(0.22, 0.08, uNight));
         vec3 ray = normalize(vWorld - cameraPosition);
-        float horizonFade = smoothstep(0.002, -0.003, ray.y) * smoothstep(1500.0, 2800.0, dist);
-        vec3 hazeCol = mix(uMid, uHorizon, mix(0.32, 0.1, uNight));
-        color = mix(color, hazeCol, horizonFade * mix(0.12, 0.06, uNight));
+        float horizonFade = smoothstep(0.04, -0.02, ray.y) * smoothstep(140.0, 780.0, dist);
+        vec3 hazeCol = mix(uMid, uHorizon, mix(0.55, 0.12, uNight));
+        color = mix(color, hazeCol, max(horizonFade, smoothstep(220.0, 860.0, dist) * 0.42) * mix(0.85, 0.18, uNight));
         float fresnel = pow(1.0 - max(dot(n, view), 0.0), 5.0);
         color = mix(color, uMid, fresnel * 0.06 * (1.0 - uNight));
         color *= uShade;
@@ -190,12 +190,12 @@ export function applyLook(
     ? tmp.set(0x1a3d66)
     : rainy
       ? tmp.set(0x7a93a8)
-      : tmp.set(goldenAmt > 0.45 ? 0x3a8ed4 : 0x2d7fc8);
+      : tmp.set(goldenAmt > 0.45 ? 0x4a9edc : 0x3a8ed4);
   const horizon = night
     ? tmpB.set(0x2a4a72)
     : rainy
       ? tmpB.set(0xb7c4ce)
-      : tmpB.set(goldenAmt > 0.45 ? 0xf4c992 : 0xd5e4f0);
+      : tmpB.set(goldenAmt > 0.45 ? 0xf6d3b0 : 0xcfe4f4);
 
   skyMaterial.uniforms.uZenith.value.copy(zenith);
   skyMaterial.uniforms.uHorizon.value.copy(horizon);
@@ -210,9 +210,9 @@ export function applyLook(
   const sunDir = sunPos.clone().sub(target).normalize();
   skyMaterial.uniforms.uSunDir.value.copy(sunDir);
 
-  fog.color.copy(night || rainy ? zenith : tmp.set(0x17608c));
-  fog.near = rainy ? 280 : 4200;
-  fog.far = rainy ? 1200 : 9000;
+  fog.color.copy(night || rainy ? zenith : tmp.set(goldenAmt > 0.35 ? 0xf0d4b8 : 0x9ecfe0));
+  fog.near = rainy ? 280 : 1180;
+  fog.far = rainy ? 1200 : 3800;
 
   hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
   hemi.groundColor.set(night ? 0x3a4a42 : 0x5a7a38);
@@ -237,10 +237,10 @@ export function applyLook(
     seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
     seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
   } else {
-    seaMaterial.uniforms.uDeep.value.set(0x17608c);
-    seaMaterial.uniforms.uMid.value.set(0x2176a4);
-    seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
-    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8);
+    seaMaterial.uniforms.uDeep.value.set(0x0f6a86);
+    seaMaterial.uniforms.uMid.value.set(0x1a8aa4);
+    seaMaterial.uniforms.uShallow.value.set(0x3db8c2);
+    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8c49a : 0x7ec8c8);
   }
 
   clouds.visible = quality.clouds && !night;
@@ -351,16 +351,16 @@ function skyGradient(): THREE.ShaderMaterial {
       void main() {
         vec3 ray = normalize(vWorld - cameraPosition);
         float h = ray.y;
-        float band = smoothstep(-0.002, 0.012, h);
+        float band = pow(clamp((h + 0.18) / 0.72, 0.0, 1.0), 0.72);
         vec3 color = mix(uHorizon, uZenith, band);
         vec3 sun = normalize(uSunDir);
         float sunDot = max(dot(ray, sun), 0.0);
-        float glow = pow(sunDot, 8.0) * uGlow * (1.0 - uNight);
-        float halo = pow(sunDot, 3.4) * 0.16 * uGlow * (1.0 - uNight);
-        float low = pow(1.0 - clamp(h + 0.008, 0.0, 1.0), 6.5);
-        color += vec3(1.0, 0.74, 0.34) * glow * 0.85;
-        color += vec3(1.0, 0.82, 0.5) * halo * low;
-        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.06);
+        float glow = pow(sunDot, 10.0) * uGlow * (1.0 - uNight);
+        float halo = pow(sunDot, 3.8) * 0.14 * uGlow * (1.0 - uNight);
+        float low = pow(1.0 - clamp(h + 0.04, 0.0, 1.0), 4.2);
+        color += vec3(1.0, 0.78, 0.42) * glow * 0.7;
+        color += vec3(1.0, 0.86, 0.58) * halo * low;
+        color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.04);
         color = mix(color, vec3(0.07, 0.12, 0.24), uNight * 0.72);
         gl_FragColor = vec4(color, 1.0);
       }
