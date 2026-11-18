@@ -1,70 +1,114 @@
-/** Tiny WebAudio cues — no asset files. Unlocks on first user gesture. */
+/**
+ * Audio façade. The synth engine (music, city ambience, effects) is code-split and
+ * only loaded after the first user gesture and only if sound is not muted.
+ */
+import { loadAudioSettings, saveAudioSettings, type AudioSettings } from "./settings.ts";
 
-type Cue = "place" | "reject" | "goal" | "win" | "lose" | "click";
+export type Cue =
+  | "place" | "reject" | "goal" | "win" | "lose" | "click" | "demolish" | "cash"
+  | "event" | "achievement" | "rank" | "horn" | "plane" | "toggle";
 
-let ctx: AudioContext | null = null;
-let unlocked = false;
-
-function context(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (!ctx) {
-    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
-  }
-  return ctx;
+export interface AudioScene {
+  /** 0 = street level … 1 = far overview. */
+  zoom: number;
+  hour: number;
+  weather: "clear" | "cloud" | "rain";
+  /** 0..1 densities around the camera target. */
+  traffic: number;
+  green: number;
+  coast: number;
+  harbor: number;
+  airport: number;
+  homes: number;
+  /** Stereo hint −1..1 for the nearest coast. */
+  coastPan: number;
+  playing: boolean;
 }
 
+interface EngineApi {
+  apply: (settings: AudioSettings) => void;
+  cue: (cue: Cue) => void;
+  scene: (scene: AudioScene) => void;
+  resume: () => void;
+  suspend: () => void;
+}
+
+let settings = loadAudioSettings();
+let engine: EngineApi | null = null;
+let loading: Promise<void> | null = null;
+let gesture = false;
+let lastScene: AudioScene | null = null;
+let pendingCue: Cue | null = null;
+const listeners = new Set<(settings: AudioSettings) => void>();
+
+function wanted(): boolean {
+  return gesture && !settings.muted && (settings.musicOn || settings.ambienceOn || settings.uiOn) && settings.master > 0;
+}
+
+function ensureEngine(): void {
+  if (engine || loading || !wanted()) return;
+  loading = import("./engine.ts")
+    .then((mod) => {
+      engine = mod.createAudioEngine(settings);
+      if (lastScene) engine?.scene(lastScene);
+      if (pendingCue && engine) engine.cue(pendingCue);
+      pendingCue = null;
+    })
+    .catch(() => {
+      /* audio unsupported – stay silent */
+    })
+    .finally(() => {
+      loading = null;
+    });
+}
+
+/** Call from a user gesture (browser autoplay rules). */
 export function unlockAudio(): void {
-  const audio = context();
-  if (!audio) return;
-  if (audio.state === "suspended") void audio.resume();
-  unlocked = true;
+  gesture = true;
+  if (engine) engine.resume();
+  else ensureEngine();
 }
 
 export function playSfx(cue: Cue): void {
-  const audio = context();
-  if (!audio || !unlocked) return;
-  if (audio.state === "suspended") void audio.resume();
-  const now = audio.currentTime;
-  if (cue === "place") blip(audio, now, [520, 740], 0.07, 0.045);
-  else if (cue === "reject") blip(audio, now, [220, 160], 0.09, 0.05);
-  else if (cue === "click") blip(audio, now, [440], 0.04, 0.03);
-  else if (cue === "goal") chord(audio, now, [523, 659, 784], 0.22, 0.055);
-  else if (cue === "win") chord(audio, now, [392, 523, 659, 784], 0.45, 0.06);
-  else if (cue === "lose") blip(audio, now, [300, 240, 180], 0.28, 0.05);
+  if (settings.muted) return;
+  if (!engine) {
+    if (loading) pendingCue = cue;
+    return;
+  }
+  engine.cue(cue);
 }
 
-function blip(audio: AudioContext, at: number, freqs: number[], duration: number, gain: number): void {
-  freqs.forEach((freq, index) => {
-    const start = at + index * 0.045;
-    tone(audio, start, freq, duration, gain, "triangle");
+export function updateAudioScene(scene: AudioScene): void {
+  lastScene = scene;
+  engine?.scene(scene);
+}
+
+export function getAudioSettings(): AudioSettings {
+  return { ...settings };
+}
+
+export function setAudioSettings(patch: Partial<AudioSettings>): AudioSettings {
+  settings = { ...settings, ...patch };
+  saveAudioSettings(settings);
+  if (engine) engine.apply(settings);
+  else ensureEngine();
+  for (const listener of listeners) listener({ ...settings });
+  return { ...settings };
+}
+
+export function onAudioSettings(listener: (settings: AudioSettings) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function audioLoaded(): boolean {
+  return engine !== null;
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (!engine) return;
+    if (document.hidden) engine.suspend();
+    else if (wanted()) engine.resume();
   });
-}
-
-function chord(audio: AudioContext, at: number, freqs: number[], duration: number, gain: number): void {
-  freqs.forEach((freq, index) => {
-    tone(audio, at + index * 0.03, freq, duration - index * 0.02, gain * (1 - index * 0.08), "sine");
-  });
-}
-
-function tone(
-  audio: AudioContext,
-  start: number,
-  freq: number,
-  duration: number,
-  gain: number,
-  type: OscillatorType,
-): void {
-  const osc = audio.createOscillator();
-  const amp = audio.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, start);
-  amp.gain.setValueAtTime(0.0001, start);
-  amp.gain.exponentialRampToValueAtTime(gain, start + 0.015);
-  amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  osc.connect(amp);
-  amp.connect(audio.destination);
-  osc.start(start);
-  osc.stop(start + duration + 0.02);
 }

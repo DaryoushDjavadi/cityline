@@ -21,6 +21,9 @@ export const COST = {
   airport: 48000,
   lamp: 120,
   harbor: 36000,
+  wheel: 24000,
+  hall: 40000,
+  tower: 75000,
 } as const;
 
 export const DIRS = [

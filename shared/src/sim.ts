@@ -2,6 +2,7 @@ import { FOOD_PER_WORKER, FOOD_STOCK_MAX, foodNeed, serviceInfo } from "./catalo
 import { houseHappiness } from "./people.ts";
 import { decayMarket, harborYield, hubIncome, isHub, settleShipments } from "./trade.ts";
 import { claimGoals } from "./goals.ts";
+import { applyBoost, cloneProgress, stepProgress } from "./progress.ts";
 import { cellBudget, isLink, isRoad } from "./city.ts";
 import { farmStatus } from "./farm.ts";
 import { DIRS, ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
@@ -100,6 +101,7 @@ export function buildMeta(city: CityState): SimMeta {
     ...(city.gen ? { gen: { ...city.gen } } : {}),
     tradeHeat: city.tradeHeat ?? 0,
     shipments: (city.shipments ?? []).map((entry) => ({ ...entry })),
+    ...(city.progress ? { progress: cloneProgress(city.progress) } : {}),
   };
 }
 
@@ -444,7 +446,7 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
     const base = zone === Zone.Industrial ? 16 : 12;
     income += base * skill * utility * trade * (cellBudget(city, workplace) / 100);
   }
-  return { income: Math.floor(income), upkeep: maintenanceCost(city) };
+  return { income: Math.floor(applyBoost(city, income)), upkeep: maintenanceCost(city) };
 }
 
 function educate(city: CityState): void {
@@ -466,6 +468,7 @@ export function stepSimulation(city: CityState): void {
   refreshUtilities(city);
   settleShipments(city);
   claimGoals(city);
+  stepProgress(city);
   if (city.tick % GROWTH_EVERY === 0) {
     updateDemand(city);
     educate(city);

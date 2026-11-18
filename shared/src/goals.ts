@@ -1,3 +1,4 @@
+import { RANKS } from "./progress.ts";
 import { isBridge, isRoad } from "./city.ts";
 import { BRIDGE_FLAG } from "./grid.ts";
 import { nearBeach } from "./people.ts";
@@ -167,14 +168,7 @@ export function currentGoal(mask: number): CityGoal | null {
 }
 
 export function cityTitle(population: number): { name: string; next: string | null; left: number } {
-  const ranks = [
-    { at: 0, name: "Außenposten" },
-    { at: 12, name: "Siedlung" },
-    { at: 36, name: "Dorf" },
-    { at: 72, name: "Kleinstadt" },
-    { at: 140, name: "Stadt" },
-    { at: 280, name: "Großstadt" },
-  ];
+  const ranks = RANKS;
   let name = ranks[0].name;
   let next: { at: number; name: string } | null = ranks[1];
   for (let index = 0; index < ranks.length; index += 1) {

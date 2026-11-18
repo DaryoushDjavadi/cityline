@@ -99,6 +99,30 @@ export const SERVICES: Record<number, ServiceInfo> = {
     radius: 0,
     blurb: "Auf Sand oder Land direkt am Meer. Der Steg ragt ins Wasser. Straße danach anschließen. Fischerboote brauchen Arbeiter.",
   },
+  [ServiceKind.Wheel]: {
+    kind: ServiceKind.Wheel,
+    name: "Riesenrad",
+    cost: COST.wheel,
+    upkeep: 18,
+    radius: 9,
+    blurb: "Wahrzeichen ab Kleinstadt. Wohnhäuser im Umkreis werden deutlich glücklicher, Ausflügler bringen +70 € / 2 s.",
+  },
+  [ServiceKind.CityHall]: {
+    kind: ServiceKind.CityHall,
+    name: "Rathaus",
+    cost: COST.hall,
+    upkeep: 30,
+    radius: 11,
+    blurb: "Wahrzeichen ab Stadt. +6 % auf alle Einnahmen, Ereignisse bringen mehr.",
+  },
+  [ServiceKind.Tower]: {
+    kind: ServiceKind.Tower,
+    name: "Fernsehturm",
+    cost: COST.tower,
+    upkeep: 40,
+    radius: 14,
+    blurb: "Wahrzeichen ab Großstadt. +160 € / 2 s und +3 % Einnahmen. Von überall zu sehen.",
+  },
 };
 
 export function serviceInfo(kind: number): ServiceInfo | null {

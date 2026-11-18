@@ -25,10 +25,12 @@ setInterval(() => {
   if (!running) return;
   const stamp = generation;
   stepSimulation(city);
+  const cells = packCells(city);
+  // Transfer instead of structured-clone copy of the cell buffer.
   scope.postMessage({
     t: "tick",
     generation: stamp,
-    cells: packCells(city),
+    cells,
     meta: buildMeta(city),
-  });
+  }, [cells.buffer]);
 }, 500);

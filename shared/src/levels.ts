@@ -1,3 +1,4 @@
+import { freshProgress } from "./progressState.ts";
 import { BUILDINGS, type BuildingId } from "./catalog.ts";
 import { carveCrossingRiver, createCity, isBridge, isRoad } from "./city.ts";
 import { BRIDGE_FLAG } from "./grid.ts";
@@ -347,6 +348,7 @@ export function createLevelCity(level: LevelDef): CityState {
   const city = createCity();
   city.funds = level.funds;
   city.goals = LEVEL_GOALS_MASK;
+  city.progress = { ...freshProgress(city.tick), seeded: true, off: true };
   if (level.id === 7) carveCrossingRiver(city, true);
   return city;
 }

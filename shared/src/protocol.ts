@@ -123,7 +123,7 @@ export function parseChatMessage(raw: unknown): ChatMessage | null {
 
 export function parseCommand(raw: unknown): Command | null {
   if (!raw || typeof raw !== "object") return null;
-  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown; deal?: unknown; action?: unknown; layer?: unknown };
+  const command = raw as { type?: unknown; cells?: unknown; zone?: unknown; index?: unknown; kind?: unknown; value?: unknown; workplace?: unknown; home?: unknown; slot?: unknown; deal?: unknown; action?: unknown; layer?: unknown; event?: unknown; option?: unknown };
   if (command.type === "road" || command.type === "bridge" || command.type === "fill" || command.type === "bulldoze" || command.type === "line" || command.type === "pipe") {
     if (!Array.isArray(command.cells)) return null;
     return { type: command.type, cells: command.cells.filter((cell) => Number.isInteger(cell)) as number[] };
@@ -176,6 +176,11 @@ export function parseCommand(raw: unknown): Command | null {
     if (!Number.isInteger(command.index) || typeof command.deal !== "string" || !tradeDeal(command.deal)) return null;
     return { type: "trade", index: command.index as number, deal: command.deal };
   }
+  if (command.type === "choose") {
+    if (typeof command.event !== "string" || command.event.length > 24 || !Number.isInteger(command.option)) return null;
+    if ((command.option as number) < 0 || (command.option as number) > 3) return null;
+    return { type: "choose", event: command.event, option: command.option as number };
+  }
   if (command.type === "farm") {
     if (!Number.isInteger(command.index) || typeof command.action !== "string") return null;
     if (command.action !== "livestock" && command.action !== "wheat" && command.action !== "irrigation" && command.action !== "silo") return null;
@@ -185,6 +190,7 @@ export function parseCommand(raw: unknown): Command | null {
 }
 
 export function commandCells(command: Command): number[] {
+  if (command.type === "choose") return [];
   if (command.type === "service" || command.type === "budget" || command.type === "gift" || command.type === "trade" || command.type === "farm") return [command.index];
   if (command.type === "hire") return [command.workplace, command.home];
   return command.cells;
