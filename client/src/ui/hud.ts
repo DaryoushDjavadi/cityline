@@ -51,6 +51,9 @@ export type ToolId =
   | "airport"
   | "harbor"
   | "lamp"
+  | "wheel"
+  | "cityhall"
+  | "tvtower"
   | "bulldoze";
 
 export interface RoomCard {
@@ -227,6 +230,7 @@ export interface Hud {
   setRoomName: (name: string) => void;
   setOverlays: (overlays: { zones: boolean; power: boolean; water: boolean }) => void;
   setQuality: (preset: "auto" | "high" | "medium" | "low") => void;
+  setLockedTools: (locks: Partial<Record<ToolId, string | null>>) => void;
   closeOverlays: () => boolean;
   clearToast: () => void;
   playerName: () => string;
@@ -1027,6 +1031,9 @@ export function createHud(events: HudControls): Hud {
     },
     setQuality(preset) {
       if (gfx) gfx.value = preset;
+    },
+    setLockedTools(locks) {
+      buildMenu.setLocked(locks);
     },
     closeOverlays() {
       let closed = false;

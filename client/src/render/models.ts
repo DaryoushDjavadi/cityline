@@ -326,6 +326,9 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     height: 10.4,
     parts: airportParts(),
   },
+  wheel: { height: 15.5, parts: wheelBaseParts() },
+  cityhall: { height: 13.5, parts: cityHallParts() },
+  tvtower: { height: 34, parts: tvTowerParts() },
 };
 
 function stripedStack(x: number, z: number, y: number, radius: number, height: number): Part[] {
@@ -468,7 +471,105 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.University) return { key: "university", height: CATALOG.university.height };
   if (kind === ServiceKind.Airport) return { key: "airport", height: CATALOG.airport.height };
   if (kind === ServiceKind.Harbor) return { key: "harbor", height: CATALOG.harbor.height };
+  if (kind === ServiceKind.Wheel) return { key: "wheel", height: CATALOG.wheel.height };
+  if (kind === ServiceKind.CityHall) return { key: "cityhall", height: CATALOG.cityhall.height };
+  if (kind === ServiceKind.Tower) return { key: "tvtower", height: CATALOG.tvtower.height };
   return null;
+}
+
+/** Ferris wheel: plaza, A-frame legs, booth. The rotating rim is a separate mesh. */
+function wheelBaseParts(): Part[] {
+  const legs: Part[] = [];
+  for (const side of [-1, 1]) {
+    legs.push(box(-2.1, 3.6, side * 1.15, 0.32, 7.6, 0.32, 0xe8e2d6, { rz: -0.3 }));
+    legs.push(box(2.1, 3.6, side * 1.15, 0.32, 7.6, 0.32, 0xe8e2d6, { rz: 0.3 }));
+  }
+  return [
+    box(0, 0.12, 0, 9.2, 0.24, 8.4, 0xd9cdb4),
+    box(0, 0.26, 2.9, 8.4, 0.06, 1.6, 0xe9a27a),
+    ...legs,
+    { shape: "cyl", x: 0, y: 7.4, z: 0, sx: 0.36, sy: 2.7, sz: 0.36, color: 0xc8c2b6, rx: Math.PI / 2 },
+    box(3.2, 0.95, 3.0, 1.9, 1.5, 1.4, 0xf4efe4),
+    box(3.2, 1.85, 3.0, 2.2, 0.32, 1.7, 0xe23b32),
+    box(3.2, 1.0, 3.72, 1.0, 0.6, 0.06, WIN),
+    { shape: "sphere", x: -3.4, y: 1.2, z: -3.0, sx: 0.95, sy: 0.95, sz: 0.95, color: 0x7da85e },
+    { shape: "sphere", x: 3.5, y: 1.1, z: -3.1, sx: 0.85, sy: 0.85, sz: 0.85, color: 0x6e9854 },
+    box(-3.4, 0.5, 3.0, 0.9, 0.7, 0.9, 0xf0cd7d),
+  ];
+}
+
+/** Rim, spokes and gondolas around the local origin (hub). Rotated each frame about Z. */
+export function buildWheelRimGeometry(): THREE.BufferGeometry {
+  const parts: Part[] = [];
+  const radius = 5.6;
+  const ring = 24;
+  const colors = [0xe23b32, 0xf0b43c, 0x3d88c8, 0x3d8a4a, 0xa85a8a, 0xf2efe8];
+  for (let i = 0; i < ring; i += 1) {
+    const a = (i / ring) * Math.PI * 2;
+    const seg = (2 * Math.PI * radius) / ring + 0.05;
+    for (const z of [-0.85, 0.85]) {
+      parts.push(box(Math.cos(a) * radius, Math.sin(a) * radius, z, 0.22, seg, 0.18, 0xf4efe4, { rz: a }));
+    }
+  }
+  for (let i = 0; i < 12; i += 1) {
+    const a = (i / 12) * Math.PI * 2;
+    for (const z of [-0.85, 0.85]) {
+      parts.push(box(Math.cos(a) * radius * 0.5, Math.sin(a) * radius * 0.5, z, 0.1, radius, 0.1, 0xd8d2c6, { rz: a - Math.PI / 2 }));
+    }
+    const gx = Math.cos(a) * radius;
+    const gy = Math.sin(a) * radius;
+    parts.push(box(gx, gy - 0.55, 0, 0.9, 0.75, 1.1, colors[i % colors.length]));
+    parts.push(box(gx, gy - 0.12, 0, 1.05, 0.12, 1.25, 0xf7f4ee));
+  }
+  return compose(parts);
+}
+
+function cityHallParts(): Part[] {
+  const columns: Part[] = [];
+  for (let i = 0; i < 6; i += 1) {
+    columns.push({ shape: "cyl", x: -2.5 + i, y: 1.75, z: 2.65, sx: 0.2, sy: 2.6, sz: 0.2, color: 0xf7f2e8 });
+  }
+  const windows: Part[] = [];
+  for (const x of [-3.2, -2.1, 2.1, 3.2]) {
+    windows.push(box(x, 1.7, 2.18, 0.6, 1.0, 0.08, WIN));
+    windows.push(box(x, 3.6, 2.18, 0.6, 0.9, 0.08, WIN));
+  }
+  return [
+    box(0, 0.15, 0, 9.4, 0.3, 8.6, 0xcfc4ae),
+    box(0, 0.38, 3.3, 4.2, 0.16, 1.4, 0xe2d8c4),
+    box(0, 2.5, 0, 8.4, 4.4, 4.2, 0xefe2c8),
+    box(0, 4.85, 0, 8.8, 0.3, 4.6, 0xd8c49a),
+    ...pitch(0xb5523a).map((part) => ({ ...part, sx: part.sx * 1.45, sz: part.sz * 0.85, y: part.y + 2.5 })),
+    box(0, 3.55, 2.55, 6.4, 0.35, 1.1, 0xe7dcc4),
+    ...columns,
+    ...windows,
+    box(0, 1.25, 2.2, 1.2, 1.9, 0.1, 0x6a4532),
+    box(0, 7.4, 0, 2.2, 5.0, 2.2, 0xf2e6cc),
+    { shape: "cyl", x: 0, y: 8.4, z: 1.12, sx: 0.72, sy: 0.08, sz: 0.72, color: 0xf7f4ee, rx: Math.PI / 2 },
+    box(0, 8.4, 1.18, 0.07, 0.55, 0.04, 0x2a2a2a),
+    box(0.18, 8.45, 1.18, 0.4, 0.06, 0.04, 0x2a2a2a),
+    { shape: "cone", x: 0, y: 11.0, z: 0, sx: 1.75, sy: 2.4, sz: 1.75, color: 0x3d8a6a },
+    { shape: "cyl", x: 0, y: 12.6, z: 0, sx: 0.05, sy: 1.3, sz: 0.05, color: 0x6d6458 },
+    box(0.35, 12.95, 0, 0.7, 0.42, 0.04, 0xe2b15a),
+    { shape: "sphere", x: -3.6, y: 0.9, z: 3.5, sx: 0.6, sy: 0.6, sz: 0.6, color: 0x7da85e },
+    { shape: "sphere", x: 3.6, y: 0.9, z: 3.5, sx: 0.6, sy: 0.6, sz: 0.6, color: 0x7da85e },
+  ];
+}
+
+function tvTowerParts(): Part[] {
+  return [
+    box(0, 0.15, 0, 8.4, 0.3, 8.4, 0xcfc4ae),
+    { shape: "cyl", x: 0, y: 1.0, z: 0, sx: 2.4, sy: 1.6, sz: 2.8, color: 0xe7e0d4 },
+    { shape: "cyl", x: 0, y: 11.5, z: 0, sx: 0.72, sy: 19.5, sz: 1.05, color: 0xf2efe8 },
+    { shape: "cyl", x: 0, y: 18.6, z: 0, sx: 0.8, sy: 0.35, sz: 0.8, color: 0xe23b32 },
+    { shape: "sphere", x: 0, y: 23.2, z: 0, sx: 2.7, sy: 2.5, sz: 2.7, color: 0xd8dde2 },
+    { shape: "cyl", x: 0, y: 23.2, z: 0, sx: 2.78, sy: 0.75, sz: 2.78, color: WIN },
+    { shape: "cyl", x: 0, y: 26.6, z: 0, sx: 0.5, sy: 2.2, sz: 0.55, color: 0xf2efe8 },
+    { shape: "cyl", x: 0, y: 29.4, z: 0, sx: 0.16, sy: 3.4, sz: 0.2, color: 0xe23b32 },
+    { shape: "cyl", x: 0, y: 30.6, z: 0, sx: 0.17, sy: 0.6, sz: 0.17, color: 0xf7f4ee },
+    { shape: "cyl", x: 0, y: 32.4, z: 0, sx: 0.08, sy: 3.0, sz: 0.1, color: 0xe23b32 },
+    box(2.8, 0.6, 2.8, 1.6, 0.9, 1.6, 0x9aa1a8),
+  ];
 }
 
 function harborParts(): Part[] {

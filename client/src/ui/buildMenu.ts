@@ -51,6 +51,9 @@ const ICONS: Record<string, string> = {
   park: `<path d="M12 21v-5"/><path d="M12 16c-3.5 0-6-2.2-6-5.2C6 7 8.8 3.5 12 3.5S18 7 18 10.8c0 3-2.5 5.2-6 5.2Z"/><path d="M9 21h6"/>`,
   fill: `<path d="M3 19h18L14.5 8.5 12 12 8.5 7Z"/><path d="M5 19v2M19 19v2"/>`,
   bulldoze: `<path d="M3 13v-3h3l2-3h7v6"/><rect x="8" y="13" width="11" height="4" rx="1"/><path d="M3 10v5h5"/><circle cx="10" cy="19" r="2"/><circle cx="17" cy="19" r="2"/>`,
+  wheel: `<circle cx="12" cy="10" r="6.5"/><circle cx="12" cy="10" r="1.2"/><path d="M12 3.5v13M5.5 10h13M7.4 5.4l9.2 9.2M16.6 5.4l-9.2 9.2"/><path d="M8.5 21 12 11l3.5 10M6.5 21h11"/>`,
+  cityhall: `<path d="M3 20h18"/><path d="M5 20v-8h14v8"/><path d="M4 12l8-4 8 4"/><path d="M10 8V4.5h4V8"/><path d="M12 4.5V2.5M12 2.5h2.5"/><path d="M8 20v-5M12 20v-5M16 20v-5"/>`,
+  tvtower: `<path d="M12 2v4"/><path d="M11 6h2v4h-2z"/><ellipse cx="12" cy="12" rx="4" ry="2.4"/><path d="M11 14.4 10 20h4l-1-5.6"/><path d="M7 21h10"/>`,
   civic: `<path d="M3 9 12 4l9 5"/><path d="M5 9v9M9.5 9v9M14.5 9v9M19 9v9"/><path d="M3 20h18"/>`,
   utility: `<path d="M9 2 4 11h4l-1 7 6-9H9Z"/><path d="M17 9s3.5 3.8 3.5 6.2a3.5 3.5 0 0 1-7 0C13.5 12.8 17 9 17 9Z"/>`,
 };
@@ -128,6 +131,9 @@ export const BUILD_MENU: BuildCategory[] = [
       service("police", ServiceKind.Police, "Polizei"),
       service("fire", ServiceKind.Fire, "Feuerwehr"),
       service("park", ServiceKind.Park, "Park"),
+      { ...service("wheel", ServiceKind.Wheel, "Riesenrad"), group: "Wahrzeichen" },
+      { ...service("cityhall", ServiceKind.CityHall, "Rathaus"), group: "Wahrzeichen" },
+      { ...service("tvtower", ServiceKind.Tower, "Fernsehturm"), group: "Wahrzeichen" },
     ],
   },
   {
@@ -174,6 +180,8 @@ function loadTab(): BuildCategoryId {
 export interface BuildMenu {
   /** Keeps the active tab and detail in sync with the current tool. */
   showTool: (tool: ToolId) => void;
+  /** Marks tools as locked (e.g. landmarks below the needed rank); null unlocks. */
+  setLocked: (locks: Partial<Record<ToolId, string | null>>) => void;
 }
 
 export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, detailHost: HTMLElement): BuildMenu {
@@ -320,6 +328,19 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
       const entry = itemByTool.get(tool);
       if (entry && entry.category.id !== active) select(entry.category.id);
       else paintDetail(tool);
+    },
+    setLocked(locks) {
+      for (const [tool, reason] of Object.entries(locks) as [ToolId, string | null][]) {
+        const button = gridHost.querySelector<HTMLButtonElement>(`.build-item[data-tool="${tool}"]`);
+        if (!button) continue;
+        if (reason) {
+          button.dataset.locked = "on";
+          button.title = reason;
+        } else {
+          delete button.dataset.locked;
+          button.removeAttribute("title");
+        }
+      }
     },
   };
 }

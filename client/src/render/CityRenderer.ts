@@ -46,6 +46,7 @@ import {
   buildBoatGeometry,
   buildCarModels,
   buildCraneGeometry,
+  buildWheelRimGeometry,
   buildFoamGeometry,
   buildGrassTuftGeometry,
   buildModels,
@@ -226,6 +227,8 @@ export class CityRenderer {
   private readonly fishBoats: THREE.InstancedMesh;
   private readonly ferryBoats: THREE.InstancedMesh;
   private readonly cranes: THREE.InstancedMesh;
+  private readonly wheelRims: THREE.InstancedMesh;
+  private wheelCells: number[] = [];
   private readonly wakes: THREE.InstancedMesh;
   private readonly foam: THREE.InstancedMesh;
   private readonly tufts: THREE.InstancedMesh;
@@ -377,6 +380,7 @@ export class CityRenderer {
     this.fishBoats = mesh(buildBoatGeometry("fish"), boatMat, 16);
     this.ferryBoats = mesh(buildBoatGeometry("ferry"), boatMat, 12);
     this.cranes = mesh(buildCraneGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.18 }), 8);
+    this.wheelRims = mesh(buildWheelRimGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.12 }), 4);
     this.wakes = mesh(
       buildWakeGeometry(),
       new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide }),
@@ -472,6 +476,7 @@ export class CityRenderer {
       this.fishBoats,
       this.ferryBoats,
       this.cranes,
+      this.wheelRims,
       this.wakes,
       this.foam,
       this.tufts,
@@ -570,6 +575,7 @@ export class CityRenderer {
     }
     this.staticStamp = stamp;
     this.birthSlots = [];
+    this.wheelCells = [];
 
     let curbs = 0;
     let roads = 0;
@@ -684,6 +690,7 @@ export class CityRenderer {
       }
 
       const service = city.services[index];
+      if (service === ServiceKind.Wheel) this.wheelCells.push(index);
       if (service === ServiceKind.Lamp) {
         // Poles and night glow are drawn in paintLocalLights.
       } else {
@@ -840,6 +847,7 @@ export class CityRenderer {
     if (this.shown) {
       this.paintCranes();
       this.paintFoam();
+      this.paintWheels();
     }
     this.updateRain(dt, target, climate);
     const jam = 0.45 + (1 - this.streetActivity) * 0.7;
@@ -1308,7 +1316,7 @@ export class CityRenderer {
     const extras = [
       this.curbs, this.asphalt, this.corners, this.cornerCurbs, this.buildings, this.roofs,
       this.services, this.poles, this.pipeMesh, this.stones, this.people, this.planes, this.lampPoles,
-      this.cargoBoats, this.fishBoats, this.ferryBoats, this.cranes, this.tufts,
+      this.cargoBoats, this.fishBoats, this.ferryBoats, this.cranes, this.tufts, this.wheelRims,
     ];
     for (const mesh of extras) {
       mesh.castShadow = on;
@@ -1477,6 +1485,24 @@ export class CityRenderer {
     this.finish(this.fishBoats, fish);
     this.finish(this.ferryBoats, ferry);
     this.finish(this.wakes, low ? 0 : wakes);
+  }
+
+  /** Landmark ferris wheels turn slowly (one turn ≈ 40 s). */
+  private paintWheels(): void {
+    if (!this.shown || this.wheelCells.length === 0) {
+      this.finish(this.wheelRims, 0);
+      return;
+    }
+    let count = 0;
+    for (const index of this.wheelCells) {
+      if (count >= 4) break;
+      const { x, y } = cellCoords(this.shown, index);
+      const world = cellToWorld(this.shown, x, y);
+      const grow = this.birthScale(index);
+      this.putEuler(this.wheelRims, count, world.x, this.heightOf(index) + 7.4 * grow, world.z, grow, grow, grow, 0, 0, this.flightTime * 0.16, 0xffffff);
+      count += 1;
+    }
+    this.finish(this.wheelRims, count);
   }
 
   private paintCranes(): void {
