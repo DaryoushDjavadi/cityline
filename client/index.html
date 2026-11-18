@@ -119,15 +119,24 @@
         </div>
       </div>
       <div class="top-actions">
+        <button id="open-city" class="hud-btn" type="button" aria-pressed="false" aria-label="Stadt-Übersicht" title="Stadt: Rang, Erfolge, Tagesaufgabe, Bürger-Feed">
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4.5a2.5 2.5 0 0 0 2.6 3.6M17 6h2.5a2.5 2.5 0 0 1-2.6 3.6M12 13v4M8.5 20h7M9.5 17h5"/></svg>
+          <span class="hud-text">Stadt</span>
+          <span id="life-dot" hidden></span>
+        </button>
+        <button id="toggle-sound" class="hud-btn" type="button" aria-pressed="true" aria-label="Ton aus" title="Ton aus (Lautstärken unter Einstellungen › Klang)">
+          <svg class="hud-icon sound-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4Z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.4 7.4 0 0 1 0 10.4"/></svg>
+          <svg class="hud-icon sound-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4Z"/><path d="m15.5 9.5 5 5M20.5 9.5l-5 5"/></svg>
+        </button>
         <button id="toggle-stats" class="hud-btn" type="button" aria-expanded="true" aria-controls="city-stats" aria-label="Werte ausblenden" title="Werte ausblenden">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="12" r="3"/><path d="M5 12h3M16 12h3"/></svg>
           <span class="hud-text">Werte</span>
         </button>
-        <button id="open-players" class="hud-btn" type="button" aria-label="Spieler">
+        <button id="open-players" class="hud-btn" type="button" aria-label="Spieler" title="Spieler">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9" r="2"/><path d="M4 19c.8-2.6 2.4-4 5-4s4.2 1.4 5 4"/><path d="M13 19c.6-2 1.8-3.2 3.8-3.2 1.6 0 2.8.8 3.4 2.2"/></svg>
           <span class="hud-text">Spieler</span>
         </button>
-        <button id="open-chat" class="hud-btn" type="button" aria-label="Chat">
+        <button id="open-chat" class="hud-btn" type="button" aria-label="Chat" title="Chat">
           <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v10H9l-4 3V6Z"/></svg>
           <span class="hud-text">Chat</span>
           <span id="chat-badge" hidden>0</span>
@@ -204,7 +213,7 @@
     </div>
     <aside id="demand">
       <header class="panel-head">
-        <p>Nachfrage</p>
+        <p>Nachfrage & Einstellungen</p>
         <button id="demand-close" class="compact-only" type="button" aria-label="Schließen">×</button>
       </header>
       <label>Wohnen <b id="dem-r">0</b><i id="bar-r"></i></label>
@@ -224,6 +233,14 @@
           </select>
         </label>
       </div>
+      <section class="audio-settings" aria-label="Klang">
+        <h3 class="audio-head">Klang</h3>
+        <label class="audio-row master"><input id="snd-on" type="checkbox" aria-label="Ton an" /><span>Ton</span><input id="snd-master" type="range" min="0" max="100" step="1" aria-label="Gesamtlautstärke" /></label>
+        <label class="audio-row"><input id="snd-music-on" type="checkbox" /><span>Musik</span><input id="snd-music" type="range" min="0" max="100" step="1" aria-label="Musiklautstärke" /></label>
+        <label class="audio-row"><input id="snd-amb-on" type="checkbox" /><span>Stadtgeräusche</span><input id="snd-amb" type="range" min="0" max="100" step="1" aria-label="Lautstärke Stadtgeräusche" /></label>
+        <label class="audio-row"><input id="snd-ui-on" type="checkbox" /><span>UI-Sounds</span><input id="snd-ui" type="range" min="0" max="100" step="1" aria-label="Lautstärke UI-Sounds" /></label>
+        <p class="audio-note">Ruhige Klaviermusik, die dem Tag folgt. Stadtgeräusche hängen von Kamera und Zoom ab.</p>
+      </section>
     </aside>
     <aside id="inspector" hidden data-kind="field">
       <header class="insp-head">

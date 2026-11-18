@@ -12,4 +12,13 @@ export default defineConfig({
       allow: [path.resolve(root, "..")],
     },
   },
+  build: {
+    // three.js changes rarely: its own chunk stays cached across game updates.
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => (id.includes("node_modules/three/") ? "three" : undefined),
+      },
+    },
+  },
 });

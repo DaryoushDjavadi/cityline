@@ -6,7 +6,10 @@ import { buildLookCity, hourToTick } from "../render/lookCity.ts";
 import { loadGfxPreset, saveGfxPreset, type GfxPreset } from "../render/quality.ts";
 import { RtsCamera } from "../render/RtsCamera.ts";
 import { createHud, type ToolId } from "../ui/hud.ts";
-import { playSfx, unlockAudio } from "../audio/sfx.ts";
+import { playSfx, unlockAudio, updateAudioScene } from "../audio/sfx.ts";
+import { sampleAudioScene } from "../audio/scene.ts";
+import { bindAudioControls } from "../ui/audioPanel.ts";
+import { CityLife } from "../ui/cityLife.ts";
 import {
   BUILDINGS,
   CELL_SIZE,
@@ -96,6 +99,10 @@ import {
   waterDir,
   worldToCell,
   writeCity,
+  ensureProgress,
+  stepProgress,
+  EVENT_TIMEOUT,
+  type EventId,
   tradeBlockReason as hubTradeReason,
   type ChatMessage,
   type CityPushReply,
@@ -147,6 +154,9 @@ const HINTS: Partial<Record<ToolId, string>> = {
   park: `Park. ${COST.park} €.`,
   airport: `Flughafen. ${COST.airport.toLocaleString("de-DE")} €. Schneller, teurer Handel. Logistik-Verbund mit einem Hafen in der Nähe.`,
   harbor: `Hafen direkt am Meer, auf Sand oder Land. ${COST.harbor.toLocaleString("de-DE")} €. Der Steg ragt ins Wasser. Straße, Strom und Wasser danach anschließen.`,
+  wheel: `Riesenrad (Wahrzeichen) neben eine Straße. ${COST.wheel.toLocaleString("de-DE")} €. Macht die Nachbarschaft glücklich.`,
+  cityhall: `Rathaus (Wahrzeichen) neben eine Straße. ${COST.hall.toLocaleString("de-DE")} €. +6 % Einnahmen.`,
+  tvtower: `Fernsehturm (Wahrzeichen) neben eine Straße. ${COST.tower.toLocaleString("de-DE")} €. Tourismus und Einnahmen.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
   bulldoze: "Ziehen reißt Felder in einer Linie ab. Bei Leitungen reicht auch Rechtsklick auf die Leitung.",
 };
@@ -163,6 +173,9 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
   airport: ServiceKind.Airport,
   harbor: ServiceKind.Harbor,
   lamp: ServiceKind.Lamp,
+  wheel: ServiceKind.Wheel,
+  cityhall: ServiceKind.CityHall,
+  tvtower: ServiceKind.Tower,
 };
 
 const REASONS: Record<string, string> = {
@@ -261,6 +274,9 @@ export class Game {
   private playing = false;
   private lastSave = 0;
   private lastShipments: { cell: number; due: number; money: number; food: number }[] = [];
+  private life!: CityLife;
+  private lastAudioScene = 0;
+  private lastStats: SimMeta["stats"] | null = null;
   private building = false;
   private anchor: { x: number; y: number } | null = null;
   private readonly painted = new Set<number>();
@@ -314,6 +330,30 @@ export class Game {
     this.view = new CityRenderer(canvas);
     this.worker = new Worker(new URL("../sim/sim.worker.ts", import.meta.url), { type: "module" });
     this.worker.onmessage = (event: MessageEvent<TickMessage>) => this.onTick(event.data);
+    this.life = new CityLife({
+      choose: (event, option) => {
+        playSfx("cash");
+        this.applyLocal({ type: "choose", event, option });
+      },
+      sound: (cue) => playSfx(cue),
+      pickTool: (tool) => {
+        this.hud.setMenuOpen(true);
+        this.setTool(tool);
+      },
+      locks: (locks) => this.hud.setLockedTools(locks),
+      opened: () => {
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+        this.setBriefOpen(false);
+        if (isCompactHud()) {
+          this.hud.setDemandOpen(false);
+          this.hud.setMenuOpen(false);
+        }
+      },
+    });
+    bindAudioControls();
     this.bindInput();
     this.resize();
     window.addEventListener("resize", () => this.resize());
@@ -607,6 +647,78 @@ export class Game {
       stats() {
         return buildMeta(self.city).stats;
       },
+      /** Swap the current solo city for the look showcase (pop ~280) and keep simulating. */
+      showcase(hour = 9) {
+        const showcase = buildLookCity(hour);
+        self.adoptCity(packCells(showcase.city), buildMeta(showcase.city));
+        self.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
+        self.city.tick = hourToTick(hour);
+        self.city.progress = undefined;
+        refreshUtilities(self.city);
+        stepProgress(self.city);
+        self.life.reset();
+        // The showcase is a still life (no real power grid); keep the sim paused like ?preview=look.
+        self.rememberWorker(false);
+        self.camera.lookAt(showcase.focusX, showcase.focusZ);
+        self.camera.azimuth = 0.58;
+        self.camera.polar = 1.1;
+        self.camera.lookLift = 10;
+        self.camera.setDistance(176);
+        self.publish();
+        return { population: buildMeta(self.city).stats.population, rank: ensureProgress(self.city).rank };
+      },
+      forceEvent(id: EventId) {
+        const p = ensureProgress(self.city);
+        p.seeded = true;
+        p.event = { id, at: self.city.tick, until: self.city.tick + EVENT_TIMEOUT };
+        self.rememberWorker(false);
+        self.publish();
+      },
+      setProgress(patch: { ach?: number; rank?: number; trade?: number }) {
+        const p = ensureProgress(self.city);
+        if (patch.ach !== undefined) p.ach = patch.ach;
+        if (patch.rank !== undefined) p.rank = patch.rank;
+        if (patch.trade !== undefined) p.stats.trade = patch.trade;
+        self.rememberWorker(false);
+        self.publish();
+        return { ach: p.ach, rank: p.rank, event: p.event, challenge: p.challenge, last: p.last };
+      },
+      progress() {
+        return self.city.progress ? JSON.parse(JSON.stringify(self.city.progress)) : null;
+      },
+      chatter(count = 4) {
+        return self.life.chatterNow(self.city, buildMeta(self.city), count);
+      },
+      spotFor(tool: ToolId): { x: number; y: number } | null {
+        const kind = SERVICES[tool];
+        const center = worldToCell(self.city, self.camera.target.x, self.camera.target.z) ?? { x: self.city.width >> 1, y: self.city.height >> 1 };
+        for (let r = 0; r < 30; r += 1) {
+          for (let dy = -r; dy <= r; dy += 1) {
+            for (let dx = -r; dx <= r; dx += 1) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+              const x = center.x + dx;
+              const y = center.y + dy;
+              if (x < 1 || y < 1 || x >= self.city.width - 1 || y >= self.city.height - 1) continue;
+              if (kind && !placeBlockReason(self.city, cellIndex(self.city, x, y), "service", { kind })) return { x, y };
+            }
+          }
+        }
+        return null;
+      },
+      cellIndex(x: number, y: number) {
+        return cellIndex(self.city, x, y);
+      },
+      countService(kind: number) {
+        let n = 0;
+        for (let i = 0; i < self.city.services.length; i += 1) if (self.city.services[i] === kind) n += 1;
+        return n;
+      },
+      openCity(open = true) {
+        self.life.toggle(open);
+      },
+      audioScene() {
+        return sampleAudioScene(self.city, self.camera.target.x, self.camera.target.z, self.camera.distance, self.lastStats?.traffic ?? 0, self.playing);
+      },
       dismissUi() {
         self.hud.closeOverlays();
         self.hud.clearToast();
@@ -705,6 +817,12 @@ export class Game {
     this.view.lastUpdateMs = performance.now() - updateStart;
     this.view.render(this.camera.camera);
     this.paintPeerCursors();
+    if (time - this.lastAudioScene > 250) {
+      this.lastAudioScene = time;
+      updateAudioScene(
+        sampleAudioScene(this.city, this.camera.target.x, this.camera.target.z, this.camera.distance, this.lastStats?.traffic ?? 0, this.playing),
+      );
+    }
     const stats = window as Window & { __cityline?: Record<string, unknown> };
     stats.__cityline = {
       frameMs: this.view.lastFrameMs,
@@ -1361,7 +1479,7 @@ export class Game {
     if (result.applied.length > 0) {
       refreshUtilities(this.city);
       this.view.noteBuilt(result.applied);
-      playSfx("place");
+      playSfx(this.tool === "bulldoze" || stripping ? "demolish" : "place");
     }
     if (this.mode === "single") this.rememberWorker(true);
     // Keep the build tool active (B8); never open inspect/car after a place (B2).
@@ -1690,6 +1808,8 @@ export class Game {
     document.body.dataset.waterNet = live.water ? "on" : "off";
     this.hud.setOverlays(live);
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
+    this.lastStats = meta.stats;
+    this.life.update(this.city, meta);
     const syncStart = performance.now();
     this.view.sync(this.city, live);
     this.view.lastSyncMs = performance.now() - syncStart;
@@ -1723,8 +1843,12 @@ export class Game {
       for (const prev of this.lastShipments) {
         const still = now.some((entry) => entry.cell === prev.cell && entry.due === prev.due && entry.money === prev.money && entry.food === prev.food);
         if (still) continue;
-        if (prev.money > 0) this.flash(`Lieferung angekommen: +${prev.money.toLocaleString("de-DE")} €`);
-        else if (prev.food > 0) this.flash(`Fracht angekommen: +${prev.food} Nahrung`);
+        const service = this.city.services[prev.cell];
+        playSfx(service === ServiceKind.Airport ? "plane" : service === ServiceKind.Harbor ? "horn" : "cash");
+        if (prev.money > 0) {
+          this.flash(`Lieferung angekommen: +${prev.money.toLocaleString("de-DE")} €`);
+          window.setTimeout(() => playSfx("cash"), 900);
+        } else if (prev.food > 0) this.flash(`Fracht angekommen: +${prev.food} Nahrung`);
       }
     }
     this.lastShipments = now.map((entry) => ({ cell: entry.cell, due: entry.due, money: entry.money, food: entry.food }));
@@ -1734,6 +1858,7 @@ export class Game {
     this.focus = null;
     this.selected = -1;
     this.lastShipments = [];
+    this.life.reset();
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -2222,6 +2347,7 @@ export class Game {
 
   private setRosterOpen(open: boolean): void {
     if (open) {
+      this.life.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.chatOpen = false;
@@ -2234,6 +2360,7 @@ export class Game {
 
   private setChatOpen(open: boolean): void {
     if (open) {
+      this.life.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.rosterOpen = false;

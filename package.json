@@ -12,7 +12,11 @@
     "sim-tests": "tsx scripts/sim-tests.ts",
     "look-shots": "tsx scripts/look-shots.ts",
     "build": "npm run build -w cityline-client",
-    "start": "npm run start -w cityline-server"
+    "start": "npm run start -w cityline-server",
+    "progress-tests": "tsx scripts/progress-tests.ts",
+    "perf-probe": "tsx scripts/perf-probe.ts",
+    "audio-tests": "tsx scripts/audio-tests.ts",
+    "life-playtest": "tsx scripts/life-playtest.mts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
