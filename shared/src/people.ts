@@ -1,3 +1,4 @@
+import { moodBonus } from "./progress.ts";
 import { climateAt, isOnDuty } from "./climate.ts";
 import { serviceInfo } from "./catalog.ts";
 import { ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
@@ -281,7 +282,7 @@ export function houseHappiness(city: CityState, home: number): { score: number; 
   const park = serviceNearby(city, home, ServiceKind.Park) ? 0.12 : 0;
   const clinic = serviceNearby(city, home, ServiceKind.Clinic) ? 0.1 : 0;
   const meals = city.food > 0 ? 0.12 : 0.04;
-  const score = Math.max(0, Math.min(1, 0.28 + utility + park + clinic + meals + (beach ? 0.38 : 0)));
+  const score = Math.max(0, Math.min(1, 0.28 + utility + park + clinic + meals + (beach ? 0.38 : 0) + moodBonus(city, home)));
   const label = beach ? "Strandglück" : score >= HAPPY_SMILE ? "sehr glücklich" : score >= 0.55 ? "zufrieden" : "unzufrieden";
   return { score, beach, tax: beach ? 0.42 : 0, label };
 }

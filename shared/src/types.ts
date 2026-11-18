@@ -1,3 +1,5 @@
+import { cloneProgress, type CityProgress } from "./progressState.ts";
+
 export const POWER_BIT = 1;
 export const WATER_BIT = 2;
 
@@ -24,6 +26,10 @@ export const ServiceKind = {
   Airport: 9,
   Lamp: 10,
   Harbor: 11,
+  /** Landmarks (Wahrzeichen) – one each per city, unlocked by rank. */
+  Wheel: 12,
+  CityHall: 13,
+  Tower: 14,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];
@@ -96,6 +102,8 @@ export interface CityState {
   tradeHeat?: number;
   /** Delayed harbor/airport cargo. Missing on old saves. */
   shipments?: { cell: number; due: number; money: number; food: number }[];
+  /** Ranks, achievements, events, daily challenge. Missing on old saves. */
+  progress?: CityProgress;
 }
 
 export type Command =
@@ -113,7 +121,8 @@ export type Command =
   | { type: "gift"; index: number }
   | { type: "hire"; workplace: number; home: number; slot: number }
   | { type: "trade"; index: number; deal: string }
-  | { type: "farm"; index: number; action: "livestock" | "wheat" | "irrigation" | "silo" };
+  | { type: "farm"; index: number; action: "livestock" | "wheat" | "irrigation" | "silo" }
+  | { type: "choose"; event: string; option: number };
 
 export interface ApplyResult {
   ok: boolean;
@@ -138,6 +147,7 @@ export interface SimMeta {
   gen?: MapGen;
   tradeHeat?: number;
   shipments?: { cell: number; due: number; money: number; food: number }[];
+  progress?: CityProgress;
 }
 
 export interface PublicPlayer {
@@ -224,6 +234,7 @@ export function writeCity(state: CityState, packed: Uint8Array, meta: SimMeta): 
         food: Math.floor(Number(entry.food) || 0),
       }))
     : [];
+  state.progress = cloneProgress(meta.progress);
   if (meta.gen && typeof meta.gen === "object") {
     const seed = Number((meta.gen as MapGen).seed);
     const biome = (meta.gen as MapGen).biome;

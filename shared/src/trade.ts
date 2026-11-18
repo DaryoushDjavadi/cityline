@@ -1,3 +1,4 @@
+import { noteTradeIncome } from "./progress.ts";
 import { AIRPORT_INCOME, FOOD_STOCK_MAX, HARBOR_INCOME, tradeDeal, type TradeDeal } from "./catalog.ts";
 import { ROAD_FLAG, cellCoords, inBounds } from "./grid.ts";
 import { POWER_BIT, ServiceKind, WATER_BIT, Zone, type ApplyResult, type CityState } from "./types.ts";
@@ -101,7 +102,10 @@ export function settleShipments(city: CityState): void {
       continue;
     }
     if (entry.food > 0) city.food = Math.min(FOOD_STOCK_MAX, city.food + entry.food);
-    if (entry.money > 0) city.funds = Math.min(5_000_000, city.funds + entry.money);
+    if (entry.money > 0) {
+      city.funds = Math.min(5_000_000, city.funds + entry.money);
+      noteTradeIncome(city, entry.money);
+    }
   }
   city.shipments = keep;
 }
@@ -206,6 +210,7 @@ export function applyHubTrade(city: CityState, index: number, dealId: string): A
   city.tradeHeat = Math.min(MARKET_HEAT_MAX, (city.tradeHeat ?? 0) + exportHeatGain(deal, quote.hub));
   if (quote.delay <= 0) {
     city.funds = Math.min(5_000_000, city.funds + quote.price);
+    noteTradeIncome(city, quote.price);
     city.revision += 1;
     return { ok: true, spent: 0, applied, rejected, bonus: quote.price };
   }

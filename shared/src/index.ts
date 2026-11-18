@@ -16,3 +16,4 @@ export * from "./goals.ts";
 export * from "./levels.ts";
 export * from "./cityAuth.ts";
 export * from "./trade.ts";
+export * from "./progress.ts";

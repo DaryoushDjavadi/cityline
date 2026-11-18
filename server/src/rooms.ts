@@ -470,6 +470,7 @@ function filterLocked(room: Room, playerId: string, command: Command): { command
       blocked,
     };
   }
+  if (command.type === "choose") return { command, blocked: [] };
   if (command.type === "service" || command.type === "budget" || command.type === "gift" || command.type === "trade" || command.type === "farm") {
     return {
       command: blocked.includes(command.index) ? { type: "road", cells: [] } : command,
