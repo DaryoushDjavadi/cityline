@@ -3330,3 +3330,35 @@ body[data-look="shot"] #orders { display: none !important; }
   body[data-menu="open"]:not([data-flash="on"]) footer,
   body:not([data-tool="inspect"]):not([data-flash="on"]) footer { display: none; }
 }
+@media (max-width: 1100px), (max-height: 520px) {
+  /* Bottom sheet, but slim: one scrolling row of category icons, one row of tiles, one detail line. */
+  #rail .build-tabs {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-top: 0;
+  }
+  #rail .build-tabs::-webkit-scrollbar { display: none; }
+  #rail .build-tab { flex: 0 0 auto; flex-direction: row; min-width: 44px; min-height: 40px; height: 40px; padding: 0 9px; gap: 6px; font-size: 11.5px; }
+  #rail .build-tab .tab-glyph { width: auto; height: auto; background: none; }
+  #rail .build-tab .tab-label { display: none; }
+  #rail .build-tab.active .tab-label { display: inline; }
+  #rail .build-grid,
+  #rail .build-grid[data-category] {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 78px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+  }
+  #rail .build-item { min-height: 58px; padding: 5px 2px 4px; gap: 2px; }
+  #rail .build-item .build-item-icon { width: 26px; height: 26px; }
+  #rail .build-detail { min-height: 0; height: auto; padding: 5px 9px; }
+  #rail .build-detail p { -webkit-line-clamp: 1; font-size: 11px; margin-top: 1px; }
+  #rail .build-detail .build-needs { display: none; }
+  #rail { gap: 6px; padding: 7px; }
+}
