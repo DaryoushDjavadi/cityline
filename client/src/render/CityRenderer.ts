@@ -40,7 +40,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
+import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
 import { gfxProfile, loadGfxPreset, type GfxPreset, type GfxProfile } from "./quality.ts";
 import {
   buildBoatGeometry,
@@ -1283,7 +1283,7 @@ export class CityRenderer {
       this.quality,
     );
     this.nightLit = stamped.nightLit;
-    this.windowNight.value = this.nightLit ? 1 : goldenAmount(lookClimate.hour) * 0.12;
+    this.windowNight.value = Math.max(Math.min(1, nightAmount(lookClimate.hour) * 1.6), goldenAmount(lookClimate.hour) * 0.12);
     this.renderer.toneMappingExposure = stamped.exposure;
     this.scene.background = this.atmosphere.skyMaterial.uniforms.uZenith.value;
     this.rain.visible = lookClimate.weather === "rain";
