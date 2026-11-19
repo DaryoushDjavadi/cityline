@@ -188,7 +188,7 @@ const errors: string[] = [];
   const layer = await e2e<{ animals: number; far: number; jeeps: number; visitors: number; meshes: number }>(page, "zooLayer");
   check(layer.animals >= 15 && layer.jeeps >= 3 && layer.visitors >= 3, `Tiere, Jeeps und Besucher sichtbar (${JSON.stringify(layer)})`);
   await page.screenshot({ path: path.join(SHOTS, "zoo-02-gehege-aussen.png") });
-  await e2e(page, "lookAt", sx + 1, sy + 0.1, 22, 1.0, 0, 0.4);
+  await e2e(page, "lookAt", sx + 1, sy + 0.5, 20, 0.9, 0, 0.3);
   await page.waitForTimeout(900);
   await clean(page);
   await page.screenshot({ path: path.join(SHOTS, "zoo-08-safari-besucher.png") });

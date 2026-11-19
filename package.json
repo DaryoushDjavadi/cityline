@@ -16,6 +16,7 @@
     "progress-tests": "tsx scripts/progress-tests.ts",
     "orders-tests": "tsx scripts/orders-tests.ts",
     "coop-orders-check": "tsx scripts/coop-orders-check.ts",
+    "coop-zoo-check": "tsx scripts/coop-zoo-check.ts",
     "perf-probe": "tsx scripts/perf-probe.ts",
     "audio-tests": "tsx scripts/audio-tests.ts",
     "life-playtest": "tsx scripts/life-playtest.mts",
