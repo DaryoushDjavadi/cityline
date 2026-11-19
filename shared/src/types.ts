@@ -1,4 +1,5 @@
 import { cloneProgress, type CityProgress } from "./progressState.ts";
+import type { ZooOp } from "./zoo.ts";
 
 export const POWER_BIT = 1;
 export const WATER_BIT = 2;
@@ -30,6 +31,12 @@ export const ServiceKind = {
   Wheel: 12,
   CityHall: 13,
   Tower: 14,
+  /** Zoo habitats (Tiergehege). */
+  ZooSavanna: 15,
+  ZooForest: 16,
+  ZooWater: 17,
+  ZooPolar: 18,
+  ZooMeadow: 19,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];
@@ -123,7 +130,8 @@ export type Command =
   | { type: "trade"; index: number; deal: string }
   | { type: "farm"; index: number; action: "livestock" | "wheat" | "irrigation" | "silo" }
   | { type: "choose"; event: string; option: number }
-  | { type: "order"; slot: number; id: number; action: "deliver" | "skip" };
+  | { type: "order"; slot: number; id: number; action: "deliver" | "skip" }
+  | { type: "zoo"; zoo: ZooOp };
 
 export interface ApplyResult {
   ok: boolean;

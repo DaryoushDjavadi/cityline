@@ -1,5 +1,6 @@
 /** Serializable progress state (no runtime imports, so types.ts can use it without cycles). */
 import type { CityState } from "./types.ts";
+import { cloneZoo, type ZooState } from "./zoo.ts";
 
 export const FIRST_EVENT_DELAY = 360;
 export type ChallengeKind = "homes" | "pop" | "jobs" | "parks" | "trade" | "happy" | "roads";
@@ -84,11 +85,13 @@ export interface CityProgress {
   nextEvent: number;
   effects: CityEffect[];
   /** Last resolved thing, so every coop client can toast it once. */
-  last: { tick: number; kind: "event" | "rank" | "ach" | "challenge" | "order"; title: string; text: string; pay: number } | null;
+  last: { tick: number; kind: "event" | "rank" | "ach" | "challenge" | "order" | "zoo"; title: string; text: string; pay: number } | null;
   stats: ProgressStats;
   challenge: DailyChallenge | null;
   /** Auftragstafel. Missing on old saves (created on first step). */
   orders?: OrderBoard;
+  /** Zoo: habitats' contents and animals. Missing on old saves (created on first step). */
+  zoo?: ZooState;
 }
 
 export function freshProgress(tick: number): CityProgress {
@@ -130,7 +133,7 @@ export function cloneProgress(raw: unknown): CityProgress | undefined {
   const last = p.last && typeof p.last === "object"
     ? {
       tick: num(p.last.tick) | 0,
-      kind: (["event", "rank", "ach", "challenge", "order"].includes(p.last.kind as string) ? p.last.kind : "event") as "event",
+      kind: (["event", "rank", "ach", "challenge", "order", "zoo"].includes(p.last.kind as string) ? p.last.kind : "event") as "event",
       title: str(p.last.title, 60),
       text: str(p.last.text),
       pay: num(p.last.pay),
@@ -165,6 +168,7 @@ export function cloneProgress(raw: unknown): CityProgress | undefined {
     },
     challenge,
     ...(p.orders ? { orders: cloneOrders(p.orders) } : {}),
+    ...(p.zoo ? { zoo: cloneZoo(p.zoo) } : {}),
   };
 }
 

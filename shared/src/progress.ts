@@ -11,6 +11,7 @@ import { cellCoords, cellIndex, inBounds } from "./grid.ts";
 import { HAPPY_SMILE, houseHappiness, isWorkplace, nearBeach } from "./people.ts";
 import { nextRand } from "./sim.ts";
 import { stepOrders } from "./orders.ts";
+import { stepZoo, zooMood } from "./zoo.ts";
 import { ServiceKind, Zone, type ApplyResult, type CityState } from "./types.ts";
 import { FIRST_EVENT_DELAY, ensureProgress, type ChallengeKind, type CityEffect, type CityProgress, type DailyChallenge, type EventId } from "./progressState.ts";
 
@@ -103,6 +104,10 @@ function landmarkCells(city: CityState): { index: number; info: Landmark }[] {
 /** Extra happiness for a home from landmarks in range plus city-wide event moods. */
 export function moodBonus(city: CityState, home: number): number {
   let bonus = eventMood(city);
+  if (city.progress?.zoo) {
+    const at = cellCoords(city, home);
+    bonus += zooMood(city, at.x, at.y, city.width);
+  }
   const marks = landmarkCells(city);
   if (marks.length > 0) {
     const here = cellCoords(city, home);
@@ -268,6 +273,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { bit: 1 << 15, title: "Ausdauer", text: "Sieben Spieltage durchgehalten.", reward: 5_000, test: (_m, _p, city) => city.tick >= DAY_TICKS * 7 },
   { bit: 1 << 16, title: "Weltoffen", text: "Hafen und Flughafen in einer Stadt.", reward: 3_000, test: (m) => m.harbor && m.airport },
   { bit: 1 << 17, title: "Millionär", text: "1.000.000 € in der Kasse.", reward: 0, test: (_m, _p, city) => city.funds >= 1_000_000 },
+  { bit: 1 << 18, title: "Zoodirektor", text: "Das erste Tier ist eingezogen.", reward: 800, test: (_m, p) => (p.zoo?.bought ?? 0) + (p.zoo?.born ?? 0) >= 1 },
+  { bit: 1 << 19, title: "Aufgepäppelt", text: "Ein gerettetes Tier ist wieder gesund und zutraulich.", reward: 1_500, test: (_m, p) => (p.zoo?.nursed ?? 0) >= 1 },
+  { bit: 1 << 20, title: "Nachwuchs!", text: "Im Zoo ist ein Jungtier zur Welt gekommen.", reward: 2_000, test: (_m, p) => (p.zoo?.born ?? 0) >= 1 },
 ];
 
 // ---------------------------------------------------------------- daily challenges
@@ -563,6 +571,7 @@ export function stepProgress(city: CityState): void {
     p.effects = p.effects.filter((effect) => effect.until > city.tick);
   }
   stepOrders(city);
+  stepZoo(city);
   if (p.seeded && city.tick % PROGRESS_EVERY !== 0) return;
   const m = cityMetrics(city);
   p.stats.mood = Math.round(m.mood * 10) / 10;

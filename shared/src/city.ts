@@ -3,6 +3,7 @@ import { buildingInfo, readBudget, refundForLevel, serviceInfo } from "./catalog
 import { ensureBeaches, isBeach, isCoastalLand, restoreMissingCoast } from "./terrain.ts";
 import { applyHubTrade } from "./trade.ts";
 import { applyOrder } from "./orders.ts";
+import { applyZoo, isHabitatKind } from "./zoo.ts";
 import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
@@ -244,6 +245,7 @@ export function placeBlockReason(
   if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
   const landmark = extra?.kind !== undefined ? landmarkBlock(city, extra.kind) : null;
   if (landmark) return landmark;
+  if (extra?.kind !== undefined && isHabitatKind(extra.kind) && city.progress?.off) return "Tiergehege gibt es nur in freien Städten, nicht in Levels.";
   if (!orthogonalRoad(city, index)) return "Öffentliche Gebäude brauchen eine Straße direkt daneben (orthogonal).";
   return "Hier geht das Gebäude nicht.";
 }
@@ -326,6 +328,7 @@ export function canPlace(
   if (isBeach(city, index)) return false;
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
   if (extra?.kind !== undefined && landmarkBlock(city, extra.kind)) return false;
+  if (extra?.kind !== undefined && isHabitatKind(extra.kind) && city.progress?.off) return false;
   return orthogonalRoad(city, index);
 }
 
@@ -448,6 +451,7 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
     return applyHubTrade(city, command.index, command.deal);
   }
 
+  if (command.type === "zoo") return applyZoo(city, command.zoo);
   if (command.type === "order") {
     return applyOrder(city, command.slot, command.id, command.action);
   }
