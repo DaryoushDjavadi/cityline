@@ -1,7 +1,7 @@
 import { BUILDINGS, COST, SERVICES as SERVICE_INFO, ServiceKind } from "../../../shared/src/index.ts";
 import type { ToolId } from "./hud.ts";
 
-export type BuildCategoryId = "roads" | "homes" | "work" | "utility" | "trade" | "civic" | "landmarks" | "tools";
+export type BuildCategoryId = "roads" | "homes" | "work" | "utility" | "trade" | "civic" | "landmarks" | "zoo" | "tools";
 
 export interface BuildItem {
   tool: ToolId;
@@ -62,6 +62,12 @@ const ICONS: Record<string, string> = {
   trade: `<path d="M3 15h18l-2.5 4.5h-13Z"/><path d="M6 15v-4h5v4"/><path d="M12.5 15V8h5v7"/><path d="M14 8V5.5"/><path d="M2.5 21.5c1.5.8 3 .8 4.5 0s3-.8 4.5 0 3 .8 4.5 0 3-.8 4.5 0"/>`,
   landmark: `<path d="M12 2.5 14.6 8l6 .6-4.5 4 1.3 5.9L12 15.5l-5.4 3 1.3-5.9-4.5-4 6-.6Z"/>`,
   tools: `<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.3-.7-.7-2.3Z"/>`,
+  zoo: `<ellipse cx="12" cy="16" rx="4.2" ry="3.6"/><ellipse cx="6.2" cy="10.6" rx="1.8" ry="2.3"/><ellipse cx="17.8" cy="10.6" rx="1.8" ry="2.3"/><ellipse cx="9.4" cy="6.4" rx="1.7" ry="2.3"/><ellipse cx="14.6" cy="6.4" rx="1.7" ry="2.3"/>`,
+  zooSavanna: `<path d="M3 20h18"/><path d="M12 20v-8"/><path d="M5 11c2-2 12-2 14 0-3 1.4-11 1.4-14 0Z"/><path d="M12 12 9 9.5M12 12l3-2.5"/>`,
+  zooForest: `<path d="M8 20v-3M16 20v-3"/><path d="M8 3 4 11h2.5L3.5 17h9L9.5 11H12Z"/><path d="M16 6l-3 6h2l-2.5 5h7L17 12h2Z"/>`,
+  zooWater: `<path d="M3 15c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/><path d="M3 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/><path d="M7 12c1-3 4-5 7-4 1.6.5 2.6 1.6 3 3"/><circle cx="15.5" cy="8.6" r=".6"/>`,
+  zooPolar: `<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/>`,
+  zooMeadow: `<path d="M3 20h18"/><path d="M4 20v-6M8 20v-6M12 20v-6M16 20v-6M20 20v-6"/><path d="M3 16h18"/><path d="M7 9c0-2.2 2.2-4 5-4s5 1.8 5 4-2.2 3-5 3-5-.8-5-3Z"/><path d="M15.5 7.2 17.5 5"/>`,
   utility: `<path d="M9 2 4 11h4l-1 7 6-9H9Z"/><path d="M17 9s3.5 3.8 3.5 6.2a3.5 3.5 0 0 1-7 0C13.5 12.8 17 9 17 9Z"/>`,
 };
 
@@ -87,7 +93,7 @@ const service = (tool: ToolId, kind: number, label: string, needs: string[], blu
   return { tool, label, name: info.name, cost: info.cost, blurb: blurb ?? info.blurb, needs, group };
 };
 
-/** Cities-Skylines-style toolbar: 8 categories (hotkeys 1–8), each with a palette (hotkeys R T Z U I O). */
+/** Cities-Skylines-style toolbar: 9 categories (hotkeys 1–9), each with a palette (hotkeys R T Z U I O). */
 export const BUILD_MENU: BuildCategory[] = [
   {
     id: "roads",
@@ -174,6 +180,19 @@ export const BUILD_MENU: BuildCategory[] = [
     ],
   },
   {
+    id: "zoo",
+    label: "Zoo",
+    icon: "zoo",
+    blurb: "Tiergehege bauen, Tiere aufnehmen und pflegen. Glückliche Tiere locken Besucher an.",
+    items: [
+      service("zooSavanna", ServiceKind.ZooSavanna, "Savanne", ["Straße direkt daneben"], undefined, "Gehege"),
+      service("zooForest", ServiceKind.ZooForest, "Wald", ["Straße direkt daneben"], undefined, "Gehege"),
+      service("zooWater", ServiceKind.ZooWater, "Wasser", ["Straße direkt daneben"], undefined, "Gehege"),
+      service("zooPolar", ServiceKind.ZooPolar, "Polar", ["Straße direkt daneben"], undefined, "Gehege"),
+      service("zooMeadow", ServiceKind.ZooMeadow, "Streichelzoo", ["Straße direkt daneben"], undefined, "Gehege"),
+    ],
+  },
+  {
     id: "tools",
     label: "Werkzeuge",
     icon: "tools",
@@ -217,7 +236,7 @@ export interface BuildMenu {
   showTool: (tool: ToolId) => void;
   /** Marks tools as locked (e.g. landmarks below the needed rank); null unlocks. */
   setLocked: (locks: Partial<Record<ToolId, string | null>>) => void;
-  /** Hotkey 1–8: open that category's palette (toggles if already open). */
+  /** Hotkey 1–9: open that category's palette (toggles if already open). */
   selectCategory: (index: number) => void;
   /** Hotkey inside the open palette; returns the tool or null. */
   paletteTool: (key: string) => ToolId | null;

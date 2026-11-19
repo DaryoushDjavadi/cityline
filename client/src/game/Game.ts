@@ -161,6 +161,11 @@ const HINTS: Partial<Record<ToolId, string>> = {
   wheel: `Riesenrad (Wahrzeichen) neben eine Straße. ${COST.wheel.toLocaleString("de-DE")} €. Macht die Nachbarschaft glücklich.`,
   cityhall: `Rathaus (Wahrzeichen) neben eine Straße. ${COST.hall.toLocaleString("de-DE")} €. +6 % Einnahmen.`,
   tvtower: `Fernsehturm (Wahrzeichen) neben eine Straße. ${COST.tower.toLocaleString("de-DE")} €. Tourismus und Einnahmen.`,
+  zooSavanna: `Savannen-Gehege neben eine Straße. ${COST.zooSavanna.toLocaleString("de-DE")} €. Für Löwen, Elefanten, Giraffen, Zebras, Kängurus.`,
+  zooForest: `Waldgehege neben eine Straße. ${COST.zooForest.toLocaleString("de-DE")} €. Für Bären, Affen, Rote Pandas, Wölfe.`,
+  zooWater: `Wasser-Gehege neben eine Straße. ${COST.zooWater.toLocaleString("de-DE")} €. Für Seehunde, Flamingos, Otter.`,
+  zooPolar: `Polar-Gehege neben eine Straße. ${COST.zooPolar.toLocaleString("de-DE")} €. Für Pinguine und Eisbären.`,
+  zooMeadow: `Streichelzoo neben eine Straße. ${COST.zooMeadow.toLocaleString("de-DE")} €. Für Kaninchen, Ziegen, Alpakas.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
   bulldoze: "Ziehen reißt Felder in einer Linie ab. Bei Leitungen reicht auch Rechtsklick auf die Leitung.",
 };
@@ -180,6 +185,11 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
   wheel: ServiceKind.Wheel,
   cityhall: ServiceKind.CityHall,
   tvtower: ServiceKind.Tower,
+  zooSavanna: ServiceKind.ZooSavanna,
+  zooForest: ServiceKind.ZooForest,
+  zooWater: ServiceKind.ZooWater,
+  zooPolar: ServiceKind.ZooPolar,
+  zooMeadow: ServiceKind.ZooMeadow,
 };
 
 const REASONS: Record<string, string> = {
@@ -195,6 +205,17 @@ const REASONS: Record<string, string> = {
   stock_full: "Der Nahrungsspeicher ist voll.",
   no_market: "Dafür braucht die Stadt das passende Gewerbe oder die Industrie.",
   busy: "Alle Handelsplätze sind belegt. Warte auf die Schiffe oder Flugzeuge.",
+  zoo_off: "Den Zoo gibt es nur in freien Städten, nicht in Levels.",
+  zoo_gone: "Dieses Tier oder Gehege gibt es nicht mehr.",
+  zoo_name: "Name: 1–18 Zeichen, Buchstaben, Ziffern, Leerzeichen und . ' - &.",
+  zoo_no_habitat: "Hier steht kein Gehege.",
+  zoo_wrong_habitat: "Diese Art passt nicht in dieses Gehege.",
+  zoo_full: "Im Gehege ist kein Platz mehr.",
+  zoo_items_full: "Mehr Einrichtung passt nicht ins Gehege.",
+  zoo_spot_taken: "Der Platz ist schon belegt.",
+  zoo_full_bowls: "Napf und Trog sind schon voll.",
+  zoo_cooldown: "Das Tier braucht kurz Ruhe.",
+  zoo_need_toy: "Zum Spielen braucht das Gehege ein Spielzeug.",
 };
 
 interface TickMessage {
@@ -1164,13 +1185,13 @@ export class Game {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     if (down && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      // Age-of-Empires-style: 1–8 opens a build category, R T Z U I O picks from its palette.
+      // Age-of-Empires-style: 1–9 opens a build category, R T Z U I O picks from its palette.
       const digit = /^Digit([0-9])$/.exec(event.code)?.[1];
       if (digit === "0") {
         this.setTool("inspect");
         return;
       }
-      if (digit && Number(digit) >= 1 && Number(digit) <= 8) {
+      if (digit && Number(digit) >= 1 && Number(digit) <= 9) {
         this.hud.selectBuildCategory(Number(digit) - 1);
         return;
       }

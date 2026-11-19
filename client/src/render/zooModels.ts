@@ -398,10 +398,13 @@ export function coatTint(hue: number, out = new THREE.Color()): THREE.Color {
 }
 
 /** Pattern overlay color: body color at pattern 0, full accent at pattern 1. */
-export function patternColor(base: number, accent: number, hue: number, pattern: number, out = new THREE.Color()): THREE.Color {
+export function patternColor(base: number, model: AnimalModel, hue: number, pattern: number, out = new THREE.Color()): THREE.Color {
   const tint = coatTint(hue);
   const body = new THREE.Color(base).multiply(tint);
-  return out.copy(body).lerp(new THREE.Color(accent), Math.min(1, Math.max(0, pattern)) * 0.9);
+  // Stripes and spots are the species' signature: always visible, the gene sets the contrast.
+  const min = model.style === "stripes" || model.style === "spots" ? 0.5 : 0;
+  const amount = min + (1 - min) * Math.min(1, Math.max(0, pattern));
+  return out.copy(body).lerp(new THREE.Color(model.accent), amount * 0.9);
 }
 
 // ---------------------------------------------------------------- habitat items (interior + outside)

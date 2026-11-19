@@ -44,6 +44,7 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
 import { AmbientLayer, crowdScale, planAmbient } from "./ambient.ts";
+import { ZooLayer } from "./zooLayer.ts";
 import { gfxProfile, loadGfxPreset, type GfxPreset, type GfxProfile } from "./quality.ts";
 import {
   buildBoatGeometry,
@@ -166,6 +167,8 @@ export class CityRenderer {
   private readonly personHeadSlot = new Map<PersonPose, number>();
   private readonly towels: THREE.InstancedMesh;
   private readonly ambient: AmbientLayer;
+  readonly zoo: ZooLayer;
+  private zooTime = 0;
   private ambientStamp = "";
   private ambientPlannedAt = 0;
   private population = 0;
@@ -352,6 +355,7 @@ export class CityRenderer {
       this.scene.add(bodies, heads);
     }
     this.ambient = new AmbientLayer(this.scene);
+    this.zoo = new ZooLayer(this.scene);
     this.towels = mesh(buildTowelGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), 48);
     this.umbrellas = mesh(buildUmbrellaGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }), 24);
     const smileMap = smileyTexture();
@@ -564,6 +568,7 @@ export class CityRenderer {
 
   sync(city: CityState, overlays: Overlays): void {
     this.shown = city;
+    this.zoo.sync(city, (index) => this.heightOf(index));
     this.traffic = computeTraffic(city).load;
     this.population = populationOf(city);
     if (this.roadsChanged(city)) this.rebuildGraph(city);
@@ -822,6 +827,8 @@ export class CityRenderer {
     this.applyClimate(climate, target);
     this.seaTime += dt;
     this.seaMaterial.uniforms.uTime.value = this.seaTime;
+    this.zooTime += dt;
+    this.zoo.update(this.zooTime);
     this.badgeTime += dt;
     const bob = Math.sin(this.badgeTime * 2.4) * 0.35;
     const pulse = 1 + Math.sin(this.badgeTime * 4.2) * 0.12;
@@ -893,6 +900,7 @@ export class CityRenderer {
       this.renderer.shadowMap.needsUpdate = true;
     }
     this.faceSmileys(camera);
+    this.zoo.setCamera(camera.position);
     if (this.composer && this.renderPass) {
       this.renderPass.camera = camera;
       this.composer.render();
