@@ -1,3 +1,4 @@
+import { currentStyle, setStyle, type GfxStyle } from "../render/styleFx.ts";
 import {
   BIOMES,
   biomePreset,
@@ -486,6 +487,14 @@ export function createHud(events: HudControls): Hud {
     const value = gfx.value;
     if (value === "auto" || value === "high" || value === "medium" || value === "low") events.onQuality(value);
   });
+  const styleSelect = document.querySelector<HTMLSelectElement>("#gfx-style");
+  if (styleSelect) {
+    styleSelect.value = currentStyle();
+    styleSelect.addEventListener("change", () => {
+      const value = styleSelect.value as GfxStyle;
+      if (value === "standard" || value === "pixel" || value === "comic") setStyle(value);
+    });
+  }
   const mapPreview = required<HTMLCanvasElement>("#map-preview");
   const mapBiome = required<HTMLSelectElement>("#map-biome");
   const mapBiomeBlurb = required("#map-biome-blurb");

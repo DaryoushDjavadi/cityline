@@ -12,6 +12,7 @@ import { bindAudioControls } from "../ui/audioPanel.ts";
 import { CityLife } from "../ui/cityLife.ts";
 import { OrderBoardView } from "../ui/orderBoard.ts";
 import { ZooView } from "../ui/zooView.ts";
+import { currentStyle, setStyle as setGfxStyle, type GfxStyle } from "../render/styleFx.ts";
 import { ParkView } from "../ui/parkView.ts";
 import {
   BUILDINGS,
@@ -546,6 +547,16 @@ export class Game {
       },
       parkUi() {
         return self.parkView.e2e();
+      },
+      /** Graphics style (Standard / Pixel-Art / Comic). */
+      style() {
+        return currentStyle();
+      },
+      setStyle(style: GfxStyle) {
+        setGfxStyle(style);
+        const select = document.querySelector<HTMLSelectElement>("#gfx-style");
+        if (select) select.value = style;
+        return currentStyle();
       },
       zooLayer() {
         return self.view.zoo.stats();

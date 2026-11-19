@@ -22,6 +22,7 @@ import {
 } from "../../../shared/src/index.ts";
 import { ZooLayer, type ZooSite } from "./zooLayer.ts";
 import { buildPersonModels, habitatGeometry } from "./models.ts";
+import { StyleFx } from "./styleFx.ts";
 import { boothGeometry, borderGeometry, outerTreeGeometry, parkObjectGeometry } from "./parkModels.ts";
 import { rng, setWindTime, swayMaterial, tuftGeometry } from "./zooDecor.ts";
 
@@ -140,6 +141,9 @@ export class ParkScene {
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.5, 600);
   readonly crowd = new ParkCrowd(7);
   readonly target = new THREE.Vector3(0, 0, 14);
+  private readonly sun: THREE.DirectionalLight;
+  /** Graphics style (Standard / Pixel-Art / Comic). */
+  private fx!: StyleFx;
   azimuth = 0;
   distance = 74;
   private readonly low: boolean;
@@ -175,6 +179,8 @@ export class ParkScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
+    this.fx = new StyleFx(this.renderer);
+    this.fx.low = low;
     if (!low) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -184,6 +190,7 @@ export class ParkScene {
     this.scene.fog = new THREE.Fog(0xd8e6e2, 140, 320);
     const hemi = new THREE.HemisphereLight(0xfff1da, 0x6e6044, 1.45);
     const sun = new THREE.DirectionalLight(0xffe2b4, 2.5);
+    this.sun = sun;
     sun.position.set(34, 58, 22);
     if (!low) {
       sun.castShadow = true;
@@ -622,7 +629,7 @@ export class ParkScene {
     this.placeCamera();
     this.zoo.setCamera(this.camera.position);
     this.zoo.update(this.time);
-    this.renderer.render(this.scene, this.camera);
+    if (!this.fx.render(this.scene, this.camera, { focus: this.target, sun: this.sun, hazeRange: [0.9, 3.2], hazeAmount: 0.45 })) this.renderer.render(this.scene, this.camera);
     return events;
   }
 
@@ -641,6 +648,7 @@ export class ParkScene {
     // Free the WebGL context right away: every visit makes a fresh canvas, and leaked contexts
     // push the browser over its limit (the city context gets dropped, new scenes fail to start).
     // (Geometries are cached and partly shared with the city, so they are not disposed here.)
+    this.fx.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }
