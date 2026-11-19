@@ -3362,3 +3362,92 @@ body[data-look="shot"] #orders { display: none !important; }
   #rail .build-detail .build-needs { display: none; }
   #rail { gap: 6px; padding: 7px; }
 }
+
+/* ---------------------------------------------------------------- Kopfleiste v3: schlank
+   Lower bar, stats as icon + value with fine dividers (label in the hover tooltip),
+   smaller icon buttons on one line. */
+#topbar {
+  min-height: 0;
+  padding: 4px 6px 4px 12px;
+  gap: 8px;
+  border-radius: 16px;
+}
+.brand { gap: 1px; padding: 0 10px 0 2px; min-width: 0; max-width: 150px; }
+.brand strong { font-size: 16px; }
+.brand-meta span { font-size: 9px; }
+.stats { gap: 0; align-items: center; }
+.stats .stat {
+  min-height: 36px;
+  padding: 2px 11px;
+  gap: 7px;
+  border: 0;
+  border-left: 1px solid rgba(150, 198, 188, 0.14);
+  border-radius: 0;
+  background: none;
+}
+.stats .stat:first-child { border-left: 0; }
+@media (hover: hover) {
+  .stats .stat:hover { background: rgba(255, 248, 230, 0.05); border-radius: 8px; }
+}
+.stats .stat[data-open="on"] { background: rgba(226, 177, 90, 0.12); border-radius: 8px; }
+.stat-copy { grid-template-rows: 16px 12px; min-height: 30px; }
+.stats em { display: none; }
+.stats b { grid-row: 1; font-size: 14px; }
+.stat-meta,
+.stats i:not(.stat-glyph) { grid-row: 2; font-size: 9.5px; }
+.stat-glyph, #weather, .weather-icon { width: 18px; height: 18px; }
+.top-actions { gap: 4px; padding: 0; }
+.top-actions .hud-btn,
+.top-actions .hud-btn[class] {
+  min-height: 36px;
+  height: 36px;
+  width: auto;
+  min-width: 36px;
+  padding: 0 8px;
+  border-radius: 10px;
+  justify-content: center;
+}
+.top-actions .hud-icon { width: 18px; height: 18px; }
+#orders-dot, #life-dot, #chat-badge { top: -4px; right: -4px; }
+
+@media (min-width: 1101px) and (min-height: 521px) {
+  #topbar { top: 10px; }
+  .top-actions .hud-text { display: none; }
+  #dock { top: 66px; }
+  #topbar #quest { top: calc(100% + 6px); }
+  #orders, #life { top: 66px; }
+  #event-card { top: 74px; }
+  #demand, #inspector, #roster, #chat { top: 66px; }
+  #demand, #inspector, #roster { max-height: calc(100vh - 150px); }
+}
+
+@media (max-width: 1100px), (max-height: 520px) {
+  #topbar { padding: 4px; gap: 4px; border-radius: 14px; }
+  .brand { max-width: 104px; padding: 0 6px 0 6px; }
+  .brand strong { font-size: 15px; }
+  /* Row 1: brand + buttons; row 2: (folded quest pill) + stats scroll row; row 3: open quest. */
+  .top-actions { order: 3; flex: 1 1 auto; min-width: 0; justify-content: flex-end; gap: 3px; }
+  .top-actions .hud-btn,
+  .top-actions .hud-btn[class] { min-width: 34px; width: 34px; height: 34px; min-height: 34px; padding: 0; }
+  .top-actions .hud-text { display: none; }
+  body[data-stats="open"] .stats { order: 5; flex: 1 1 0; min-width: 0; gap: 0; }
+  .stats .stat { min-height: 34px; padding: 2px 9px; gap: 6px; border-radius: 0; }
+  .stats::-webkit-scrollbar { display: none; }
+  .stats { scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent); }
+  #topbar::after { content: ""; order: 4; flex: 0 0 100%; height: 0; }
+  #quest[data-collapsed="on"] { order: 4; flex: 0 0 auto; }
+  #quest[data-collapsed="on"] .quest-main { min-height: 34px; padding: 1px 8px 1px 2px; }
+  #quest[data-collapsed="on"] .quest-icon,
+  #quest[data-collapsed="on"] .quest-ring { width: 30px; height: 30px; }
+  .quest-main { padding: 5px 9px; }
+  .quest-collapse { min-height: 36px; width: 36px; }
+}
+@media (max-width: 1100px) and (min-height: 521px) {
+  /* Folded quest pill sits in front of the stats in row 2 (never next to the buttons). */
+  #quest[data-collapsed="on"] { order: 5; }
+  body[data-stats="open"] .stats { order: 6; }
+  #quest:not([data-collapsed="on"]) { order: 7; }
+}
+/* Stats without a second line: value centred next to the icon. */
+.stat-copy:not(:has(.stat-meta)) { grid-template-rows: 1fr; }
+.stat-copy:not(:has(.stat-meta)) b { grid-row: 1; }
