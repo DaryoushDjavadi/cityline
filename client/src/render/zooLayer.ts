@@ -23,6 +23,9 @@ import {
 import { animalGeometry, buildJeepGeometry, coatTint, patternColor } from "./zooModels.ts";
 import { buildPersonModels } from "./models.ts";
 import { wanderPose, type Pose } from "./zooMotion.ts";
+import { rng, setWindTime, swayMaterial, tuftGeometry, type DecorType } from "./zooDecor.ts";
+import { gfxProfile, loadGfxPreset } from "./quality.ts";
+
 
 const SPECIES_CAP = 32;
 const LOD_CAP = 80;
@@ -45,6 +48,15 @@ interface Site {
   roads: { dx: number; dz: number }[];
 }
 
+const GRASS_SITES = 48;
+const OUTSIDE_GRASS: Record<DecorType, { colors: number[]; height: [number, number]; density: number }> = {
+  savanne: { colors: [0xd8c070, 0xc8ac5c, 0xb8a050], height: [0.45, 0.75], density: 1 },
+  wald: { colors: [0x4f8e3c, 0x5c9c44, 0x6aa84c], height: [0.35, 0.6], density: 0.8 },
+  wasser: { colors: [0x6aa84a, 0x5c9c42, 0x78b454], height: [0.35, 0.6], density: 0.7 },
+  polar: { colors: [0xc0b894, 0xd0c8a8], height: [0.25, 0.4], density: 0.25 },
+  wiese: { colors: [0x6cb84a, 0x7cc858, 0x88cc60], height: [0.3, 0.5], density: 1 },
+};
+
 export class ZooLayer {
   private readonly batch: THREE.BatchedMesh;
   private readonly geo = new Map<string, number>();
@@ -61,7 +73,18 @@ export class ZooLayer {
   /** Latest pose per animal id (world coordinates), for picking and tests. */
   readonly poses = new Map<number, { x: number; y: number; z: number; far: boolean }>();
 
+  /** Wind-swayed grass tufts inside every habitat (one instanced draw call). */
+  private readonly grass: THREE.InstancedMesh;
+  private grassKey = "";
+  private readonly grassPer: number;
+
   constructor(scene: THREE.Scene) {
+    this.grassPer = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low" ? 28 : 90;
+    this.grass = new THREE.InstancedMesh(tuftGeometry(6, 9), swayMaterial(0.8), GRASS_SITES * this.grassPer);
+    this.grass.count = 0;
+    this.grass.frustumCulled = false;
+    this.grass.receiveShadow = true;
+    scene.add(this.grass);
     const block = new THREE.BoxGeometry(1, 1, 1);
     block.translate(0, 0.5, 0);
     block.deleteAttribute("uv");
@@ -145,6 +168,53 @@ export class ZooLayer {
         roads,
       });
     }
+    this.plantGrass();
+  }
+
+  /** Re-scatter grass only when the set of habitats (or their height) changed. */
+  private plantGrass(): void {
+    const key = this.sites.map((site) => `${site.cell}:${site.type}:${site.y.toFixed(2)}`).join("|");
+    if (key === this.grassKey) return;
+    this.grassKey = key;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const c = new THREE.Color();
+    let n = 0;
+    for (const site of this.sites.slice(0, GRASS_SITES)) {
+      const random = rng(site.cell * 31 + 7);
+      const look = OUTSIDE_GRASS[site.type as DecorType];
+      const want = Math.round(this.grassPer * look.density);
+      for (let k = 0, tries = 0; k < want && tries < want * 5; tries += 1) {
+        // inside the safari track, plus a band along the fence
+        const band = random() < 0.3;
+        let x: number;
+        let z: number;
+        if (band) {
+          const t = (random() * 2 - 1) * 4.3;
+          const d = 4.1 + random() * 0.35;
+          const side = Math.floor(random() * 4);
+          [x, z] = side === 0 ? [t, -d] : side === 1 ? [t, d] : side === 2 ? [-d, t] : [d, t];
+        } else {
+          x = (random() * 2 - 1) * 3.3;
+          z = (random() * 2 - 1) * 3.3;
+        }
+        if (site.type === "wasser" && Math.abs(x - 0.2) < 2.95 && Math.abs(z - 0.1) < 2.65) continue;
+        if (site.type === "polar" && Math.abs(x + 0.6) < 2.35 && Math.abs(z - 0.6) < 1.95) continue;
+        const h = look.height[0] + random() * (look.height[1] - look.height[0]);
+        q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, random() * Math.PI * 2);
+        s.set(h * (0.9 + random() * 0.4), h, h * (0.9 + random() * 0.4));
+        p.set(site.x + x, site.y + 0.24, site.z + z);
+        this.grass.setMatrixAt(n, m.compose(p, q, s));
+        this.grass.setColorAt(n, c.setHex(look.colors[Math.floor(random() * look.colors.length)]).multiplyScalar(0.9 + random() * 0.2));
+        n += 1;
+        k += 1;
+      }
+    }
+    this.grass.count = n;
+    this.grass.instanceMatrix.needsUpdate = true;
+    if (this.grass.instanceColor) this.grass.instanceColor.needsUpdate = true;
   }
 
   setCamera(position: THREE.Vector3): void {
@@ -152,6 +222,7 @@ export class ZooLayer {
   }
 
   update(time: number): void {
+    setWindTime(time);
     this.used.clear();
     this.poses.clear();
     let jeeps = 0;
@@ -236,9 +307,9 @@ export class ZooLayer {
   }
 
   /** Counts for tests and the perf probe. */
-  stats(): { animals: number; far: number; jeeps: number; visitors: number; meshes: number } {
+  stats(): { animals: number; far: number; jeeps: number; visitors: number; meshes: number; grass: number } {
     let far = 0;
     for (const pose of this.poses.values()) if (pose.far) far += 1;
-    return { animals: this.poses.size, far, jeeps: this.counts.jeeps, visitors: this.counts.visitors, meshes: this.batch.visible ? 1 : 0 };
+    return { animals: this.poses.size, far, jeeps: this.counts.jeeps, visitors: this.counts.visitors, meshes: (this.batch.visible ? 1 : 0) + (this.grass.count > 0 ? 1 : 0), grass: this.grass.count };
   }
 }

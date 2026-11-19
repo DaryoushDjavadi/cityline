@@ -156,8 +156,11 @@ export function groundTexture(type: DecorType, size = 512): THREE.CanvasTexture 
       const y = random() * size;
       const r = rMin + random() * (rMax - rMin);
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      // Fade to the same color at alpha 0 (fading to transparent black leaves grey rims).
+      const hex = parseInt(color.slice(1), 16);
+      const clear = `rgba(${(hex >> 16) & 255},${(hex >> 8) & 255},${hex & 255},0)`;
       g.addColorStop(0, color);
-      g.addColorStop(1, "rgba(0,0,0,0)");
+      g.addColorStop(1, clear);
       ctx.globalAlpha = alpha * (0.6 + random() * 0.4);
       ctx.fillStyle = g;
       ctx.beginPath();

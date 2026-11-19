@@ -671,6 +671,14 @@ export class ZooView {
       },
       spotScreen: (x: number, y: number) => this.interior?.spotScreen(x, y) ?? null,
       selected: () => this.animal,
+      /** Select an animal in the interior like a click (camera follows). */
+      select: (id: number) => {
+        if (!this.interior) return false;
+        this.animal = id;
+        this.interior.selected = id;
+        this.renderInterior();
+        return true;
+      },
       interiorOpen: () => this.interior !== null,
     };
   }
