@@ -386,3 +386,20 @@ export const CHANGELOG: PatchNote[] = [
     ],
   },
 ];
+
+const MONTHS: Record<string, number> = { Jan: 1, Feb: 2, "Mär": 3, Mar: 3, Apr: 4, Mai: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Okt: 10, Nov: 11, Dez: 12 };
+
+/** "19. Nov 2026, 16:27 Uhr" → "2026-11-19T16:27+01:00" (Berlin time; the patch notes are all CET). */
+export function noteIso(at: string): string | null {
+  const m = /^(\d{1,2})\.\s*([A-Za-zä]{3})\w*\.?\s+(\d{4}),\s*(\d{1,2}):(\d{2})/.exec(at);
+  const month = m ? MONTHS[m[2]] : undefined;
+  if (!m || !month) return null;
+  const pad = (n: number | string) => String(n).padStart(2, "0");
+  return `${m[3]}-${pad(month)}-${pad(m[1])}T${pad(m[4])}:${m[5]}+01:00`;
+}
+
+/** Newest first, whatever order the list above is written in (stable for equal times). */
+export function sortedNotes(notes: PatchNote[] = CHANGELOG): PatchNote[] {
+  const time = (note: PatchNote) => Date.parse(noteIso(note.at) ?? "") || 0;
+  return notes.map((note, index) => ({ note, index })).sort((a, b) => time(b.note) - time(a.note) || a.index - b.index).map((entry) => entry.note);
+}
