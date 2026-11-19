@@ -424,8 +424,8 @@ export const TICKET = 0.4;
 export function stepZoo(city: CityState): void {
   const zoo = ensureZoo(city);
   if (!zoo) return;
-  if (city.tick % ZOO_EVERY !== 0) return;
   syncHabitats(city, zoo);
+  if (city.tick % ZOO_EVERY !== 0) return;
   if (zoo.habitats.length === 0 && zoo.animals.length === 0) {
     zoo.visitors = 0;
     zoo.income = 0;

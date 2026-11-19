@@ -18,7 +18,8 @@
     "coop-orders-check": "tsx scripts/coop-orders-check.ts",
     "perf-probe": "tsx scripts/perf-probe.ts",
     "audio-tests": "tsx scripts/audio-tests.ts",
-    "life-playtest": "tsx scripts/life-playtest.mts"
+    "life-playtest": "tsx scripts/life-playtest.mts",
+    "zoo-tests": "tsx scripts/zoo-tests.ts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
