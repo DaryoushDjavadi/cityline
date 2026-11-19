@@ -167,6 +167,7 @@ export class CityRenderer {
   private readonly towels: THREE.InstancedMesh;
   private readonly ambient: AmbientLayer;
   private ambientStamp = "";
+  private ambientPlannedAt = 0;
   private population = 0;
   private readonly umbrellas: THREE.InstancedMesh;
   private readonly smileys: THREE.InstancedMesh;
@@ -854,7 +855,7 @@ export class CityRenderer {
     if (this.flights.length > 0) this.paintPlanes();
     if (this.boats.length > 0) this.paintBoats();
     const dayAmt = 1 - nightAmount(climate.hour);
-    this.ambient.paint(this.flightTime, dayAmt, true, this.quality.level !== "low");
+    this.ambient.paint(this.flightTime, dayAmt, this.quality.level !== "low", this.quality.level !== "low");
     // Clouds drift slowly instead of hanging still.
     this.atmosphere.clouds.position.set(Math.sin(this.seaTime * 0.012) * 46, 0, Math.cos(this.seaTime * 0.009) * 22);
     if (this.shown) {
@@ -934,12 +935,18 @@ export class CityRenderer {
   /** Residents, park visitors, smoke and birds: replanned on city change or every ~2 in-game hours. */
   private syncAmbient(city: CityState, stamp: string): void {
     const climate = climateAt(city.tick);
-    const key = `${stamp}:${Math.floor(city.tick / 50)}:${climate.isNight ? 1 : 0}`;
+    const bucket = `${Math.floor(city.tick / 50)}:${climate.isNight ? 1 : 0}`;
+    const key = `${stamp}:${bucket}`;
     if (key === this.ambientStamp) return;
+    // A growing city changes the static stamp nearly every tick; replan at most every 1.5 s then.
+    const now = performance.now();
+    const sameBucket = this.ambientStamp.endsWith(`:${bucket}`);
+    if (sameBucket && now - this.ambientPlannedAt < 1500) return;
     this.ambientStamp = key;
+    this.ambientPlannedAt = now;
     const level = this.quality.level;
     const budget =
-      level === "low" ? { people: 24, smoke: 40, flocks: 1 }
+      level === "low" ? { people: 14, smoke: 0, flocks: 0 }
       : level === "medium" ? { people: 52, smoke: 96, flocks: 3 }
       : { people: 84, smoke: 156, flocks: 5 };
     this.ambient.setPlan(planAmbient(city, (index) => this.heightOf(index), lifeActivity(climate), budget, climate.isNight));
@@ -953,7 +960,9 @@ export class CityRenderer {
 
   private syncCars(city: CityState): void {
     const base = this.quality.level === "low" ? 28 : this.quality.level === "medium" ? 48 : 72;
-    const roster = streetCars(city, Math.min(this.quality.level === "low" ? 40 : 110, Math.round(base * crowdScale(this.population))));
+    // Weak devices keep the old budget; medium/high scale with population.
+    const scale = this.quality.level === "low" ? 1 : crowdScale(this.population);
+    const roster = streetCars(city, Math.min(110, Math.round(base * scale)));
     const previous = new Map(this.walkers.map((walker) => [walker.id, walker]));
     this.walkers = roster.map((car) => previous.get(car.id) ?? this.spawnCar(city, car));
     for (const walker of this.walkers) {
@@ -1099,7 +1108,7 @@ export class CityRenderer {
 
   private syncPedestrians(city: CityState): void {
     const base = this.quality.level === "low" ? 18 : this.quality.level === "medium" ? 36 : 56;
-    const roster = streetPedestrians(city, Math.round(base * crowdScale(this.population)));
+    const roster = streetPedestrians(city, Math.round(base * (this.quality.level === "low" ? 1 : crowdScale(this.population))));
     const previous = new Map(this.pedestrians.map((ped) => [ped.id, ped]));
     this.pedestrians = roster.map((entry) => previous.get(entry.id) ?? this.spawnPedestrian(city, entry));
   }

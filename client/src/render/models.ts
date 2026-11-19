@@ -37,10 +37,13 @@ const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number
 
 function partGeometry(part: Part): THREE.BufferGeometry {
   let geometry: THREE.BufferGeometry;
-  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, 12);
+  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, Math.max(part.sx, part.sz) < 0.15 ? 6 : 12);
   else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 6);
   else if (part.shape === "sphere") {
-    geometry = new THREE.SphereGeometry(part.sx, 10, 7);
+    // Tiny spheres (eyes, hair tufts) don't need full tessellation: people are instanced by the hundred.
+    const tiny = part.sx < 0.12;
+    const small = part.sx < 0.3;
+    geometry = new THREE.SphereGeometry(part.sx, tiny ? 5 : small ? 8 : 10, tiny ? 3 : small ? 6 : 7);
     if (part.sy !== part.sx || part.sz !== part.sx) geometry.scale(1, part.sy / part.sx, part.sz / part.sx);
   } else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
   if (part.rx || part.ry || part.rz) {
