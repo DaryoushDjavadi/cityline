@@ -137,7 +137,7 @@ export class ZooView {
       <canvas id="zoo-canvas"></canvas>
       <div id="zoo-tags"></div>
       <header class="zi-top">
-        <button type="button" class="zi-back" data-act="back">← Zur Stadt</button>
+        <button type="button" class="zi-back" data-act="back">← Zum Tierpark</button>
         <div class="zi-title"><small id="zi-kicker">Innenansicht</small><b id="zi-name"></b></div>
         <div class="zi-info" id="zi-info"></div>
       </header>

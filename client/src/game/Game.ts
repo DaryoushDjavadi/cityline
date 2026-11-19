@@ -12,6 +12,7 @@ import { bindAudioControls } from "../ui/audioPanel.ts";
 import { CityLife } from "../ui/cityLife.ts";
 import { OrderBoardView } from "../ui/orderBoard.ts";
 import { ZooView } from "../ui/zooView.ts";
+import { ParkView } from "../ui/parkView.ts";
 import {
   BUILDINGS,
   CELL_SIZE,
@@ -212,6 +213,10 @@ const REASONS: Record<string, string> = {
   zoo_full_bowls: "Napf und Trog sind schon voll.",
   zoo_cooldown: "Das Tier braucht kurz Ruhe.",
   zoo_need_toy: "Zum Spielen braucht das Gehege ein Spielzeug.",
+  park_none: "Erst einen Tierpark in der Stadt bauen.",
+  park_blocked: "Hier ist kein Platz frei.",
+  park_nothing: "Hier steht nichts zum Abreißen.",
+  park_edge: "Der Eingang muss an den Rand des Parks.",
 };
 
 interface TickMessage {
@@ -298,6 +303,7 @@ export class Game {
   private life!: CityLife;
   private orders!: OrderBoardView;
   private zooView!: ZooView;
+  private parkView!: ParkView;
   private lastAudioScene = 0;
   private lastStats: SimMeta["stats"] | null = null;
   private building = false;
@@ -368,6 +374,7 @@ export class Game {
       opened: () => {
         this.orders?.toggle(false);
         this.zooView?.hide();
+        this.parkView?.hideGate();
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -385,6 +392,7 @@ export class Game {
       opened: () => {
         this.life.toggle(false);
         this.zooView?.hide();
+        this.parkView?.hideGate();
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -418,8 +426,37 @@ export class Game {
       },
       interior: (open) => {
         document.body.dataset.zooInterior = open ? "on" : "off";
+        if (!open) {
+          this.resize();
+          this.parkView?.resize();
+        }
+      },
+    });
+    this.parkView = new ParkView({
+      command: (zoo) => this.applyLocal({ type: "zoo", zoo }),
+      sound: (cue) => playSfx(cue),
+      opened: () => {
+        this.life.toggle(false);
+        this.orders.toggle(false);
+        this.zooView.hide();
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+        this.setBriefOpen(false);
+        if (isCompactHud()) {
+          this.hud.setDemandOpen(false);
+          this.hud.setMenuOpen(false);
+        }
+      },
+      mode: (open) => {
+        this.zooView.hide();
+        this.setTool("inspect");
+        this.hud.hideInspect();
         if (!open) this.resize();
       },
+      habitat: (cell) => this.zooView.showHabitat(this.city, cell),
+      closeHabitat: () => this.zooView.hide(),
     });
     bindAudioControls();
     this.bindInput();
@@ -505,6 +542,9 @@ export class Game {
       },
       zooUi() {
         return self.zooView.e2e();
+      },
+      parkUi() {
+        return self.parkView.e2e();
       },
       zooLayer() {
         return self.view.zoo.stats();
@@ -967,6 +1007,12 @@ export class Game {
     if (this.zooView.interiorOpen) {
       // Interior view: its own scene; the city waits.
       this.zooView.frame(dt);
+      requestAnimationFrame((next) => this.frame(next));
+      return;
+    }
+    if (this.parkView.isOpen) {
+      // Tierpark level: its own scene; the city waits (the simulation keeps running).
+      this.parkView.frame(dt);
       requestAnimationFrame((next) => this.frame(next));
       return;
     }
@@ -1994,6 +2040,7 @@ export class Game {
     this.life.update(this.city, meta);
     this.orders.update(this.city);
     this.zooView.update(this.city);
+    this.parkView.update(this.city);
     const syncStart = performance.now();
     this.view.sync(this.city, live);
     this.view.lastSyncMs = performance.now() - syncStart;
@@ -2047,6 +2094,8 @@ export class Game {
     this.zooView.closeInterior();
     this.zooView.closeShop();
     this.zooView.hide();
+    this.parkView.close();
+    this.parkView.hideGate();
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -2132,6 +2181,7 @@ export class Game {
     this.statusUntil = performance.now() + 2600;
     this.hud.flashStatus(text);
     this.zooView?.notice(text);
+    this.parkView?.notice(text);
   }
 
   private emitCursor(event: PointerEvent): void {
@@ -2801,6 +2851,14 @@ export class Game {
 
   private showCell(cell: { x: number; y: number }): void {
     const index = cellIndex(this.city, cell.x, cell.y);
+    if (this.city.services[index] === ServiceKind.Tierpark && !this.city.progress?.off) {
+      this.focus = null;
+      this.selected = index;
+      this.hud.hideInspect();
+      this.parkView.showGate(this.city, index);
+      return;
+    }
+    this.parkView.hideGate();
     if (habitatTypeOf(this.city.services[index]) && !this.city.progress?.off) {
       this.focus = null;
       this.selected = index;
@@ -2985,6 +3043,7 @@ export class Game {
 
   private showCar(car: { surname: string; driver: string; members: string; label: string; home: number }): void {
     this.zooView.hide();
+    this.parkView.hideGate();
     this.focus = null;
     this.selected = car.home;
     const home = cellCoords(this.city, car.home);
