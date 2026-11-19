@@ -153,6 +153,8 @@ export class ParkScene {
   private readonly visitorMeshes = new Map<string, { body: THREE.InstancedMesh; head: THREE.InstancedMesh }>();
   private readonly ghost: THREE.InstancedMesh;
   private readonly ghostBox: THREE.Mesh;
+  /** Translucent preview of the stand/decor model under the cursor. */
+  private readonly ghostModel = new THREE.Mesh(undefined, new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.62, roughness: 0.8, depthWrite: false }));
   readonly zoo: ZooLayer;
   private layoutKey = "";
   private grid: Uint8Array = new Uint8Array(PARK_TILES);
@@ -277,7 +279,9 @@ export class ParkScene {
     this.ghostBox = new THREE.Mesh(new THREE.BoxGeometry(PARK_TILE * HABITAT_TILES, 0.3, PARK_TILE * HABITAT_TILES), new THREE.MeshBasicMaterial({ color: 0x7cd67c, transparent: true, opacity: 0.4, depthWrite: false }));
     this.ghostBox.visible = false;
     this.ghostBox.renderOrder = 3;
-    this.scene.add(this.ghost, this.ghostBox);
+    this.ghostModel.visible = false;
+    this.ghostModel.renderOrder = 4;
+    this.scene.add(this.ghost, this.ghostBox, this.ghostModel);
 
     this.zoo = new ZooLayer(this.scene, low ? 30 : 90);
   }
@@ -471,7 +475,14 @@ export class ParkScene {
   }
 
   /** Ghost preview: tiles (green = ok, red = blocked) or a habitat footprint. */
-  setGhost(tiles: { tile: number; ok: boolean }[], habitat: { anchor: number; ok: boolean } | null): void {
+  setGhost(tiles: { tile: number; ok: boolean }[], habitat: { anchor: number; ok: boolean } | null, model: Exclude<ParkObject, "path"> | null = null): void {
+    this.ghostModel.visible = model !== null && tiles.length === 1 && tiles[0].ok;
+    if (this.ghostModel.visible && model) {
+      this.ghostModel.geometry = parkObjectGeometry(model);
+      const at = tileWorld(tiles[0].tile);
+      this.ghostModel.position.set(at.x, 0.05, at.z);
+      this.ghostModel.rotation.set(0, this.facing(tiles[0].tile), 0);
+    }
     let n = 0;
     for (const entry of tiles.slice(0, 420)) {
       const at = tileWorld(entry.tile);

@@ -475,13 +475,18 @@ export class ParkCrowd {
       wait: 0,
       faceX: x + 0.5,
       faceY: y,
-      lane: (this.random() - 0.5) * 0.5,
+      lane: (this.random() - 0.5) * 0.7,
       color: Math.floor(this.random() * 8),
-      speed: 0.8 + this.random() * 0.35,
+      speed: 1.05 + this.random() * 0.45,
       looking: -1,
     };
     this.routeTo(walker, this.entrance);
     this.walkers.push(walker);
+  }
+
+  /** Run the crowd for a while without effects, so an opened park is already busy. */
+  prewarm(seconds: number, want: number): void {
+    for (let t = 0; t < seconds; t += 0.25) this.update(0.25, want);
   }
 
   /** Advance by dt seconds toward `want` visitors in the park. Returns what happened. */
@@ -494,7 +499,7 @@ export class ParkCrowd {
     this.spawnIn -= dt;
     if (open && active < want && this.spawnIn <= 0) {
       this.spawn();
-      this.spawnIn = 0.35 + this.random() * 0.5;
+      this.spawnIn = (active < want / 2 ? 0.12 : 0.35) + this.random() * 0.4;
     }
     for (const walker of this.walkers) {
       if (walker.state === "gone") continue;

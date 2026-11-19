@@ -220,6 +220,7 @@ export class ParkView {
     this.hooks.mode(true);
     this.resize();
     this.update(this.city);
+    this.scene?.crowd.prewarm(40, this.want(this.zoo()?.visitors ?? 0));
     this.renderBuild();
     this.hooks.sound("toggle");
   }
@@ -273,6 +274,11 @@ export class ParkView {
     this.scene.setInset(side, Math.max(0, window.innerHeight - bar.top), top.bottom);
   }
 
+  /** Visual crowd size: the park's visitor count, capped for the screen. */
+  private want(visitors: number): number {
+    return Math.min(visitors, window.innerWidth < 700 ? 60 : 120);
+  }
+
   frame(dt: number): void {
     const scene = this.scene;
     if (!scene) return;
@@ -282,9 +288,7 @@ export class ParkView {
     if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) scene.pan(0, -speed * 8);
     if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) scene.pan(speed * 8, 0);
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) scene.pan(-speed * 8, 0);
-    // Visual crowd: the park's visitor count, capped for the screen.
-    const want = Math.min(zoo?.visitors ?? 0, window.innerWidth < 700 ? 60 : 120);
-    const events = scene.frame(dt, want);
+    const events = scene.frame(dt, this.want(zoo?.visitors ?? 0));
     for (const event of events) this.onCrowd(event, zoo);
     this.placeBubbles();
   }
@@ -541,6 +545,7 @@ export class ParkView {
             : grid[tile] === TILE.grass,
       })),
       null,
+      tool === "clear" || tool === "path" || tool === "entrance" ? null : (tool as Exclude<ParkObject, "path">),
     );
   }
 
@@ -665,7 +670,15 @@ export class ParkView {
     else if (tool === "entrance") text = "Eingang: ein Feld am Rand des Parks wählen.";
     else if (isHabitat(tool)) text = `${HABITAT_INFO[tool].name}: 5 × 5 Felder, direkt an einen Weg setzen. ${euro.format(HABITAT_COST[tool])} €.`;
     else if (tool) text = `${PARK_INFO[tool as ParkObject].name}: ${PARK_INFO[tool as ParkObject].blurb} ${euro.format(PARK_INFO[tool as ParkObject].cost)} €.`;
-    if (this.hint.textContent !== text) this.hint.textContent = text;
+    if (this.hint.textContent !== text) {
+      this.hint.textContent = text;
+      // The look-around hint fades after a few seconds; tool hints stay while the tool is active.
+      this.hint.classList.remove("idle");
+      if (!tool) {
+        void this.hint.offsetWidth;
+        this.hint.classList.add("idle");
+      }
+    }
   }
 
   notice(text: string): void {
@@ -687,6 +700,7 @@ export class ParkView {
         return this.isOpen;
       },
       leave: () => this.close(),
+      openHabitat: (anchor: number) => this.hooks.habitat(anchor),
       setTool: (tool: ParkTool) => this.setTool(tool),
       setTab: (tab: string) => {
         this.tab = tab;
