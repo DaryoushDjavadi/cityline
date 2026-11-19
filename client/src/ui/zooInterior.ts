@@ -200,7 +200,7 @@ export class InteriorScene {
     for (const animal of animals) {
       let view = this.animals.get(animal.id);
       if (!view) {
-        const geo = animalGeometry(animal.species);
+        const geo = animalGeometry(animal.species, 2);
         const bodyMat = this.material.clone();
         const patternMat = this.material.clone();
         const body = new THREE.Mesh(geo.body, bodyMat);

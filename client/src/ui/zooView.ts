@@ -4,6 +4,7 @@
  * through the "zoo" command (server-authoritative in coop).
  */
 import {
+  clashWith,
   BUY_ORIGINS,
   GENE_RANGE,
   HABITAT_INFO,
@@ -453,9 +454,13 @@ export class ZooView {
     const free = HABITAT_SPACE - spaceUsed(zoo, habitat.cell);
     const fits = SPECIES.filter((entry) => entry.habitat === habitat.type);
     const others = SPECIES.filter((entry) => entry.habitat !== habitat.type);
-    const chosen = speciesInfo(this.shopSpecies ?? "") ?? fits[0];
-    const card = (entry: (typeof SPECIES)[number], ok: boolean) =>
-      `<button type="button" class="shop-species ${entry.id === chosen.id ? "on" : ""}" data-act="species" data-id="${entry.id}" ${ok ? "" : "disabled"} title="${ok ? "" : `braucht ${HABITAT_INFO[entry.habitat].name}`}"><span class="zoo-ico">${SPECIES_ICON[entry.id]}</span><b>${esc(entry.name)}</b><small>${ok ? `ab ${euro.format(priceOf(entry, "rescue"))} € · Platz ${entry.space}` : esc(HABITAT_INFO[entry.habitat].name)}</small></button>`;
+    const clash = (entry: (typeof SPECIES)[number]) => clashWith(zoo, habitat.cell, entry.id);
+    const chosen = speciesInfo(this.shopSpecies ?? "") ?? fits.find((entry) => !clash(entry)) ?? fits[0];
+    const card = (entry: (typeof SPECIES)[number], ok: boolean) => {
+      const enemy = ok ? clash(entry) : null;
+      const note = !ok ? esc(HABITAT_INFO[entry.habitat].name) : enemy ? `nicht mit ${esc(enemy.plural)}` : `ab ${euro.format(priceOf(entry, "rescue"))} € · Platz ${entry.space}${entry.predator ? " · Raubtier" : ""}`;
+      return `<button type="button" class="shop-species ${entry.id === chosen.id ? "on" : ""} ${enemy ? "clash" : ""}" data-act="species" data-id="${entry.id}" ${ok ? "" : "disabled"} title="${!ok ? `braucht ${HABITAT_INFO[entry.habitat].name}` : enemy ? "Raubtiere leben nur mit Artgenossen" : ""}"><span class="zoo-ico">${SPECIES_ICON[entry.id]}</span><b>${esc(entry.name)}</b><small>${note}</small></button>`;
+    };
     const origins = BUY_ORIGINS.map((origin) => {
       const info = ORIGIN_INFO[origin];
       const price = priceOf(chosen, origin);
@@ -463,7 +468,10 @@ export class ZooView {
       return `<button type="button" class="shop-origin ${origin === this.shopOrigin ? "on" : ""}" data-act="origin" data-id="${origin}"><span class="zoo-ico">${ORIGIN_ICON[origin]}</span><span><b>${esc(info.name)}</b><small>${esc(info.blurb)}</small><em>Start: ${start} · Gesundheit ${info.health}</em></span><strong>${euro.format(price)} €</strong></button>`;
     }).join("");
     const price = priceOf(chosen, this.shopOrigin);
-    const blocked = chosen.space > free ? "Kein Platz mehr im Gehege." : city.funds < price ? "Dafür reicht das Geld nicht." : "";
+    const enemy = clash(chosen);
+    const blocked = enemy
+      ? `${chosen.predator ? `${esc(chosen.plural)} sind Raubtiere` : `${esc(enemy.plural)} sind Raubtiere`} – sie leben nur mit Artgenossen. Bau ein eigenes Gehege.`
+      : chosen.space > free ? "Kein Platz mehr im Gehege." : city.funds < price ? "Dafür reicht das Geld nicht." : "";
     setHtml(this.shop, `
       <div class="shop-card">
         <header><div><small>Tiere aufnehmen</small><h2>${esc(HABITAT_INFO[habitat.type].name)} · Platz ${free} frei</h2></div><button type="button" class="shop-x" data-act="shop-close" aria-label="Schließen">×</button></header>

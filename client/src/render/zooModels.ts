@@ -13,11 +13,13 @@ const ball = (x: number, y: number, z: number, rx: number, ry: number, rz: numbe
 const cyl = (x: number, y: number, z: number, r: number, h: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({ shape: "cyl", x, y, z, sx: r, sy: h, sz: r, color, ...rot });
 const cone = (x: number, y: number, z: number, r: number, h: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({ shape: "cone", x, y, z, sx: r, sy: h, sz: r, color, ...rot });
 
+/** Four tapered legs (thick at the body, slimmer at the ankle) with hooves or round paws. */
 function legs(halfW: number, halfL: number, height: number, r: number, color: number, hoof?: number): Part[] {
   const parts: Part[] = [];
   for (const [x, z] of [[-halfW, -halfL], [halfW, -halfL], [-halfW, halfL], [halfW, halfL]]) {
-    parts.push(cyl(x, height / 2, z, r, height, color));
-    if (hoof !== undefined) parts.push(cyl(x, 0.05, z, r * 1.1, 0.1, hoof));
+    parts.push({ shape: "cyl", x, y: height / 2, z, sx: r * 1.12, sy: height, sz: r * 0.78, color });
+    if (hoof !== undefined) parts.push({ shape: "cyl", x, y: 0.05, z, sx: r * 0.85, sy: 0.1, sz: r * 0.95, color: hoof });
+    else parts.push(ball(x, r * 0.42, z + r * 0.25, r * 0.95, r * 0.5, r * 1.15, color));
   }
   return parts;
 }
@@ -66,14 +68,19 @@ function spots(len: number, y: number, h: number, w: number, color: number, coun
 const MODELS: Record<string, () => AnimalModel> = {
   lion: () => ({
     body: [
-      ...legs(0.24, 0.5, 0.55, 0.1, 0xc89a52),
-      ball(0, 0.78, 0, 0.36, 0.3, 0.72, 0xc89a52),
-      ball(0, 1.02, 0.72, 0.24, 0.24, 0.24, 0xd2a660),
-      ball(0, 0.94, 0.94, 0.11, 0.09, 0.1, 0xe2c08a),
-      ball(0, 0.96, 1.03, 0.04, 0.035, 0.03, NOSE),
-      ...eyes(0.09, 1.08, 0.92),
-      cyl(0, 0.78, -0.86, 0.04, 0.6, 0xb4884a, { rx: -0.9 }),
-      ball(0, 0.58, -1.08, 0.07, 0.07, 0.07, 0x5a3a22),
+      ...legs(0.24, 0.48, 0.55, 0.1, 0xc89a52),
+      ball(0, 0.8, -0.05, 0.36, 0.32, 0.66, 0xc89a52),
+      ball(0, 0.84, 0.42, 0.34, 0.34, 0.34, 0xcc9e56),
+      ball(0, 1.04, 0.74, 0.23, 0.22, 0.22, 0xd2a660),
+      ball(0, 0.96, 0.93, 0.13, 0.1, 0.12, 0xe8c896),
+      ball(-0.06, 0.92, 0.98, 0.07, 0.06, 0.07, 0xf0d6a8),
+      ball(0.06, 0.92, 0.98, 0.07, 0.06, 0.07, 0xf0d6a8),
+      ball(0, 0.99, 1.04, 0.045, 0.035, 0.035, NOSE),
+      ball(-0.16, 1.24, 0.7, 0.07, 0.07, 0.04, 0xb88a4a),
+      ball(0.16, 1.24, 0.7, 0.07, 0.07, 0.04, 0xb88a4a),
+      ...eyes(0.09, 1.1, 0.92),
+      cyl(0, 0.8, -0.86, 0.04, 0.6, 0xb4884a, { rx: -0.9 }),
+      ball(0, 0.6, -1.08, 0.08, 0.09, 0.08, 0x5a3a22),
     ],
     pattern: [ball(0, 1.04, 0.6, 0.4, 0.4, 0.32, 0xffffff)],
     style: "mane",
@@ -84,16 +91,20 @@ const MODELS: Record<string, () => AnimalModel> = {
   }),
   elephant: () => ({
     body: [
-      ...legs(0.42, 0.62, 1.05, 0.2, 0x8f8d8a),
-      ball(0, 1.55, 0, 0.7, 0.62, 1.0, 0x8f8d8a),
-      ball(0, 1.9, 0.95, 0.46, 0.46, 0.42, 0x979590),
-      cyl(0, 1.25, 1.32, 0.11, 1.0, 0x8a8884, { rx: 0.25 }),
-      box(-0.48, 1.85, 0.82, 0.08, 0.7, 0.55, 0x85837f, { ry: -0.4 }),
-      box(0.48, 1.85, 0.82, 0.08, 0.7, 0.55, 0x85837f, { ry: 0.4 }),
-      cone(-0.2, 1.42, 1.28, 0.05, 0.4, 0xf2ead8, { rx: 2.3 }),
-      cone(0.2, 1.42, 1.28, 0.05, 0.4, 0xf2ead8, { rx: 2.3 }),
-      ...eyes(0.27, 2.0, 1.28, 0.05),
-      cyl(0, 1.4, -1.02, 0.04, 0.6, 0x7e7c78, { rx: -0.3 }),
+      ...legs(0.42, 0.6, 1.05, 0.2, 0x8f8d8a, 0xd8d2c6),
+      ball(0, 1.55, -0.05, 0.7, 0.64, 0.95, 0x8f8d8a),
+      ball(0, 1.9, 0.92, 0.44, 0.44, 0.42, 0x979590),
+      ball(0, 2.18, 0.86, 0.3, 0.18, 0.28, 0x979590),
+      { shape: "cyl", x: 0, y: 1.42, z: 1.3, sx: 0.15, sy: 0.75, sz: 0.1, color: 0x8e8c88, rx: 0.12 },
+      { shape: "cyl", x: 0, y: 0.96, z: 1.42, sx: 0.1, sy: 0.32, sz: 0.075, color: 0x8a8884, rx: 0.5 },
+      { ...ball(-0.46, 1.86, 0.74, 0.07, 0.42, 0.36, 0x86847f), ry: -0.5 },
+      { ...ball(0.46, 1.86, 0.74, 0.07, 0.42, 0.36, 0x86847f), ry: 0.5 },
+      { ...ball(-0.44, 1.86, 0.77, 0.05, 0.32, 0.27, 0xb09a96), ry: -0.5 },
+      { ...ball(0.44, 1.86, 0.77, 0.05, 0.32, 0.27, 0xb09a96), ry: 0.5 },
+      cone(-0.2, 1.42, 1.26, 0.05, 0.4, 0xf2ead8, { rx: 2.3 }),
+      cone(0.2, 1.42, 1.26, 0.05, 0.4, 0xf2ead8, { rx: 2.3 }),
+      ...eyes(0.26, 2.0, 1.26, 0.05),
+      cyl(0, 1.4, -1.0, 0.04, 0.6, 0x7e7c78, { rx: -0.3 }),
     ],
     pattern: [ball(0, 1.9, 0, 0.6, 0.18, 0.7, 0xffffff)],
     style: "patches",
@@ -105,12 +116,17 @@ const MODELS: Record<string, () => AnimalModel> = {
   giraffe: () => ({
     body: [
       ...legs(0.22, 0.45, 1.3, 0.08, 0xe0b060, 0x4a3828),
-      ball(0, 1.55, 0, 0.36, 0.34, 0.62, 0xe0b060),
-      cyl(0, 2.35, 0.5, 0.13, 1.6, 0xe0b060, { rx: 0.42 }),
-      box(0, 3.15, 0.9, 0.24, 0.24, 0.5, 0xe6ba6a),
-      cyl(-0.08, 3.38, 0.78, 0.03, 0.2, 0x5a4030),
-      cyl(0.08, 3.38, 0.78, 0.03, 0.2, 0x5a4030),
-      ...eyes(0.12, 3.22, 0.98, 0.04),
+      ball(0, 1.55, 0, 0.36, 0.36, 0.6, 0xe0b060),
+      { shape: "cyl", x: 0, y: 2.35, z: 0.5, sx: 0.1, sy: 1.6, sz: 0.17, color: 0xe0b060, rx: 0.42 },
+      { ...ball(0, 3.16, 0.86, 0.14, 0.15, 0.24, 0xe6ba6a), rx: 0.35 },
+      ball(0, 3.08, 1.06, 0.1, 0.09, 0.1, 0xf0d2a0),
+      cyl(-0.07, 3.4, 0.76, 0.025, 0.2, 0x5a4030),
+      cyl(0.07, 3.4, 0.76, 0.025, 0.2, 0x5a4030),
+      ball(-0.07, 3.5, 0.76, 0.04, 0.04, 0.04, 0x3a2a20),
+      ball(0.07, 3.5, 0.76, 0.04, 0.04, 0.04, 0x3a2a20),
+      { ...ball(-0.15, 3.3, 0.74, 0.08, 0.035, 0.04, 0xd8a858), rz: 0.4 },
+      { ...ball(0.15, 3.3, 0.74, 0.08, 0.035, 0.04, 0xd8a858), rz: -0.4 },
+      ...eyes(0.11, 3.24, 0.96, 0.035),
       cyl(0, 1.4, -0.66, 0.03, 0.6, 0xc8964e, { rx: -0.25 }),
     ],
     pattern: [...spots(1.2, 1.6, 0.4, 0.74, 0xffffff, 10, 0.15), ...spots(0.9, 2.3, 0.6, 0.27, 0xffffff, 6, 0.09).map((p) => ({ ...p, z: p.z * 0.4 + 0.5 }))],
@@ -160,14 +176,18 @@ const MODELS: Record<string, () => AnimalModel> = {
   }),
   bear: () => ({
     body: [
-      ...legs(0.3, 0.45, 0.5, 0.15, 0x6b4a32),
-      ball(0, 0.85, 0, 0.48, 0.44, 0.78, 0x6b4a32),
-      ball(0, 1.08, 0.78, 0.3, 0.28, 0.28, 0x704e36),
-      ball(0, 1.0, 1.04, 0.13, 0.1, 0.12, 0x9a7656),
-      ball(0, 1.02, 1.15, 0.05, 0.04, 0.04, NOSE),
-      ball(-0.2, 1.33, 0.74, 0.08, 0.08, 0.05, 0x5a3c28),
-      ball(0.2, 1.33, 0.74, 0.08, 0.08, 0.05, 0x5a3c28),
-      ...eyes(0.11, 1.15, 1.0, 0.035),
+      ...legs(0.3, 0.42, 0.5, 0.15, 0x6b4a32),
+      ball(0, 0.84, -0.1, 0.48, 0.46, 0.68, 0x6b4a32),
+      ball(0, 1.08, 0.28, 0.4, 0.36, 0.4, 0x704e36),
+      ball(0, 1.02, 0.72, 0.28, 0.26, 0.27, 0x734f37),
+      ball(0, 0.96, 0.96, 0.14, 0.11, 0.13, 0xa07c5a),
+      ball(0, 1.0, 1.08, 0.05, 0.04, 0.04, NOSE),
+      ball(-0.19, 1.24, 0.66, 0.09, 0.09, 0.06, 0x5a3c28),
+      ball(0.19, 1.24, 0.66, 0.09, 0.09, 0.06, 0x5a3c28),
+      ball(-0.19, 1.24, 0.69, 0.05, 0.05, 0.03, 0x9a7656),
+      ball(0.19, 1.24, 0.69, 0.05, 0.05, 0.03, 0x9a7656),
+      ...eyes(0.11, 1.1, 0.94, 0.035),
+      ball(0, 0.82, -0.76, 0.09, 0.08, 0.08, 0x5e4230),
     ],
     pattern: [ball(0, 1.12, 0.2, 0.42, 0.24, 0.5, 0xffffff)],
     style: "patches",
@@ -216,15 +236,16 @@ const MODELS: Record<string, () => AnimalModel> = {
   }),
   wolf: () => ({
     body: [
-      ...legs(0.15, 0.36, 0.45, 0.06, 0x8a8580),
-      ball(0, 0.62, 0, 0.22, 0.2, 0.5, 0x8a8580),
-      ball(0, 0.78, 0.5, 0.15, 0.14, 0.15, 0x908b86),
-      box(0, 0.73, 0.68, 0.12, 0.1, 0.22, 0x9a958f),
-      ball(0, 0.75, 0.8, 0.03, 0.03, 0.03, NOSE),
-      cone(-0.08, 0.95, 0.46, 0.05, 0.12, 0x7a7570),
-      cone(0.08, 0.95, 0.46, 0.05, 0.12, 0x7a7570),
-      ...eyes(0.07, 0.82, 0.62, 0.025),
-      cyl(0, 0.58, -0.6, 0.06, 0.48, 0x7a7570, { rx: -0.7 }),
+      ...legs(0.15, 0.34, 0.45, 0.06, 0x8a8580),
+      ball(0, 0.62, -0.04, 0.22, 0.21, 0.46, 0x8a8580),
+      ball(0, 0.68, 0.32, 0.2, 0.22, 0.2, 0xb8b2aa),
+      ball(0, 0.8, 0.52, 0.15, 0.14, 0.15, 0x908b86),
+      { shape: "cyl", x: 0, y: 0.75, z: 0.7, sx: 0.045, sy: 0.24, sz: 0.08, color: 0xa29d96, rx: Math.PI / 2 + 0.15 },
+      ball(0, 0.73, 0.82, 0.032, 0.028, 0.03, NOSE),
+      cone(-0.08, 0.97, 0.48, 0.05, 0.13, 0x7a7570, { rx: -0.15 }),
+      cone(0.08, 0.97, 0.48, 0.05, 0.13, 0x7a7570, { rx: -0.15 }),
+      ...eyes(0.07, 0.84, 0.63, 0.025),
+      { shape: "cyl", x: 0, y: 0.56, z: -0.62, sx: 0.07, sy: 0.5, sz: 0.035, color: 0x7a7570, rx: -2.3 },
     ],
     pattern: [ball(0, 0.72, 0.02, 0.2, 0.12, 0.42, 0xffffff), ball(0, 0.68, 0.6, 0.1, 0.06, 0.1, 0xffffff)],
     style: "patches",
@@ -305,21 +326,17 @@ const MODELS: Record<string, () => AnimalModel> = {
   }),
   polarbear: () => ({
     body: [
-      ...legs(0.3, 0.5, 0.5, 0.2, 0xe6e2d6),
-      ball(-0.3, 0.06, 0.56, 0.18, 0.07, 0.22, 0xdcd8cc),
-      ball(0.3, 0.06, 0.56, 0.18, 0.07, 0.22, 0xdcd8cc),
-      ball(-0.3, 0.06, -0.44, 0.18, 0.07, 0.22, 0xdcd8cc),
-      ball(0.3, 0.06, -0.44, 0.18, 0.07, 0.22, 0xdcd8cc),
-      ball(0, 0.86, -0.1, 0.5, 0.48, 0.74, 0xf0eee6),
-      ball(0, 0.92, 0.45, 0.44, 0.42, 0.42, 0xf2f0e8),
-      cyl(0, 0.92, 0.82, 0.2, 0.36, 0xf2f0e8, { rx: 1.2 }),
-      ball(0, 0.94, 1.05, 0.24, 0.22, 0.27, 0xf4f2ea),
-      ball(0, 0.88, 1.3, 0.11, 0.09, 0.08, 0xe8e4d8),
-      ball(0, 0.92, 1.37, 0.05, 0.04, 0.035, NOSE),
-      ball(-0.16, 1.14, 0.98, 0.07, 0.07, 0.04, 0xe2ded2),
-      ball(0.16, 1.14, 0.98, 0.07, 0.07, 0.04, 0xe2ded2),
-      ...eyes(0.1, 1.02, 1.24, 0.03),
-      ball(0, 0.78, -0.82, 0.09, 0.08, 0.08, 0xe6e2d6),
+      ...legs(0.3, 0.46, 0.5, 0.19, 0xe6e2d6),
+      ball(0, 0.86, -0.12, 0.5, 0.48, 0.72, 0xf0eee6),
+      ball(0, 0.94, 0.42, 0.42, 0.42, 0.4, 0xf2f0e8),
+      { shape: "cyl", x: 0, y: 0.94, z: 0.78, sx: 0.2, sy: 0.4, sz: 0.25, color: 0xf2f0e8, rx: 1.3 },
+      ball(0, 0.96, 1.0, 0.23, 0.21, 0.25, 0xf4f2ea),
+      ball(0, 0.88, 1.22, 0.12, 0.1, 0.1, 0xe8e4d8),
+      ball(0, 0.92, 1.31, 0.05, 0.04, 0.035, NOSE),
+      ball(-0.15, 1.15, 0.94, 0.07, 0.07, 0.05, 0xe2ded2),
+      ball(0.15, 1.15, 0.94, 0.07, 0.07, 0.05, 0xe2ded2),
+      ...eyes(0.1, 1.04, 1.18, 0.03),
+      ball(0, 0.8, -0.84, 0.09, 0.08, 0.08, 0xe6e2d6),
     ],
     pattern: [ball(0, 0.62, 0.1, 0.36, 0.2, 0.55, 0xffffff), ball(0, 0.86, 1.3, 0.1, 0.07, 0.06, 0xffffff)],
     style: "patches",
@@ -385,14 +402,16 @@ const MODELS: Record<string, () => AnimalModel> = {
 const cache = new Map<string, { model: AnimalModel; body: THREE.BufferGeometry; pattern: THREE.BufferGeometry }>();
 
 /** Merged geometries for one species (cached). */
-export function animalGeometry(species: string): { model: AnimalModel; body: THREE.BufferGeometry; pattern: THREE.BufferGeometry } {
-  const hit = cache.get(species);
+/** Cached species geometry; detail 2 = smoother round parts for the interior close-up. */
+export function animalGeometry(species: string, detail = 1): { model: AnimalModel; body: THREE.BufferGeometry; pattern: THREE.BufferGeometry } {
+  const key = `${species}:${detail}`;
+  const hit = cache.get(key);
   if (hit) return hit;
   const model = (MODELS[species] ?? MODELS.goat)();
   // Overlay pieces are pushed slightly outward so they never z-fight the body.
   const pattern = model.pattern.map((part) => ({ ...part, sx: part.sx * 1.04 + 0.006, sy: part.sy * 1.04 + 0.006, sz: part.sz * 1.04 + 0.006 }));
-  const entry = { model, body: compose(model.body), pattern: compose(pattern) };
-  cache.set(species, entry);
+  const entry = { model, body: compose(model.body, detail), pattern: compose(pattern, detail) };
+  cache.set(key, entry);
   return entry;
 }
 

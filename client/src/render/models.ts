@@ -35,15 +35,16 @@ export const box = (x: number, y: number, z: number, sx: number, sy: number, sz:
   ...rot,
 });
 
-function partGeometry(part: Part): THREE.BufferGeometry {
+function partGeometry(part: Part, detail = 1): THREE.BufferGeometry {
   let geometry: THREE.BufferGeometry;
-  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, Math.max(part.sx, part.sz) < 0.15 ? 6 : 12);
-  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 6);
+  const seg = (n: number) => Math.round(n * detail);
+  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, seg(Math.max(part.sx, part.sz) < 0.15 ? 6 : 12));
+  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, seg(6));
   else if (part.shape === "sphere") {
     // Tiny spheres (eyes, hair tufts) don't need full tessellation: people are instanced by the hundred.
     const tiny = part.sx < 0.12;
     const small = part.sx < 0.3;
-    geometry = new THREE.SphereGeometry(part.sx, tiny ? 5 : small ? 8 : 10, tiny ? 3 : small ? 6 : 7);
+    geometry = new THREE.SphereGeometry(part.sx, seg(tiny ? 5 : small ? 8 : 10), seg(tiny ? 3 : small ? 6 : 7));
     if (part.sy !== part.sx || part.sz !== part.sx) geometry.scale(1, part.sy / part.sx, part.sz / part.sx);
   } else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
   if (part.rx || part.ry || part.rz) {
@@ -58,8 +59,9 @@ function partGeometry(part: Part): THREE.BufferGeometry {
   return geometry;
 }
 
-export function compose(parts: Part[]): THREE.BufferGeometry {
-  const pieces = parts.map(partGeometry);
+/** Merge parts into one vertex-colored geometry; `detail` > 1 tessellates round parts finer (close-ups). */
+export function compose(parts: Part[], detail = 1): THREE.BufferGeometry {
+  const pieces = parts.map((part) => partGeometry(part, detail));
   let vertices = 0;
   let indices = 0;
   for (const piece of pieces) {

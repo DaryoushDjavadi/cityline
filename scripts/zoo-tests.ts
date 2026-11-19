@@ -5,6 +5,7 @@
  *   npx tsx scripts/zoo-tests.ts
  */
 import {
+  clashWith,
   BREED_EVERY,
   GRID_SIZE,
   GENE_KEYS,
@@ -122,16 +123,16 @@ function newest(city: CityState): Animal {
   const city = town();
   const cell = habitat(city, "wald", 4);
   const before = city.funds;
-  ok(run(city, { op: "buy", cell, species: "bear", origin: "rescue" }).ok, "rescue bear");
+  ok(run(city, { op: "buy", cell, species: "monkey", origin: "rescue" }).ok, "rescue monkey");
   const rescued = newest(city);
-  ok(before - city.funds === priceOf(speciesInfo("bear")!, "rescue"), "rescue price charged");
+  ok(before - city.funds === priceOf(speciesInfo("monkey")!, "rescue"), "rescue price charged");
   ok(rescued.health <= 40 && rescued.trust <= 20, `rescue starts sick/scared (${rescued.health}/${rescued.trust})`);
   ok(run(city, { op: "buy", cell, species: "monkey", origin: "breeder" }).ok, "breeder monkey");
   const bred = newest(city);
   ok(bred.health >= 85 && bred.trust >= 60, "breeder animal healthy and trusting");
   ok(run(city, { op: "buy", cell, species: "redpanda", origin: "circus" }).ok, "circus panda");
   ok(newest(city).health < 60, "circus animal exhausted");
-  ok(run(city, { op: "buy", cell, species: "wolf", origin: "wild" }).ok, "wild wolf");
+  ok(run(city, { op: "buy", cell, species: "redpanda", origin: "wild" }).ok, "wild panda");
   ok(newest(city).trust < 40 && newest(city).health >= 75, "wild animal healthy but shy");
   ok(storyText(rescued).includes(rescued.name) && storyText(rescued).length > 30, "story mentions the name");
   ok(zoo(city).animals.every((a) => a.name.length > 0 && a.name.length <= NAME_MAX), "every animal has a name");
@@ -307,7 +308,7 @@ function newest(city: CityState): Animal {
   const city = town();
   const cell = habitat(city, "savanne", 10);
   run(city, { op: "keeper", cell, on: true });
-  run(city, { op: "buy", cell, species: "lion", origin: "breeder" });
+  run(city, { op: "buy", cell, species: "kangaroo", origin: "breeder" });
   run(city, { op: "buy", cell, species: "giraffe", origin: "breeder" });
   ticks(city, 40);
   const z = zoo(city);
@@ -320,6 +321,21 @@ function newest(city: CityState): Animal {
   run(city, { op: "buy", cell, species: "zebra", origin: "breeder" });
   ticks(city, 40);
   ok(zoo(city).visitors >= before, "variety does not lower visitors");
+}
+
+// 10b. Predators live only with their own species.
+{
+  const city = town();
+  const savanna = habitat(city, "savanne", 4);
+  const polar = habitat(city, "polar", 6);
+  ok(run(city, { op: "buy", cell: savanna, species: "zebra", origin: "breeder" }).ok, "zebra first");
+  const lion = run(city, { op: "buy", cell: savanna, species: "lion", origin: "breeder" });
+  ok(!lion.ok && lion.reason === "zoo_predator", `no lion with zebras (${lion.reason})`);
+  ok(clashWith(zoo(city), savanna, "lion")?.id === "zebra", "clash names the zebra");
+  ok(run(city, { op: "buy", cell: polar, species: "polarbear", origin: "breeder" }).ok, "polar bear alone");
+  ok(!run(city, { op: "buy", cell: polar, species: "penguin", origin: "breeder" }).ok, "no penguin next to the polar bear");
+  ok(run(city, { op: "buy", cell: polar, species: "polarbear", origin: "breeder" }).ok, "second polar bear is fine");
+  ok(clashWith(zoo(city), savanna, "giraffe") === null, "prey animals mix");
 }
 
 // 11. Save/load round trip, meta transport, sanitizing, old saves.

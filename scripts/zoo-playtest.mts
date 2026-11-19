@@ -32,9 +32,14 @@ interface Zoo { habitats: { cell: number; type: string; items: { id: number; kin
 /** Hide toasts/menus for clean city screenshots. */
 async function clean(page: Page): Promise<void> {
   await e2e(page, "dismissUi");
+  await hideToasts(page);
+}
+async function hideToasts(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const toast = document.querySelector<HTMLElement>("#life-toast");
-    if (toast) toast.hidden = true;
+    for (const id of ["#life-toast", "#toast"]) {
+      const toast = document.querySelector<HTMLElement>(id);
+      if (toast) toast.hidden = true;
+    }
   });
 }
 
@@ -73,6 +78,9 @@ async function layZoo(page: Page, viaMenu: boolean): Promise<{ area: { x: number
     if (viaMenu && type === "savanne") continue;
     await e2e(page, "apply", { type: "service", index: cell, kind: SERVICE[type] });
   }
+  // Second polar habitat: the polar bear must not live with the penguins.
+  cells.polar2 = await idx(area.x + 6, area.y);
+  await e2e(page, "apply", { type: "service", index: cells.polar2, kind: SERVICE.polar });
   return { area, cells, road };
 }
 
@@ -101,6 +109,7 @@ const errors: string[] = [];
   check(zooTiles.length === 5 && zooTiles.some((t) => t.includes("Savanne")) && zooTiles.some((t) => t.includes("Streichelzoo")), `Zoo-Kategorie zeigt 5 Gehege (${zooTiles.length})`);
   await page.locator(".build-item").filter({ hasText: "Savanne" }).hover();
   await page.waitForTimeout(350);
+  await hideToasts(page);
   await page.screenshot({ path: path.join(SHOTS, "zoo-01-baumenue.png") });
   await page.locator(".build-item").filter({ hasText: "Savanne" }).click();
   const screen = await e2e<{ x: number; y: number }>(page, "cellScreen", sx, sy);
@@ -117,7 +126,7 @@ const errors: string[] = [];
   await page.keyboard.press("0");
   await e2e(page, "advanceZoo", 8);
   let zoo = await e2e<Zoo>(page, "zoo");
-  check(zoo.habitats.length === 5, `5 Gehege im Zustand (${zoo.habitats.length})`);
+  check(zoo.habitats.length === 6, `6 Gehege im Zustand (${zoo.habitats.length})`);
   check(zoo.habitats.every((h) => h.items.some((i) => i.kind === "food") && h.items.some((i) => i.kind === "water")), "Jedes Gehege startet mit Napf und Trog");
 
   // 2. Habitat panel by clicking the cell with the magnifier, shop with origins.
@@ -131,17 +140,18 @@ const errors: string[] = [];
   await page.locator("#zoo-shop").waitFor({ state: "visible" });
   check(await page.locator(".shop-origin").count() === 4, "Shop bietet vier Herkünfte");
   check(await page.locator(".shop-species:not([disabled])").count() === 5, "Fünf Arten passen in die Savanne");
-  const buys: [string, string][] = [["lion", "rescue"], ["zebra", "circus"], ["giraffe", "breeder"], ["kangaroo", "wild"]];
+  const buys: [string, string][] = [["zebra", "rescue"], ["giraffe", "circus"], ["kangaroo", "breeder"], ["kangaroo", "wild"]];
   for (const [species, origin] of buys) {
     await page.locator(`.shop-species[data-id="${species}"]`).click();
     await page.locator(`.shop-origin[data-id="${origin}"]`).click();
-    if (species === "lion") {
+    if (species === "giraffe") {
       await page.waitForTimeout(200);
+      check(await page.locator('.shop-species.clash[data-id="lion"]').count() === 1, "Löwe ist neben Zebras gesperrt (Raubtier)");
       await page.screenshot({ path: path.join(SHOTS, "zoo-03-shop-herkunft.png") });
     }
     await page.locator("#shop-buy").click();
     await page.waitForTimeout(150);
-    if (species !== "kangaroo") {
+    if (!(species === "kangaroo" && origin === "wild")) {
       check(await page.locator("#zoo-panel .zoo-card .zoo-story").isVisible(), `Nach dem Kauf: Karte mit Geschichte (${species})`);
       await page.locator('#zoo-panel [data-act="list"]').click();
       await page.locator("#zoo-open-shop").click();
@@ -161,7 +171,6 @@ const errors: string[] = [];
 
   // Fill the other habitats via commands (keeper, toys) for the outside shots and breeding.
   const buy = (cell: number, species: string, origin: string) => e2e(page, "apply", { type: "zoo", zoo: { op: "buy", cell, species, origin } });
-  await buy(cells.wald, "bear", "breeder");
   await buy(cells.wald, "monkey", "rescue");
   await buy(cells.wald, "redpanda", "breeder");
   await buy(cells.wasser, "flamingo", "breeder");
@@ -170,7 +179,8 @@ const errors: string[] = [];
   await buy(cells.wasser, "seal", "breeder");
   await buy(cells.polar, "penguin", "breeder");
   await buy(cells.polar, "penguin", "breeder");
-  await buy(cells.polar, "polarbear", "breeder");
+  await buy(cells.polar2, "polarbear", "breeder");
+  await buy(cells.polar2, "polarbear", "breeder");
   await buy(cells.wiese, "goat", "breeder");
   await buy(cells.wiese, "alpaca", "breeder");
   await buy(cells.wiese, "rabbit", "breeder");

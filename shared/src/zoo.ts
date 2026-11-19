@@ -56,23 +56,25 @@ export interface SpeciesInfo {
   /** Base color (hex) and body size (world units, ~shoulder height). */
   color: number;
   size: number;
+  /** Predators only share a habitat with their own species. */
+  predator?: boolean;
 }
 
 export const SPECIES: SpeciesInfo[] = [
-  { id: "lion", name: "Löwe", plural: "Löwen", habitat: "savanne", price: 2600, space: 2, eat: 0.5, appeal: 1.6, gestation: 240, grow: 900, color: 0xc89a52, size: 1.1 },
+  { id: "lion", name: "Löwe", plural: "Löwen", habitat: "savanne", price: 2600, space: 2, eat: 0.5, appeal: 1.6, gestation: 240, grow: 900, color: 0xc89a52, size: 1.1, predator: true },
   { id: "elephant", name: "Elefant", plural: "Elefanten", habitat: "savanne", price: 5200, space: 4, eat: 1.1, appeal: 2, gestation: 360, grow: 1200, color: 0x8f8d8a, size: 2.2 },
   { id: "giraffe", name: "Giraffe", plural: "Giraffen", habitat: "savanne", price: 3800, space: 3, eat: 0.8, appeal: 1.7, gestation: 320, grow: 1100, color: 0xd9a650, size: 1.6 },
   { id: "zebra", name: "Zebra", plural: "Zebras", habitat: "savanne", price: 1500, space: 2, eat: 0.6, appeal: 1.2, gestation: 260, grow: 900, color: 0xe8e4dc, size: 1.2 },
   { id: "kangaroo", name: "Känguru", plural: "Kängurus", habitat: "savanne", price: 1200, space: 1, eat: 0.35, appeal: 1.1, gestation: 180, grow: 720, color: 0xb07a4e, size: 0.95 },
-  { id: "bear", name: "Braunbär", plural: "Braunbären", habitat: "wald", price: 3000, space: 3, eat: 0.8, appeal: 1.6, gestation: 300, grow: 1000, color: 0x6b4a32, size: 1.3 },
+  { id: "bear", name: "Braunbär", plural: "Braunbären", habitat: "wald", price: 3000, space: 3, eat: 0.8, appeal: 1.6, gestation: 300, grow: 1000, color: 0x6b4a32, size: 1.3, predator: true },
   { id: "monkey", name: "Affe", plural: "Affen", habitat: "wald", price: 1400, space: 1, eat: 0.3, appeal: 1.4, gestation: 200, grow: 720, color: 0x7a5a3c, size: 0.75 },
   { id: "redpanda", name: "Roter Panda", plural: "Rote Pandas", habitat: "wald", price: 1600, space: 1, eat: 0.25, appeal: 1.5, gestation: 180, grow: 720, color: 0xb8502a, size: 0.6 },
-  { id: "wolf", name: "Wolf", plural: "Wölfe", habitat: "wald", price: 1800, space: 2, eat: 0.45, appeal: 1.2, gestation: 200, grow: 800, color: 0x8a8580, size: 0.9 },
+  { id: "wolf", name: "Wolf", plural: "Wölfe", habitat: "wald", price: 1800, space: 2, eat: 0.45, appeal: 1.2, gestation: 200, grow: 800, color: 0x8a8580, size: 0.9, predator: true },
   { id: "seal", name: "Seehund", plural: "Seehunde", habitat: "wasser", price: 1700, space: 2, eat: 0.5, appeal: 1.4, gestation: 260, grow: 800, color: 0x7d838a, size: 0.7 },
   { id: "flamingo", name: "Flamingo", plural: "Flamingos", habitat: "wasser", price: 900, space: 1, eat: 0.2, appeal: 1.2, gestation: 160, grow: 600, color: 0xf08aa0, size: 1.1 },
   { id: "otter", name: "Otter", plural: "Otter", habitat: "wasser", price: 1100, space: 1, eat: 0.25, appeal: 1.4, gestation: 160, grow: 600, color: 0x6b4c34, size: 0.45 },
   { id: "penguin", name: "Pinguin", plural: "Pinguine", habitat: "polar", price: 1000, space: 1, eat: 0.25, appeal: 1.5, gestation: 180, grow: 640, color: 0x2a2e36, size: 0.6 },
-  { id: "polarbear", name: "Eisbär", plural: "Eisbären", habitat: "polar", price: 4200, space: 3, eat: 1, appeal: 1.9, gestation: 320, grow: 1100, color: 0xf0eee6, size: 1.35 },
+  { id: "polarbear", name: "Eisbär", plural: "Eisbären", habitat: "polar", price: 4200, space: 3, eat: 1, appeal: 1.9, gestation: 320, grow: 1100, color: 0xf0eee6, size: 1.35, predator: true },
   { id: "rabbit", name: "Kaninchen", plural: "Kaninchen", habitat: "wiese", price: 250, space: 1, eat: 0.1, appeal: 0.7, gestation: 120, grow: 480, color: 0xd8c8b0, size: 0.35 },
   { id: "goat", name: "Ziege", plural: "Ziegen", habitat: "wiese", price: 450, space: 1, eat: 0.2, appeal: 0.8, gestation: 160, grow: 560, color: 0xeee6d6, size: 0.7 },
   { id: "alpaca", name: "Alpaka", plural: "Alpakas", habitat: "wiese", price: 900, space: 2, eat: 0.3, appeal: 1.1, gestation: 220, grow: 720, color: 0xf2e2c4, size: 1.05 },
@@ -119,13 +121,16 @@ const STORIES: Record<OriginId, string[]> = {
   ],
 };
 
-export const NAME_POOL = [
-  "Leo", "Mira", "Luna", "Bruno", "Ella", "Max", "Frieda", "Paul", "Lotte", "Emil", "Ida", "Oskar", "Mia", "Karl", "Greta",
-  "Anton", "Hanna", "Felix", "Rosa", "Theo", "Nala", "Simba", "Wilma", "Otto", "Clara", "Jonas", "Lina", "Fritz", "Paula",
-  "Hugo", "Mila", "Ben", "Juna", "Moritz", "Emma", "Rudi", "Lisa", "Kalle", "Maja", "Willi", "Erna", "Bodo", "Tilda", "Sam",
-  "Pia", "Knut", "Flocke", "Kiki", "Momo", "Pünktchen", "Socke", "Krümel", "Wolke", "Sunny", "Balu", "Bambi", "Gustav", "Henni",
-  "Lucky", "Toni", "Fiete", "Smilla", "Jule", "Zora", "Mats", "Elvis", "Nele", "Piet", "Ronja",
+const FEMALE_NAMES = [
+  "Mira", "Luna", "Ella", "Frieda", "Lotte", "Ida", "Mia", "Greta", "Hanna", "Rosa", "Nala", "Wilma", "Clara", "Lina", "Paula",
+  "Mila", "Juna", "Emma", "Lisa", "Maja", "Erna", "Tilda", "Pia", "Henni", "Smilla", "Jule", "Zora", "Nele", "Ronja", "Kiki", "Flocke",
 ];
+const MALE_NAMES = [
+  "Leo", "Bruno", "Max", "Paul", "Emil", "Oskar", "Karl", "Anton", "Felix", "Theo", "Simba", "Otto", "Jonas", "Fritz", "Hugo",
+  "Ben", "Moritz", "Rudi", "Kalle", "Willi", "Bodo", "Knut", "Balu", "Gustav", "Fiete", "Mats", "Elvis", "Piet",
+];
+const EITHER_NAMES = ["Sam", "Momo", "Pünktchen", "Socke", "Krümel", "Wolke", "Sunny", "Bambi", "Lucky", "Toni"];
+export const NAME_POOL = [...FEMALE_NAMES, ...MALE_NAMES, ...EITHER_NAMES];
 
 export type ItemKind = "food" | "water" | "toy" | "shelter" | "plant" | "rock";
 export const ITEM_KINDS: ItemKind[] = ["food", "water", "toy", "shelter", "plant", "rock"];
@@ -306,12 +311,14 @@ export function inheritGenes(city: CityState, a: Genes, b: Genes, salt: number):
   return out;
 }
 
-export function randomName(city: CityState, salt: number, avoid: string[] = []): string {
+/** Random German name that fits the sex (plus a few neutral pet names). */
+export function randomName(city: CityState, salt: number, avoid: string[] = [], sex?: "m" | "w"): string {
+  const pool = sex === "w" ? [...FEMALE_NAMES, ...EITHER_NAMES] : sex === "m" ? [...MALE_NAMES, ...EITHER_NAMES] : NAME_POOL;
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    const name = NAME_POOL[Math.floor(zooRand(city, salt, attempt, 7) * NAME_POOL.length) % NAME_POOL.length];
+    const name = pool[Math.floor(zooRand(city, salt, attempt, 7) * pool.length) % pool.length];
     if (!avoid.includes(name)) return name;
   }
-  return NAME_POOL[salt % NAME_POOL.length];
+  return pool[salt % pool.length];
 }
 
 /** Trimmed, single-spaced name or null when invalid (empty, too long, odd characters). */
@@ -563,12 +570,13 @@ function giveBirth(city: CityState, zoo: ZooState, mother: Animal): void {
   const fatherGenes = father?.genes ?? mother.genes;
   const parents = [mother.name, father?.name ?? ""].filter(Boolean);
   const family = father ? `${father.name}-&-${mother.name}` : `${mother.name}`;
+  const childSex: "m" | "w" = zooRand(city, id, 3) < 0.5 ? "w" : "m";
   const child: Animal = {
     id,
-    name: randomName(city, id * 7 + city.tick, parents),
+    name: randomName(city, id * 7 + city.tick, parents, childSex),
     species: mother.species,
     cell: mother.cell,
-    sex: zooRand(city, id, 3) < 0.5 ? "w" : "m",
+    sex: childSex,
     born: city.tick,
     health: 80,
     trust: round1(clamp(((mother.trust + (father?.trust ?? mother.trust)) / 2) * 0.8, 20, 90)),
@@ -619,6 +627,21 @@ export type ZooOp =
   | { op: "rename"; animal: number; name: string }
   | { op: "release"; animal: number };
 
+/**
+ * Who may move in: predators live only with their own species, and no other species joins a predator
+ * (the polar bear would eat the penguins). Returns the blocking species or null.
+ */
+export function clashWith(zoo: ZooState, cell: number, species: string): SpeciesInfo | null {
+  const info = speciesInfo(species);
+  if (!info) return null;
+  for (const other of animalsIn(zoo, cell)) {
+    if (other.species === species) continue;
+    const otherInfo = speciesInfo(other.species);
+    if (otherInfo && (info.predator || otherInfo.predator)) return otherInfo;
+  }
+  return null;
+}
+
 export function priceOf(species: SpeciesInfo, origin: OriginId): number {
   return Math.round((species.price * ORIGIN_INFO[origin].price) / 10) * 10;
 }
@@ -653,6 +676,7 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
     const info = speciesInfo(op.species);
     if (!info || !BUY_ORIGINS.includes(op.origin)) return fail("rejected");
     if (info.habitat !== habitat.type) return fail("zoo_wrong_habitat");
+    if (clashWith(zoo, habitat.cell, info.id)) return fail("zoo_predator");
     if (zoo.animals.length >= MAX_ANIMALS) return fail("zoo_full");
     if (spaceUsed(zoo, habitat.cell) + info.space > HABITAT_SPACE) return fail("zoo_full");
     const price = priceOf(info, op.origin);
@@ -668,7 +692,7 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
     const sex: "m" | "w" = sameSpecies.length > 0 ? (sameSpecies.filter((entry) => entry.sex === "w").length <= sameSpecies.filter((entry) => entry.sex === "m").length ? "w" : "m") : roll(1) < 0.5 ? "w" : "m";
     zoo.animals.push({
       id,
-      name: randomName(city, id * 13, zoo.animals.map((entry) => entry.name)),
+      name: randomName(city, id * 13, zoo.animals.map((entry) => entry.name), sex),
       species: info.id,
       cell: habitat.cell,
       sex,

@@ -213,6 +213,7 @@ const REASONS: Record<string, string> = {
   zoo_name: "Name: 1–18 Zeichen, Buchstaben, Ziffern, Leerzeichen und . ' - &.",
   zoo_no_habitat: "Hier steht kein Gehege.",
   zoo_wrong_habitat: "Diese Art passt nicht in dieses Gehege.",
+  zoo_predator: "Raubtiere leben nur mit Artgenossen – das gäbe Ärger im Gehege.",
   zoo_full: "Im Gehege ist kein Platz mehr.",
   zoo_items_full: "Mehr Einrichtung passt nicht ins Gehege.",
   zoo_spot_taken: "Der Platz ist schon belegt.",

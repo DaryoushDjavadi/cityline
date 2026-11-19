@@ -3689,3 +3689,5 @@ body[data-zoo-interior="on"] #hud > *:not(#toast):not(#status) { visibility: hid
   background: #f6e7c4; color: #3a2410; font-size: 13px; font-weight: 600; box-shadow: 0 10px 26px rgba(12, 8, 4, 0.3); text-align: center;
 }
 @media (max-width: 1100px), (max-height: 520px) { .zi-toast { top: 92px; font-size: 12px; } }
+.shop-species.clash { opacity: 0.62; border-style: dashed; }
+.shop-species.clash small { color: #ffb0a0; }
