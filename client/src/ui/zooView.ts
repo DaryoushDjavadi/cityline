@@ -157,8 +157,12 @@ export class ZooView {
     window.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       if (!this.shop.hidden) this.closeShop();
-      else if (this.tool) this.setTool(null);
-      else if (this.interior) this.closeInterior();
+      else if (this.tool && this.interior) this.setTool(null);
+      else if (this.interior || !this.overlay.hidden) this.closeInterior();
+      else return;
+      // Handled: the park and the city must not take another step on the same key press.
+      event.stopImmediatePropagation();
+      event.preventDefault();
     });
   }
 
@@ -505,13 +509,13 @@ export class ZooView {
   openInterior(): void {
     const habitat = this.habitat();
     if (!habitat || this.interior) return;
-    this.overlay.hidden = false;
-    document.body.dataset.zooInterior = "on";
     // Fresh canvas each time: the previous one lost its WebGL context on close.
     const old = this.overlay.querySelector("#zoo-canvas") as HTMLCanvasElement;
     const canvas = old.cloneNode(false) as HTMLCanvasElement;
     old.replaceWith(canvas);
-    this.interior = new InteriorScene(canvas, {
+    let scene: InteriorScene;
+    try {
+      scene = new InteriorScene(canvas, {
       pickAnimal: (id) => {
         this.animal = id;
         this.releaseArm = -1;
@@ -530,7 +534,17 @@ export class ZooView {
         this.hooks.sound("demolish");
         this.renderInterior();
       },
-    });
+      });
+    } catch (error) {
+      // No WebGL context (browser limit, low memory): stay where we are instead of showing an
+      // empty overlay without a working way back.
+      console.warn("Innenansicht nicht verfügbar", error);
+      this.hooks.flash("Die Innenansicht konnte gerade nicht starten. Versuch es gleich noch einmal.");
+      return;
+    }
+    this.interior = scene;
+    this.overlay.hidden = false;
+    document.body.dataset.zooInterior = "on";
     // Do not replay old reactions.
     for (const animal of this.zoo()?.animals ?? []) this.seenReact.set(animal.id, animal.react?.tick ?? -1);
     this.interior.selected = this.animal;
@@ -541,8 +555,12 @@ export class ZooView {
   }
 
   closeInterior(): void {
-    if (!this.interior) return;
-    this.interior.dispose();
+    if (!this.interior && this.overlay.hidden) return;
+    try {
+      this.interior?.dispose();
+    } catch (error) {
+      console.warn("Innenansicht: Aufräumen fehlgeschlagen", error);
+    }
     this.interior = null;
     this.tool = null;
     this.overlay.hidden = true;

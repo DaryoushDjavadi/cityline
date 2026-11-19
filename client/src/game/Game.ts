@@ -457,6 +457,7 @@ export class Game {
       },
       habitat: (cell) => this.zooView.showHabitat(this.city, cell),
       closeHabitat: () => this.zooView.hide(),
+      flash: (text) => this.flash(text),
     });
     bindAudioControls();
     this.bindInput();
