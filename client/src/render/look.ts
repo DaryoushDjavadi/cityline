@@ -178,6 +178,10 @@ export function seaMaterial(): THREE.ShaderMaterial {
         color = mix(color, uMid, fresnel * 0.06 * (1.0 - uNight));
         color *= uShade;
         gl_FragColor = vec4(color, 1.0);
+        // Without the bloom composer (low/mobile) this renders straight to the screen:
+        // apply tone mapping + sRGB like the built-in materials (no-ops into the composer's target).
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   });
@@ -259,10 +263,10 @@ export function applyLook(
   (clouds.material as THREE.MeshBasicMaterial).color.copy(mixHex(goldenAmt > 0.4 ? 0xffe6cc : 0xfff8f0, 0xb4acd8, nightAmt));
 
   const starMat = stars.material as THREE.PointsMaterial;
-  stars.visible = quality.stars && nightAmt > 0.25;
+  stars.visible = quality.stars && nightAmt > 0.25 && !cloudy;
   starMat.opacity = nightAmt * 0.75;
 
-  moon.visible = nightAmt > 0.35;
+  moon.visible = nightAmt > 0.35 && !rainy;
   moon.position.set(target.x - sunDir.x * 340, 250, target.z - sunDir.z * 340);
 
   sunDisc.visible = nightAmt < 0.5 && elev > 0.04;
@@ -285,9 +289,10 @@ const NIGHT = {
   ground: 0x5e6c64,
   moon: 0xd6daf6,
   fill: 0xa8aee0,
-  seaDeep: 0x2d5e92,
-  seaMid: 0x386ca0,
-  seaShallow: 0x437cab,
+  // Teal-blue night sea (never black-blue).
+  seaDeep: 0x2a6a8e,
+  seaMid: 0x34789c,
+  seaShallow: 0x3f86a6,
   lagoon: 0x6cb2c8,
   seaHorizon: 0x9490c0,
 };
@@ -409,6 +414,8 @@ function skyGradient(): THREE.ShaderMaterial {
         color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.04);
         color = mix(color, vec3(0.30, 0.33, 0.58), uNight * 0.22);
         gl_FragColor = vec4(color, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   });

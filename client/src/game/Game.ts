@@ -986,7 +986,8 @@ export class Game {
     this.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
     this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 7);
     refreshUtilities(this.city);
-    this.view.setWeatherOverride("clear");
+    const weather = params.get("weather");
+    this.view.setWeatherOverride(weather === "rain" || weather === "cloud" ? weather : "clear");
     this.view.setDecorations(false);
     this.overlays.zones = false;
     this.hud.setOverlays(this.overlays);
