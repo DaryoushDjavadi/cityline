@@ -1,0 +1,446 @@
+/**
+ * Zoo-Tycoon-style interior of one habitat: its own small Three.js scene and renderer.
+ * Items sit on an 8×8 grid; animals wander; clicks pick animals, items or grid spots.
+ */
+import * as THREE from "three";
+import {
+  ITEM_GRID,
+  growthScale,
+  speciesInfo,
+  type Animal,
+  type CareAct,
+  type CityState,
+  type Habitat,
+  type HabitatItem,
+  type ItemKind,
+} from "../../../shared/src/index.ts";
+import { animalGeometry, coatTint, itemGeometry, patternColor } from "../render/zooModels.ts";
+import { wanderPose, type Pose } from "../render/zooMotion.ts";
+
+export const SPOT = 2.6;
+const HALF = (ITEM_GRID * SPOT) / 2;
+const GROUND: Record<string, number> = { savanne: 0xd9bc72, wald: 0x5f8c4c, wasser: 0x86ae68, polar: 0xe8eff4, wiese: 0x8cc26a };
+const FENCE: Record<string, number> = { savanne: 0x8a6a44, wald: 0x6a4a30, wasser: 0xd8d2c6, polar: 0xbcc4cc, wiese: 0xf6f2e8 };
+
+export type InteriorTool = ItemKind | "remove" | null;
+
+export interface InteriorHooks {
+  pickAnimal: (id: number) => void;
+  pickSpot: (x: number, y: number) => void;
+  pickItem: (id: number) => void;
+}
+
+interface AnimalView {
+  group: THREE.Group;
+  body: THREE.Mesh;
+  pattern: THREE.Mesh;
+  boost: number;
+  react: { kind: CareAct; until: number; start: number } | null;
+}
+
+interface Burst {
+  sprite: THREE.Sprite;
+  born: number;
+  vx: number;
+  vz: number;
+}
+
+const GLYPH: Record<CareAct, { text: string; color: string }> = {
+  pet: { text: "♥", color: "#ff5f8f" },
+  play: { text: "★", color: "#ffd04a" },
+  feed: { text: "♥", color: "#ff9a3c" },
+  vet: { text: "✚", color: "#5fd08a" },
+};
+
+function glyphTexture(kind: CareAct): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = "bold 52px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(60,30,20,0.55)";
+  ctx.strokeText(GLYPH[kind].text, 32, 35);
+  ctx.fillStyle = GLYPH[kind].color;
+  ctx.fillText(GLYPH[kind].text, 32, 35);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export class InteriorScene {
+  readonly renderer: THREE.WebGLRenderer;
+  readonly scene = new THREE.Scene();
+  readonly camera = new THREE.PerspectiveCamera(42, 1, 0.5, 200);
+  private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.02 });
+  private readonly ground: THREE.Mesh;
+  private readonly grid: THREE.LineSegments;
+  private readonly ghost: THREE.Mesh;
+  private readonly decor = new THREE.Group();
+  private readonly items = new Map<number, { mesh: THREE.Mesh; fill: number }>();
+  private readonly animals = new Map<number, AnimalView>();
+  private readonly bursts: Burst[] = [];
+  private readonly textures = new Map<CareAct, THREE.CanvasTexture>();
+  private readonly ray = new THREE.Raycaster();
+  private readonly ndc = new THREE.Vector2();
+  private habitatType = "";
+  private tool: InteriorTool = null;
+  private time = 0;
+  private tick = 0;
+  private azimuth = 0.35;
+  private distance = 27;
+  private drag: { x: number; az: number; moved: boolean } | null = null;
+  readonly poses = new Map<number, Pose & { boost: number }>();
+  private animalsNow: Animal[] = [];
+  selected = -1;
+
+  constructor(readonly canvas: HTMLCanvasElement, private readonly hooks: InteriorHooks) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.scene.background = new THREE.Color(0xbfd9e6);
+    this.scene.fog = new THREE.Fog(0xbfd9e6, 45, 90);
+    const hemi = new THREE.HemisphereLight(0xfff4e0, 0x5a6e4a, 1.7);
+    const sun = new THREE.DirectionalLight(0xfff0d8, 2.1);
+    sun.position.set(12, 22, 9);
+    this.scene.add(hemi, sun);
+    const outer = new THREE.Mesh(new THREE.PlaneGeometry(140, 140).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x7a9c5e, roughness: 1 }));
+    outer.position.y = -0.05;
+    this.scene.add(outer);
+    this.ground = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2 + 1, 0.3, HALF * 2 + 1), new THREE.MeshStandardMaterial({ color: 0xd9bc72, roughness: 1 }));
+    this.ground.position.y = -0.15;
+    this.scene.add(this.ground);
+    const lines: number[] = [];
+    for (let i = 0; i <= ITEM_GRID; i += 1) {
+      const t = -HALF + i * SPOT;
+      lines.push(t, 0.02, -HALF, t, 0.02, HALF, -HALF, 0.02, t, HALF, 0.02, t);
+    }
+    const gridGeo = new THREE.BufferGeometry();
+    gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
+    this.grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 }));
+    this.grid.visible = false;
+    this.scene.add(this.grid, this.decor);
+    this.ghost = new THREE.Mesh(new THREE.BoxGeometry(SPOT * 0.92, 0.08, SPOT * 0.92), new THREE.MeshBasicMaterial({ color: 0xfff4c8, transparent: true, opacity: 0.45, depthWrite: false }));
+    this.ghost.visible = false;
+    this.scene.add(this.ghost);
+    canvas.addEventListener("pointerdown", (event) => {
+      this.drag = { x: event.clientX, az: this.azimuth, moved: false };
+      canvas.setPointerCapture(event.pointerId);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (this.drag) {
+        const dx = event.clientX - this.drag.x;
+        if (Math.abs(dx) > 6) this.drag.moved = true;
+        if (this.drag.moved) this.azimuth = this.drag.az - dx * 0.006;
+      }
+      this.hover(event);
+    });
+    canvas.addEventListener("pointerup", (event) => {
+      const moved = this.drag?.moved ?? false;
+      this.drag = null;
+      if (!moved) this.click(event);
+    });
+    canvas.addEventListener("pointerleave", () => (this.ghost.visible = false));
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      this.distance = Math.max(14, Math.min(36, this.distance + event.deltaY * 0.02));
+    }, { passive: false });
+  }
+
+  resize(width: number, height: number): void {
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / Math.max(1, height);
+    // Portrait screens: step back so the whole habitat fits.
+    this.camera.fov = this.camera.aspect < 0.8 ? 58 : 42;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setTool(tool: InteriorTool): void {
+    this.tool = tool;
+    this.grid.visible = tool !== null;
+    if (!tool) this.ghost.visible = false;
+  }
+
+  /** Rebuild items/animals from state (cheap; called on every state publish). */
+  setHabitat(city: CityState, habitat: Habitat, animals: Animal[]): void {
+    this.tick = city.tick;
+    if (habitat.type !== this.habitatType) this.buildDecor(habitat.type);
+    this.syncItems(habitat.items);
+    this.animalsNow = animals;
+    const alive = new Set(animals.map((animal) => animal.id));
+    for (const [id, view] of this.animals) {
+      if (alive.has(id)) continue;
+      this.scene.remove(view.group);
+      this.animals.delete(id);
+    }
+    for (const animal of animals) {
+      let view = this.animals.get(animal.id);
+      if (!view) {
+        const geo = animalGeometry(animal.species);
+        const bodyMat = this.material.clone();
+        const patternMat = this.material.clone();
+        const body = new THREE.Mesh(geo.body, bodyMat);
+        const pattern = new THREE.Mesh(geo.pattern, patternMat);
+        body.userData.animal = animal.id;
+        pattern.userData.animal = animal.id;
+        const group = new THREE.Group();
+        group.add(body, pattern);
+        const [, h, l] = geo.model.lod;
+        const boost = Math.max(1, Math.min(2.2, 1.3 / Math.max(h, l * 0.6)));
+        view = { group, body, pattern, boost, react: null };
+        this.animals.set(animal.id, view);
+        this.scene.add(group);
+      }
+      const info = speciesInfo(animal.species);
+      const geo = animalGeometry(animal.species);
+      (view.body.material as THREE.MeshStandardMaterial).color.copy(coatTint(animal.genes.hue));
+      // Pattern overlay uses white vertex colors × the blended accent.
+      (view.pattern.material as THREE.MeshStandardMaterial).color.copy(patternColor(info?.color ?? 0xffffff, geo.model, animal.genes.hue, animal.genes.pattern));
+      const sick = animal.health < 40;
+      (view.body.material as THREE.MeshStandardMaterial).emissive.setHex(this.selected === animal.id ? 0x332810 : sick ? 0x1a0a0a : 0x000000);
+    }
+  }
+
+  /** Visible reaction: hearts/stars and a little animation. */
+  react(id: number, kind: CareAct): void {
+    const view = this.animals.get(id);
+    if (!view) return;
+    view.react = { kind, start: this.time, until: this.time + 1.4 };
+    let texture = this.textures.get(kind);
+    if (!texture) {
+      texture = glyphTexture(kind);
+      this.textures.set(kind, texture);
+    }
+    for (let i = 0; i < 6; i += 1) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+      const pose = this.poses.get(id);
+      sprite.position.set((pose?.x ?? 0) + (Math.random() - 0.5) * 0.6, 1.2 + (pose?.y ?? 0) + Math.random() * 0.6, (pose?.z ?? 0) + (Math.random() - 0.5) * 0.6);
+      sprite.scale.setScalar(0.55 + Math.random() * 0.3);
+      this.scene.add(sprite);
+      this.bursts.push({ sprite, born: this.time + i * 0.08, vx: (Math.random() - 0.5) * 0.8, vz: (Math.random() - 0.5) * 0.8 });
+    }
+  }
+
+  private buildDecor(type: string): void {
+    this.habitatType = type;
+    this.decor.clear();
+    (this.ground.material as THREE.MeshStandardMaterial).color.setHex(GROUND[type] ?? 0x8cc26a);
+    const fenceColor = FENCE[type] ?? 0x8a6a44;
+    const post = new THREE.CylinderGeometry(0.14, 0.14, type === "wald" ? 2.6 : 1.5, 6);
+    const postMat = new THREE.MeshStandardMaterial({ color: fenceColor, roughness: 0.9 });
+    const edge = HALF + 0.5;
+    const posts = new THREE.InstancedMesh(post, postMat, 4 * (ITEM_GRID * 2 + 1));
+    const m = new THREE.Matrix4();
+    let n = 0;
+    for (let i = 0; i <= ITEM_GRID * 2; i += 1) {
+      const t = -edge + (i * edge * 2) / (ITEM_GRID * 2);
+      for (const [x, z] of [[t, -edge], [t, edge], [-edge, t], [edge, t]]) {
+        m.makeTranslation(x, type === "wald" ? 1.3 : 0.75, z);
+        posts.setMatrixAt(n++, m);
+      }
+    }
+    posts.count = n;
+    this.decor.add(posts);
+    for (const y of type === "wald" ? [1.0, 2.0] : [0.55, 1.15]) {
+      for (const [x, z, w, d] of [[0, -edge, edge * 2, 0.12], [0, edge, edge * 2, 0.12], [-edge, 0, 0.12, edge * 2], [edge, 0, 0.12, edge * 2]]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(w, 0.12, d), postMat);
+        rail.position.set(x, y, z);
+        this.decor.add(rail);
+      }
+    }
+    if (type === "wasser" || type === "polar") {
+      const pool = new THREE.Mesh(new THREE.BoxGeometry(SPOT * 3.6, 0.06, SPOT * 2.6), new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x3d8cba : 0x4aa8cc, roughness: 0.25, metalness: 0.1 }));
+      pool.position.set(HALF - SPOT * 1.8, 0.01, -HALF + SPOT * 1.3);
+      this.decor.add(pool);
+    }
+    // Scenery outside the fence so the space reads as part of a zoo.
+    const tree = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x6e5238 }));
+    trunk.position.y = 1.1;
+    const crown = new THREE.Mesh(type === "wald" || type === "polar" ? new THREE.ConeGeometry(1.4, 3.2, 7) : new THREE.SphereGeometry(1.5, 8, 6), new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x5a8a6a : 0x6e9a50 }));
+    crown.position.y = 3;
+    tree.add(trunk, crown);
+    for (const [x, z] of [[-HALF - 4, -HALF + 2], [-HALF - 5, HALF - 4], [HALF + 5, HALF - 2], [-4, -HALF - 5], [6, -HALF - 6]]) {
+      const copy = tree.clone();
+      copy.position.set(x, 0, z);
+      this.decor.add(copy);
+    }
+  }
+
+  private syncItems(items: HabitatItem[]): void {
+    const alive = new Set(items.map((item) => item.id));
+    for (const [id, entry] of this.items) {
+      if (alive.has(id)) continue;
+      this.scene.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      this.items.delete(id);
+    }
+    for (const item of items) {
+      const fill = item.fill === undefined ? 100 : Math.round(item.fill / 20) * 20;
+      const entry = this.items.get(item.id);
+      if (entry && entry.fill === fill) continue;
+      if (entry) {
+        this.scene.remove(entry.mesh);
+        entry.mesh.geometry.dispose();
+      }
+      const mesh = new THREE.Mesh(itemGeometry(item.kind, fill), this.material);
+      const at = spotCenter(item.x, item.y);
+      mesh.position.set(at.x, 0, at.z);
+      mesh.scale.setScalar(item.kind === "shelter" ? 1.35 : item.kind === "rock" ? 1.4 : 1.25);
+      mesh.userData.item = item.id;
+      this.items.set(item.id, { mesh, fill });
+      this.scene.add(mesh);
+    }
+  }
+
+  frame(dt: number): void {
+    this.time += dt;
+    const target = new THREE.Vector3(0, 0, 1);
+    this.camera.position.set(Math.sin(this.azimuth) * this.distance * 0.78, this.distance * 0.66, Math.cos(this.azimuth) * this.distance * 0.78);
+    this.camera.lookAt(target);
+    const local = new Map<number, Pose>();
+    const ordered = [...this.animalsNow].sort((a, b) => Number(a.mother !== undefined) - Number(b.mother !== undefined) || a.id - b.id);
+    for (const animal of ordered) {
+      const view = this.animals.get(animal.id);
+      if (!view) continue;
+      const scale = growthScale(animal, this.tick) * view.boost;
+      const young = growthScale(animal, this.tick) < animal.genes.size * 0.95;
+      const mother = young && animal.mother !== undefined ? local.get(animal.mother) : undefined;
+      const geo = animalGeometry(animal.species);
+      const radius = HALF - 0.6 - (geo.model.lod[2] * scale) / 2;
+      const raw = wanderPose(animal, this.time * 2, Math.max(1, radius), scale, mother);
+      local.set(animal.id, raw);
+      let y = raw.y;
+      let spin = 0;
+      let squash = 1;
+      const react = view.react;
+      if (react && this.time < react.until) {
+        const k = (this.time - react.start) / (react.until - react.start);
+        if (react.kind === "play") {
+          y += Math.sin(k * Math.PI * 2) ** 2 * 0.9;
+          spin = k * Math.PI * 2;
+        } else if (react.kind === "pet") squash = 1 + Math.sin(k * Math.PI * 6) * 0.06;
+        else if (react.kind === "feed") view.group.rotation.x = Math.sin(k * Math.PI * 4) * 0.12;
+      } else if (react) {
+        view.react = null;
+        view.group.rotation.x = 0;
+      }
+      // Selected animals stand still so they are easy to click and inspect.
+      const pose = this.selected === animal.id ? (this.poses.get(animal.id) ?? raw) : raw;
+      view.group.position.set(pose.x, y, pose.z);
+      view.group.rotation.y = pose.heading + spin;
+      view.group.rotation.z = pose.roll;
+      view.group.scale.set(scale, scale * squash, scale);
+      this.poses.set(animal.id, { ...pose, y, boost: view.boost });
+    }
+    for (let i = this.bursts.length - 1; i >= 0; i -= 1) {
+      const burst = this.bursts[i];
+      const age = this.time - burst.born;
+      if (age < 0) {
+        burst.sprite.visible = false;
+        continue;
+      }
+      burst.sprite.visible = true;
+      burst.sprite.position.y += dt * 1.6;
+      burst.sprite.position.x += burst.vx * dt;
+      burst.sprite.position.z += burst.vz * dt;
+      (burst.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - age / 1.3);
+      if (age > 1.3) {
+        this.scene.remove(burst.sprite);
+        (burst.sprite.material as THREE.SpriteMaterial).dispose();
+        this.bursts.splice(i, 1);
+      }
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Screen position (CSS px) of a world point, for name tags and tests. */
+  project(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const rect = this.canvas.getBoundingClientRect();
+    return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height, visible: v.z > -1 && v.z < 1 };
+  }
+
+  spotScreen(x: number, y: number): { x: number; y: number } {
+    const at = spotCenter(x, y);
+    return this.project(at.x, 0, at.z);
+  }
+
+  private pointer(event: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    this.ndc.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, this.camera);
+  }
+
+  private spotAt(event: PointerEvent): { x: number; y: number } | null {
+    this.pointer(event);
+    const hit = new THREE.Vector3();
+    if (!this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit)) return null;
+    const x = Math.floor((hit.x + HALF) / SPOT);
+    const y = Math.floor((hit.z + HALF) / SPOT);
+    if (x < 0 || y < 0 || x >= ITEM_GRID || y >= ITEM_GRID) return null;
+    return { x, y };
+  }
+
+  private hover(event: PointerEvent): void {
+    if (!this.tool || this.tool === "remove") {
+      this.ghost.visible = false;
+      return;
+    }
+    const spot = this.spotAt(event);
+    this.ghost.visible = spot !== null;
+    if (spot) {
+      const at = spotCenter(spot.x, spot.y);
+      this.ghost.position.set(at.x, 0.05, at.z);
+    }
+  }
+
+  private click(event: PointerEvent): void {
+    this.pointer(event);
+    if (this.tool === "remove") {
+      const hits = this.ray.intersectObjects([...this.items.values()].map((entry) => entry.mesh), false);
+      if (hits[0]) this.hooks.pickItem(Number(hits[0].object.userData.item));
+      return;
+    }
+    if (this.tool) {
+      const spot = this.spotAt(event);
+      if (spot) this.hooks.pickSpot(spot.x, spot.y);
+      return;
+    }
+    const targets: THREE.Object3D[] = [];
+    for (const view of this.animals.values()) targets.push(view.body, view.pattern);
+    const hits = this.ray.intersectObjects(targets, false);
+    if (hits[0]) {
+      this.hooks.pickAnimal(Number(hits[0].object.userData.animal));
+      return;
+    }
+    // Generous fallback for small animals: nearest animal to the ground point.
+    const hit = new THREE.Vector3();
+    if (!this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.3), hit)) return;
+    let best = -1;
+    let bestDist = 1.6;
+    for (const [id, pose] of this.poses) {
+      const d = Math.hypot(pose.x - hit.x, pose.z - hit.z);
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    }
+    if (best >= 0) this.hooks.pickAnimal(best);
+  }
+
+  dispose(): void {
+    for (const entry of this.items.values()) entry.mesh.geometry.dispose();
+    for (const texture of this.textures.values()) texture.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+}
+
+export function spotCenter(x: number, y: number): { x: number; z: number } {
+  return { x: -HALF + (x + 0.5) * SPOT, z: -HALF + (y + 0.5) * SPOT };
+}

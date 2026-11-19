@@ -9,7 +9,8 @@ import { packCells, writeCity, type CityState, type Command, type PublicPlayer }
 import { deleteCity, loadCity, peekAuth, peekSave, saveCity, savedRooms, type RoomListing } from "./persist.ts";
 
 const MAX_PLAYERS = 2;
-const TICK_MS = 500;
+/** 2 ticks/s. CITYLINE_TICK_MS speeds the server up for automated coop tests only. */
+const TICK_MS = Math.max(20, Number(process.env.CITYLINE_TICK_MS) || 500);
 const LOCK_MS = 5000;
 /** Keep an empty coop room in memory so a dropped host can rejoin without resetting the map. */
 const EMPTY_ROOM_MS = 15 * 60 * 1000;
