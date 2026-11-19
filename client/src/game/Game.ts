@@ -647,6 +647,10 @@ export class Game {
       stats() {
         return buildMeta(self.city).stats;
       },
+      /** Ambient life counts (cars, pedestrians, residents, smoke, birds). */
+      life() {
+        return self.view.lifeStats();
+      },
       /** Swap the current solo city for the look showcase (pop ~280) and keep simulating. */
       showcase(hour = 9) {
         const showcase = buildLookCity(hour);
@@ -707,6 +711,12 @@ export class Game {
       },
       cellIndex(x: number, y: number) {
         return cellIndex(self.city, x, y);
+      },
+      findService(kind: number): { x: number; y: number } | null {
+        for (let i = 0; i < self.city.services.length; i += 1) {
+          if (self.city.services[i] === kind) return { x: i % self.city.width, y: Math.floor(i / self.city.width) };
+        }
+        return null;
       },
       countService(kind: number) {
         let n = 0;
