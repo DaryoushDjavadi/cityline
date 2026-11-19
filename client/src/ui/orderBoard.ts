@@ -136,8 +136,10 @@ export class OrderBoardView {
 
     let ready = 0;
     for (const order of board.slots) if (order && canDeliver(city, board, order)) ready += 1;
-    this.badge.hidden = ready === 0;
-    this.badge.textContent = String(ready);
+    // Only touch the DOM on change: rewriting the badge repaints the blurred top bar.
+    if (this.badge.hidden !== (ready === 0)) this.badge.hidden = ready === 0;
+    const label = String(ready);
+    if (this.badge.textContent !== label) this.badge.textContent = label;
     this.button.classList.toggle("has-ready", ready > 0);
     if (this.open) this.render();
   }
