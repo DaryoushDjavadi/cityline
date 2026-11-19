@@ -14,6 +14,7 @@
     "build": "npm run build -w cityline-client",
     "start": "npm run start -w cityline-server",
     "progress-tests": "tsx scripts/progress-tests.ts",
+    "orders-tests": "tsx scripts/orders-tests.ts",
     "perf-probe": "tsx scripts/perf-probe.ts",
     "audio-tests": "tsx scripts/audio-tests.ts",
     "life-playtest": "tsx scripts/life-playtest.mts"

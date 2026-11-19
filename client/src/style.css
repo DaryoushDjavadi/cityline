@@ -3064,9 +3064,7 @@ body[data-look="shot"] #life { display: none !important; }
   font: 700 11px/18px system-ui, sans-serif;
   text-align: center;
   box-shadow: 0 0 0 2px rgba(16, 30, 28, 0.95);
-  animation: orders-bob 1.6s ease-in-out infinite;
 }
-@keyframes orders-bob { 50% { transform: translateY(-2px); } }
 #orders {
   position: fixed;
   z-index: 6;
@@ -3208,5 +3206,5 @@ body[data-look="shot"] #orders { display: none !important; }
   #open-orders .hud-icon { width: 18px; height: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #orders-dot, .order-ghost, .order-pop { animation: none; }
+  .order-ghost, .order-pop { animation: none; }
 }
