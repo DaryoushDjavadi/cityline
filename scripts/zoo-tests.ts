@@ -44,6 +44,16 @@ import {
   type CityState,
   type HabitatType,
   type ZooOp,
+  PARK_INFO,
+  PARK_SIZE,
+  ParkCrowd,
+  TILE,
+  dragLine,
+  occupancy,
+  parkIndex,
+  parkXY,
+  summarize,
+  walkable,
 } from "../shared/src/index.ts";
 
 let checks = 0;
@@ -74,11 +84,28 @@ const zoo = (city: CityState) => {
 };
 const run = (city: CityState, op: ZooOp) => applyCommand(city, { type: "zoo", zoo: op });
 
-function habitat(city: CityState, type: HabitatType, x: number): number {
-  const index = cellIndex(city, x, 11);
-  const result = applyCommand(city, { type: "service", index, kind: HABITAT_KIND[type] as never });
-  ok(result.ok, `${type} habitat placed`);
-  return index;
+/** The Tierpark gate next to the road (once per city) with a long main path. */
+function tierpark(city: CityState): number {
+  const gate = cellIndex(city, 20, 11);
+  if (city.services[gate] !== ServiceKind.Tierpark) {
+    ok(applyCommand(city, { type: "service", index: gate, kind: ServiceKind.Tierpark }).ok, "Tierpark placed");
+    ok(run(city, { op: "pbuild", kind: "path", cells: Array.from({ length: 30 }, (_, k) => parkIndex(20, 4 + k)) }).ok, "main path built");
+  }
+  return gate;
+}
+
+/** Habitat slots on both sides of the main path (x 15–19 and 21–25). */
+const SLOT_ANCHORS = [33, 27, 21, 15, 9].flatMap((y) => [parkIndex(15, y), parkIndex(21, y)]);
+
+/** A habitat in the city's Tierpark, next to the main path. `_x` is kept from the 0.47 tests. */
+function habitat(city: CityState, type: HabitatType, _x = 0): number {
+  tierpark(city);
+  const z = zoo(city);
+  const anchor = SLOT_ANCHORS.find((slot) => !z.habitats.some((h) => h.cell === slot));
+  ok(anchor !== undefined, "free habitat slot");
+  const result = run(city, { op: "pbuild", kind: type, cells: [anchor!] });
+  ok(result.ok, `${type} habitat placed (${result.reason ?? "ok"})`);
+  return anchor!;
 }
 
 function ticks(city: CityState, n: number): void {
@@ -107,8 +134,10 @@ function newest(city: CityState): Animal {
   const city = town();
   const funds = city.funds;
   const cell = habitat(city, "savanne", 3);
-  ok(funds - city.funds <= 2500, "habitat is cheap");
-  ok(!applyCommand(city, { type: "service", index: cellIndex(city, 3, 20), kind: ServiceKind.ZooForest }).ok, "habitat needs a road");
+  ok(funds - city.funds <= 4500 + 30 * 20 + 2500, "Tierpark, path and habitat are affordable");
+  ok(!applyCommand(city, { type: "service", index: cellIndex(city, 3, 11), kind: ServiceKind.ZooForest }).ok, "0.47 habitats are no longer built in the city");
+  ok(!applyCommand(city, { type: "service", index: cellIndex(city, 6, 11), kind: ServiceKind.Tierpark }).ok, "only one Tierpark");
+  ok(!run(city, { op: "pbuild", kind: "wald", cells: [cell + 2] }).ok, "habitats cannot overlap");
   stepZoo(city);
   const h = zoo(city).habitats.find((entry) => entry.cell === cell)!;
   ok(h && h.type === "savanne", "habitat state created");
@@ -369,7 +398,7 @@ function newest(city: CityState): Animal {
   stepSimulation(loaded);
   stepSimulation(loaded);
   stepSimulation(loaded);
-  ok(loaded.progress!.zoo && loaded.progress!.zoo.habitats.length === 1, "old save: habitat state rebuilt from the map");
+  ok(loaded.progress!.zoo && loaded.progress!.zoo.gate >= 0 && loaded.progress!.zoo.park, "save without zoo state: Tierpark gets a fresh park");
   delete old.meta.progress;
   const ancient = saveToCity(old)!;
   for (let k = 0; k < 4; k += 1) stepSimulation(ancient);
@@ -397,6 +426,8 @@ function newest(city: CityState): Animal {
   const city = town();
   city.progress!.off = true;
   ok(!applyCommand(city, { type: "service", index: cellIndex(city, 3, 11), kind: ServiceKind.ZooMeadow }).ok, "no habitats in levels");
+  ok(!applyCommand(city, { type: "service", index: cellIndex(city, 4, 11), kind: ServiceKind.Tierpark }).ok, "no Tierpark in levels");
+  ok(!run(city, { op: "pbuild", kind: "path", cells: [5] }).ok, "no park building in levels");
   ok(!run(city, { op: "refill", cell: 0 }).ok, "zoo commands off in levels");
   for (let k = 0; k < 8; k += 1) stepSimulation(city);
   ok(!city.progress!.zoo, "no zoo state in levels");
@@ -408,12 +439,205 @@ function newest(city: CityState): Animal {
   const a = habitat(city, "wiese", 12);
   run(city, { op: "buy", cell: a, species: "rabbit", origin: "breeder" });
   const bunny = newest(city);
-  applyCommand(city, { type: "bulldoze", cells: [a] });
+  ok(run(city, { op: "pclear", cells: [a + 1] }).ok, "habitat removed in the park");
   ticks(city, 4);
   ok(bunny.cell === -1, "animal waits without habitat");
   const b = habitat(city, "wiese", 13);
   ticks(city, 4);
   ok(bunny.cell === b, "animal moves into the new habitat");
+}
+
+// 15. Tierpark: one gate in the city, its own park level with paths, stands and reachability.
+{
+  const city = town();
+  ok(!applyCommand(city, { type: "service", index: cellIndex(city, 3, 20), kind: ServiceKind.Tierpark }).ok, "Tierpark needs a road");
+  const gate = cellIndex(city, 20, 11);
+  ok(applyCommand(city, { type: "service", index: gate, kind: ServiceKind.Tierpark }).ok, "Tierpark built");
+  ticks(city, 1);
+  const z = zoo(city);
+  ok(z.gate === gate && z.park, "park level created for the gate");
+  ok(z.park!.tiles.length === PARK_SIZE * PARK_SIZE, "40×40 park");
+  const entrance = parkXY(z.park!.entrance);
+  ok(entrance.y === PARK_SIZE - 1, "entrance on the south edge");
+  // A habitat away from any path is not visited.
+  const far = parkIndex(3, 3);
+  ok(run(city, { op: "pbuild", kind: "savanne", cells: [far] }).ok, "habitat in the park");
+  ok(!run(city, { op: "pbuild", kind: "path", cells: [parkIndex(4, 4)] }).ok, "no path through a habitat");
+  run(city, { op: "keeper", cell: far, on: true });
+  ok(run(city, { op: "buy", cell: far, species: "giraffe", origin: "breeder" }).ok, "giraffe in the park habitat");
+  run(city, { op: "buy", cell: far, species: "zebra", origin: "breeder" });
+  ticks(city, 40);
+  ok(z.visitors === 0, "no path → no visitors");
+  // Drag a path from the entrance path to the habitat (L-shape like city roads).
+  const funds = city.funds;
+  const line = dragLine(parkIndex(20, 34), parkIndex(5, 8)).filter((tile) => tile !== parkIndex(20, 34));
+  ok(line.length === 15 + 26, `drag line ${line.length} tiles`);
+  ok(run(city, { op: "pbuild", kind: "path", cells: line }).ok, "path dragged");
+  ok(funds - city.funds === line.length * PARK_INFO.path.cost, "paths cost per tile");
+  const summary = summarize(z.park!, z.habitats);
+  ok(summary.habitats.some((spot) => spot.tile === far), "habitat reachable over paths");
+  ticks(city, 40);
+  ok(z.visitors > 0 && z.income > 0, `visitors come (${z.visitors}, ${z.income} €/2 s)`);
+  const plainSat = z.satisfaction;
+  const plainIncome = z.income;
+  // Stands next to the path sell; toilets, benches, bins and decor raise satisfaction.
+  ok(run(city, { op: "pbuild", kind: "food", cells: [parkIndex(18, 33)] }).ok, "food stand");
+  ok(run(city, { op: "pbuild", kind: "drink", cells: [parkIndex(16, 33)] }).ok, "drink stand");
+  ok(run(city, { op: "pbuild", kind: "souvenir", cells: [parkIndex(14, 35)] }).ok, "souvenir shop");
+  ok(run(city, { op: "pbuild", kind: "bench", cells: [parkIndex(12, 33), parkIndex(12, 35)] }).ok, "benches");
+  ok(run(city, { op: "pbuild", kind: "bin", cells: [parkIndex(10, 33)] }).ok, "bin");
+  ok(run(city, { op: "pbuild", kind: "toilet", cells: [parkIndex(8, 35)] }).ok, "toilets");
+  ok(run(city, { op: "pbuild", kind: "tree", cells: [parkIndex(10, 20), parkIndex(11, 20), parkIndex(12, 22)] }).ok, "trees");
+  ok(run(city, { op: "pbuild", kind: "flowers", cells: [parkIndex(10, 22), parkIndex(13, 20)] }).ok, "flowers");
+  ok(!run(city, { op: "pbuild", kind: "bench", cells: [parkIndex(18, 33)] }).ok, "tile taken");
+  ticks(city, 40);
+  ok(z.sales > 0, `stands sell (${z.sales} €/2 s)`);
+  ok(z.satisfaction > plainSat, `amenities raise satisfaction (${plainSat} → ${z.satisfaction})`);
+  ok(z.income > plainIncome, `more income with stands (${plainIncome} → ${z.income})`);
+  // Unreachable stands do not sell.
+  const lone = summarize(z.park!, z.habitats).spots.food.length;
+  run(city, { op: "pbuild", kind: "food", cells: [parkIndex(35, 20)] });
+  ok(summarize(z.park!, z.habitats).spots.food.length === lone, "stand without path is not used");
+  // Move the entrance; cut the path → habitat unreachable again.
+  ok(!run(city, { op: "pbuild", kind: "entrance", cells: [parkIndex(10, 10)] }).ok, "entrance only on the edge");
+  ok(run(city, { op: "pbuild", kind: "entrance", cells: [parkIndex(20, 0)] }).ok, "entrance moved to the north edge");
+  ok(tileAtGrid(z, parkIndex(20, PARK_SIZE - 1)) === TILE.path, "old gate becomes path");
+  ok(!run(city, { op: "pclear", cells: [z.park!.entrance] }).ok, "entrance cannot be removed");
+  ok(run(city, { op: "pbuild", kind: "entrance", cells: [parkIndex(20, PARK_SIZE - 1)] }).ok, "entrance back");
+  ok(run(city, { op: "pclear", cells: [parkIndex(20, 34)] }).ok, "path removed");
+  ok(!summarize(z.park!, z.habitats).habitats.some((spot) => spot.tile === far), "cut path → habitat unreachable");
+  ticks(city, 8);
+  ok(z.visitors === 0, "no visitors without a way in");
+  // Bulldozing the Tierpark keeps the park; rebuilding opens it again.
+  applyCommand(city, { type: "bulldoze", cells: [gate] });
+  ticks(city, 4);
+  ok(z.gate === -1 && z.park && z.habitats.length === 1, "park kept while the gate is gone");
+  ok(!run(city, { op: "pbuild", kind: "path", cells: [parkIndex(20, 34)] }).ok, "no building without the gate");
+}
+
+function tileAtGrid(z: ReturnType<typeof zoo>, tile: number): number {
+  return occupancy(z.park!, z.habitats)[tile];
+}
+
+// 16. Save migration: 0.47 habitats in the city move into a Tierpark, animals and items included.
+{
+  const city = town(21);
+  ensureProgress(city);
+  stepZoo(city);
+  const z = zoo(city);
+  delete z.park;
+  // Old 0.47 layout: three habitat services along the road, state keyed by city cells.
+  const cells = [cellIndex(city, 4, 11), cellIndex(city, 8, 11), cellIndex(city, 12, 11)];
+  const types: HabitatType[] = ["savanne", "polar", "wiese"];
+  cells.forEach((cell, k) => {
+    city.services[cell] = HABITAT_KIND[types[k]];
+    z.habitats.push({ cell, type: types[k], items: [{ id: 90 + k, kind: "food", x: 2, y: 5, fill: 60 }, { id: 95 + k, kind: "toy", x: 4, y: 4 }], keeper: k === 0, fed: true, watered: true });
+  });
+  const animal = (id: number, species: string, cell: number, name: string): Animal => ({ id, name, species, cell, sex: id % 2 ? "m" : "w", born: -5000, health: 90, trust: 80, happy: 85, genes: { hue: 0, size: 1, pattern: 0.5, robust: 0.5, temper: 0.5 }, origin: "breeder", story: 0, gen: 0 });
+  z.animals.push(animal(1, "zebra", cells[0], "Zora"), animal(2, "giraffe", cells[0], "Gustav"), animal(3, "penguin", cells[1], "Pingu"), animal(4, "rabbit", cells[2], "Hoppel"));
+  z.seq = 5;
+  const json = JSON.parse(JSON.stringify(cityToSave(city, "Zoo 0.47")));
+  const old = saveToCity(json)!;
+  ok(!old.progress!.zoo!.park && old.progress!.zoo!.habitats.length === 3, "0.47 save loads as before");
+  stepSimulation(old);
+  const m = old.progress!.zoo!;
+  ok(old.services[cells[0]] === ServiceKind.Tierpark, "first habitat cell became the Tierpark");
+  ok(old.services[cells[1]] === 0 && old.services[cells[2]] === 0, "other habitat cells freed");
+  ok([...old.services].filter((kind) => kind >= 15 && kind <= 19).length === 0, "no 0.47 habitats left in the city");
+  ok(m.park && m.gate === cells[0], "park created at the first habitat");
+  ok(m.habitats.length === 3 && m.habitats.map((h) => h.type).join() === types.join(), "all habitats moved into the park");
+  ok(m.animals.length === 4 && m.animals.every((a) => m.habitats.some((h) => h.cell === a.cell)), "no animal lost, all housed");
+  ok(m.animals.find((a) => a.name === "Pingu")!.cell === m.habitats.find((h) => h.type === "polar")!.cell, "penguin still in the polar habitat");
+  ok(m.habitats[0].keeper && m.habitats[0].items.some((i) => i.kind === "toy"), "items and keeper kept");
+  const s = summarize(m.park!, m.habitats);
+  ok(s.habitats.length === 3, "migrated habitats are reachable by path");
+  ok(s.spots.food.length === 1 && s.spots.drink.length === 1 && s.spots.bench.length === 1 && s.spots.bin.length === 1, "welcome stands, bench and bin at the gate");
+  for (let k = 0; k < 40; k += 1) stepSimulation(old);
+  ok(m.visitors > 0 && m.income > 0, `migrated park has visitors (${m.visitors})`);
+  // Determinism of the migration (server and clients agree).
+  const again = saveToCity(JSON.parse(JSON.stringify(json)))!;
+  stepSimulation(again);
+  const first = saveToCity(JSON.parse(JSON.stringify(json)))!;
+  stepSimulation(first);
+  ok(JSON.stringify(again.progress!.zoo) === JSON.stringify(first.progress!.zoo), "migration is deterministic");
+  // Round trip after migration.
+  const back = saveToCity(JSON.parse(JSON.stringify(cityToSave(old, "Zoo 0.48"))))!;
+  ok(JSON.stringify(back.progress!.zoo) === JSON.stringify(m), "park survives save round trip");
+  const meta = JSON.parse(JSON.stringify(buildMeta(old)));
+  meta.progress.zoo.park.tiles = "zzz";
+  const mirror = createCity();
+  writeCity(mirror, packCells(old), meta);
+  ok(!mirror.progress!.zoo!.park, "broken park string dropped");
+}
+
+// 17. Visitors walk only on paths, look at habitats, buy at stands and leave.
+{
+  const city = town(5);
+  const a = habitat(city, "savanne");
+  const b = habitat(city, "wald");
+  run(city, { op: "buy", cell: a, species: "zebra", origin: "breeder" });
+  run(city, { op: "buy", cell: b, species: "monkey", origin: "breeder" });
+  run(city, { op: "pbuild", kind: "food", cells: [parkIndex(19, 38)] });
+  run(city, { op: "pbuild", kind: "drink", cells: [parkIndex(21, 38)] });
+  run(city, { op: "pbuild", kind: "bench", cells: [parkIndex(19, 32)] });
+  run(city, { op: "pbuild", kind: "souvenir", cells: [parkIndex(21, 32)] });
+  const z = zoo(city);
+  const walk = (seed: number) => {
+    const crowd = new ParkCrowd(seed);
+    crowd.setLayout(z.park!, z.habitats);
+    const grid = occupancy(z.park!, z.habitats);
+    const seen = { buy: 0, look: 0, sit: 0, off: 0, money: 0, gone: 0, max: 0 };
+    for (let frame = 0; frame < 2400; frame += 1) {
+      for (const event of crowd.update(0.05, 30)) {
+        if (event.type === "buy") {
+          seen.buy += 1;
+          seen.money += event.price;
+          ok([TILE.food, TILE.drink, TILE.souvenir].includes(grid[event.tile] as never), "buy happens at a stand");
+        }
+        if (event.type === "look") seen.look += 1;
+        if (event.type === "sit") seen.sit += 1;
+      }
+      for (const walker of crowd.walkers) {
+        if (walker.state === "gone") continue;
+        const tile = parkIndex(Math.floor(walker.x), Math.floor(walker.y));
+        if (!walkable(grid[tile])) seen.off += 1;
+      }
+      seen.max = Math.max(seen.max, crowd.walkers.filter((w) => w.state !== "gone").length);
+    }
+    seen.gone = crowd.walkers.filter((w) => w.state === "gone").length;
+    return seen;
+  };
+  const seen = walk(3);
+  ok(seen.off === 0, "visitors never leave the paths");
+  ok(seen.look > 10 && seen.buy > 5 && seen.sit > 0, `visitors look (${seen.look}), buy (${seen.buy}) and sit (${seen.sit})`);
+  ok(seen.max <= 30 && seen.max >= 20, `crowd follows the wanted size (${seen.max})`);
+  ok(JSON.stringify(walk(3)) === JSON.stringify(seen), "crowd is deterministic");
+  // Removing a path re-routes or sends people home, nobody ends up on grass.
+  const crowd = new ParkCrowd(9);
+  crowd.setLayout(z.park!, z.habitats);
+  for (let k = 0; k < 400; k += 1) crowd.update(0.05, 20);
+  run(city, { op: "pclear", cells: [parkIndex(20, 30)] });
+  crowd.setLayout(z.park!, z.habitats);
+  const grid = occupancy(z.park!, z.habitats);
+  let off = 0;
+  for (let k = 0; k < 800; k += 1) {
+    crowd.update(0.05, 20);
+    for (const walker of crowd.walkers) if (walker.state !== "gone" && !walkable(grid[parkIndex(Math.floor(walker.x), Math.floor(walker.y))])) off += 1;
+  }
+  ok(off === 0, "after a path is removed nobody walks on grass");
+}
+
+// 18. Protocol for park commands.
+{
+  const parse = (zoo: unknown) => parseCommand({ type: "zoo", zoo });
+  ok(parse({ op: "pbuild", kind: "path", cells: [1, 2, 3] })?.type === "zoo", "parse pbuild");
+  ok(parse({ op: "pbuild", kind: "savanne", cells: [41] })?.type === "zoo", "parse habitat build");
+  ok(parse({ op: "pbuild", kind: "casino", cells: [1] }) === null, "park kind whitelist");
+  ok(parse({ op: "pbuild", kind: "path", cells: [1600] }) === null, "tile range");
+  ok(parse({ op: "pbuild", kind: "path", cells: [] }) === null, "cells required");
+  ok(parse({ op: "pbuild", kind: "path", cells: Array.from({ length: 401 }, (_, k) => k) }) === null, "cell count limit");
+  ok(parse({ op: "pclear", cells: [5] })?.type === "zoo", "parse pclear");
+  ok(parse({ op: "pclear", cells: ["5"] }) === null, "pclear integers only");
 }
 
 console.log(`zoo-tests: ${checks} checks ok`);

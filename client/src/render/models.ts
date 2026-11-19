@@ -258,7 +258,67 @@ function habitatParts(type: "savanne" | "wald" | "wasser" | "polar" | "wiese"): 
   ];
 }
 
+/** Tierpark gate in the city: arch with sign on the +z side (turned toward the road), fence, paths, mini enclosures. */
+function tierparkParts(): Part[] {
+  const parts: Part[] = [
+    box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x86b45e),
+    // paths: entrance lane and a loop
+    box(0, 0.26, 2.6, 1.5, 0.04, 4.0, 0xdcc49a),
+    box(0, 0.26, 0.2, 6.4, 0.04, 1.2, 0xdcc49a),
+    box(-3.0, 0.26, -1.6, 1.1, 0.04, 4.6, 0xdcc49a),
+    box(3.0, 0.26, -1.6, 1.1, 0.04, 4.6, 0xdcc49a),
+    box(0, 0.26, -3.5, 7.1, 0.04, 1.0, 0xdcc49a),
+    // savanna patch with acacia, pond with rocks, forest corner
+    box(-1.0, 0.27, -1.6, 2.6, 0.05, 2.4, 0xd9bc72),
+    ...acacia(-1.4, -2.0, 0.55),
+    box(1.4, 0.28, -1.5, 2.2, 0.06, 2.0, 0x4aa8cc),
+    ball(2.2, 0.38, -0.8, 0.32, 0xb0a898, 0.22),
+    ...conifer(3.9, 3.5, 0.62),
+    ...conifer(-3.9, 3.6, 0.55, 0x587f44),
+    ...conifer(-4.0, -4.0, 0.6),
+    ball(3.9, 0.5, -3.9, 0.55, 0x6a9a50),
+    // ticket booth left of the gate
+    box(-2.7, 0.95, 3.2, 1.5, 1.4, 1.1, 0xf2e6cc),
+    box(-2.7, 1.0, 3.77, 0.8, 0.5, 0.05, 0x8ec8ea),
+    ...pitch(0xc0503a, { x: -2.7, z: 3.2, width: 1.8, half: 0.68, wallTop: 1.65, eave: 0.15, angle: 0.55 }),
+    // gate: two log pillars, beam, sign with a green roof
+    cyl(-1.45, 1.75, 4.55, 0.26, 3.5, 0x8a5a34),
+    cyl(1.45, 1.75, 4.55, 0.26, 3.5, 0x8a5a34),
+    box(0, 3.35, 4.55, 3.7, 0.36, 0.42, 0x7a4c2c),
+    box(0, 3.95, 4.62, 3.1, 0.9, 0.14, 0xf4e6c0),
+    box(0, 3.95, 4.7, 2.6, 0.55, 0.04, 0x4f8e3c),
+    ball(0, 3.95, 4.74, 0.24, 0xe0a040, 0.24),
+    box(0, 4.5, 4.55, 3.7, 0.16, 0.8, 0x4f7e3c, { rx: 0 }),
+    cyl(-1.45, 4.75, 4.55, 0.05, 0.9, 0x5a4030),
+    box(-1.2, 5.05, 4.55, 0.5, 0.3, 0.03, 0xe24a32),
+    cyl(1.45, 4.75, 4.55, 0.05, 0.9, 0x5a4030),
+    box(1.7, 5.05, 4.55, 0.5, 0.3, 0.03, 0xf0b43c),
+  ];
+  // wooden fence around the edge, open at the gate
+  const half = 4.6;
+  for (let i = 0; i <= 12; i += 1) {
+    const t = -half + (i * half * 2) / 12;
+    for (const [x, z] of [[t, -half], [-half, t], [half, t], [t, half]] as const) {
+      if (z === half && Math.abs(x) < 1.7) continue;
+      parts.push(cyl(x, 0.6, z, 0.09, 1.2, 0x8a6a44));
+    }
+  }
+  for (const y of [0.5, 0.95]) {
+    parts.push(box(0, y, -half, half * 2, 0.1, 0.08, 0xa07c50), box(-half, y, 0, 0.08, 0.1, half * 2, 0xa07c50), box(half, y, 0, 0.08, 0.1, half * 2, 0xa07c50));
+    parts.push(box(-(half + 1.7) / 2, y, half, half - 1.7, 0.1, 0.08, 0xa07c50), box((half + 1.7) / 2, y, half, half - 1.7, 0.1, 0.08, 0xa07c50));
+  }
+  return parts;
+}
+
+/** Habitat geometry for the park level (same model as the 0.47 city habitats). */
+export function habitatGeometry(type: "savanne" | "wald" | "wasser" | "polar" | "wiese", detail = 1): THREE.BufferGeometry {
+  return compose(habitatParts(type), detail);
+}
+
+export { acacia, ball as ballPart, conifer, cyl as cylPart, pitch };
+
 const CATALOG: Record<string, { height: number; parts: Part[] }> = {
+  tierpark: { height: 5.2, parts: tierparkParts() },
   cottage: {
     height: 5.6,
     parts: [
@@ -633,6 +693,7 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.ZooWater) return { key: "zooWasser", height: CATALOG.zooWasser.height };
   if (kind === ServiceKind.ZooPolar) return { key: "zooPolar", height: CATALOG.zooPolar.height };
   if (kind === ServiceKind.ZooMeadow) return { key: "zooWiese", height: CATALOG.zooWiese.height };
+  if (kind === ServiceKind.Tierpark) return { key: "tierpark", height: CATALOG.tierpark.height };
   return null;
 }
 

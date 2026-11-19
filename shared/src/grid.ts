@@ -29,6 +29,7 @@ export const COST = {
   zooWater: 2200,
   zooPolar: 2600,
   zooMeadow: 900,
+  tierpark: 4500,
 } as const;
 
 export const DIRS = [

@@ -129,6 +129,14 @@ export const SERVICES: Record<number, ServiceInfo> = {
   [ServiceKind.ZooWater]: { kind: ServiceKind.ZooWater, name: "Wasser-Gehege", cost: COST.zooWater, upkeep: 4, radius: 10, blurb: HABITAT_INFO.wasser.blurb },
   [ServiceKind.ZooPolar]: { kind: ServiceKind.ZooPolar, name: "Polar-Gehege", cost: COST.zooPolar, upkeep: 5, radius: 10, blurb: HABITAT_INFO.polar.blurb },
   [ServiceKind.ZooMeadow]: { kind: ServiceKind.ZooMeadow, name: "Streichelzoo", cost: COST.zooMeadow, upkeep: 2, radius: 10, blurb: HABITAT_INFO.wiese.blurb },
+  [ServiceKind.Tierpark]: {
+    kind: ServiceKind.Tierpark,
+    name: "Tierpark",
+    cost: COST.tierpark,
+    upkeep: 6,
+    radius: 10,
+    blurb: "Eingangstor mit eigenem Park-Level: Gehege, Wege, Stände und Deko bauen. Bewohner kommen zu Besuch und zahlen Eintritt.",
+  },
 };
 
 export function serviceInfo(kind: number): ServiceInfo | null {

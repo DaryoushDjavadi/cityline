@@ -1,12 +1,14 @@
 /**
- * Koop-Zoo: zwei Spieler im selben Raum. Kauf, Umbenennen und Streicheln laufen über den Server
- * und kommen bei beiden identisch an; der Server lässt ein Jungtier zur Welt kommen, das bei
- * beiden (und bei einem später beitretenden dritten Spieler) bitgleich ist.
+ * Koop-Tierpark: zwei Spieler im selben Raum. Wege, Stände und Gehege im Tierpark, Kauf, Umbenennen
+ * und Streicheln laufen über den Server und kommen bei beiden identisch an; der Server lässt ein
+ * Jungtier zur Welt kommen, das bei beiden (und bei einem später beitretenden dritten Spieler)
+ * bitgleich ist. Ein 0.47-Spielstand mit Gehegen in der Stadt wird vom Server in einen Tierpark
+ * umgezogen, ohne dass ein Tier verloren geht.
  *   CITYLINE_TICK_MS=20 PORT=8787 DATA_DIR=$(mktemp -d) npm start   →   npx tsx scripts/coop-zoo-check.ts
  */
 import { io } from "socket.io-client";
 import {
-  GRID_SIZE, HABITAT_KIND, Zone, applyCommand, cellIndex, cityToSave, createCity, ensureProgress, stepZoo,
+  GRID_SIZE, HABITAT_KIND, ServiceKind, Zone, applyCommand, cellIndex, cityToSave, createCity, ensureProgress, parkIndex, stepZoo,
   type Animal, type ZooState,
 } from "../shared/src/index.ts";
 
@@ -27,12 +29,16 @@ for (let x = 2; x < 14; x += 1) {
   city.zones[cellIndex(city, x, 12)] = Zone.Residential;
   city.levels[cellIndex(city, x, 12)] = 2;
 }
-const polar = cellIndex(city, 6, 11);
-const meadow = cellIndex(city, 9, 11);
-applyCommand(city, { type: "service", index: polar, kind: HABITAT_KIND.polar as never });
-applyCommand(city, { type: "service", index: meadow, kind: HABITAT_KIND.wiese as never });
+const gate = cellIndex(city, 6, 11);
+applyCommand(city, { type: "service", index: gate, kind: ServiceKind.Tierpark as never });
 city.tick += 1;
 stepZoo(city);
+// Habitats live in the park now (anchors next to the entrance path).
+const polar = parkIndex(15, 33);
+const meadow = parkIndex(21, 33);
+applyCommand(city, { type: "zoo", zoo: { op: "pbuild", kind: "polar", cells: [polar] } as never });
+applyCommand(city, { type: "zoo", zoo: { op: "pbuild", kind: "wiese", cells: [meadow] } as never });
+if (city.progress!.zoo!.habitats.length !== 2) throw new Error("setup: Gehege im Park fehlen");
 // A penguin pair that is already expecting, so the server has to deliver the baby.
 for (const op of [{ op: "keeper", cell: polar, on: true }, { op: "buy", cell: polar, species: "penguin", origin: "breeder" }, { op: "buy", cell: polar, species: "penguin", origin: "breeder" }] as const) {
   applyCommand(city, { type: "zoo", zoo: op as never });
@@ -91,6 +97,30 @@ async function main(): Promise<void> {
   const ben = await join(room, "Ben");
   await wait(600);
   check(zooOf(anna) && zooOf(ben), "beide sehen den Zoo");
+  check(zooOf(anna)?.park && zooOf(anna)!.gate === gate && zooOf(anna)!.park!.tiles === zooOf(ben)!.park!.tiles, "beide sehen denselben Tierpark");
+
+  // Park building (Anna paths and a stand, Ben clears) goes through the server.
+  const path = Array.from({ length: 12 }, (_, k) => parkIndex(20, 22 + k));
+  const paved = await send(anna, { op: "pbuild", kind: "path", cells: path });
+  check(paved.ok, `Anna legt einen Weg (${paved.reason ?? "ok"})`);
+  const stand = await send(anna, { op: "pbuild", kind: "food", cells: [parkIndex(19, 30)] });
+  check(stand.ok, `Anna baut einen Essensstand (${stand.reason ?? "ok"})`);
+  const blocked = await send(ben, { op: "pbuild", kind: "drink", cells: [parkIndex(16, 35)] });
+  check(!blocked.ok && blocked.reason === "park_blocked", `Server lehnt einen Stand im Gehege ab (${blocked.reason})`);
+  const badKind = await send(ben, { op: "pbuild", kind: "rakete", cells: [parkIndex(5, 5)] });
+  check(!badKind.ok, "Server lehnt unbekannte Bauteile ab");
+  await wait(400);
+  const tilesA = zooOf(anna)!.park!.tiles;
+  check(tilesA === zooOf(ben)!.park!.tiles, "Wege und Stand bei beiden gleich");
+  check(tilesA[parkIndex(20, 22)] === "b" && tilesA[parkIndex(19, 30)] === "d", "Weg und Essensstand stehen im Park");
+  const cleared = await send(ben, { op: "pclear", cells: [parkIndex(20, 22), parkIndex(20, 23)] });
+  check(cleared.ok, "Ben reißt ein Stück Weg ab");
+  await wait(400);
+  check(zooOf(anna)!.park!.tiles[parkIndex(20, 22)] === "a" && zooOf(anna)!.park!.tiles === zooOf(ben)!.park!.tiles, "Abriss kommt bei Anna an");
+  const habitatBuilt = await send(ben, { op: "pbuild", kind: "savanne", cells: [parkIndex(21, 26)] });
+  check(habitatBuilt.ok, `Ben baut ein Savannen-Gehege (${habitatBuilt.reason ?? "ok"})`);
+  await wait(400);
+  check(zooOf(anna)!.habitats.length === 3 && JSON.stringify(zooOf(anna)!.habitats) === JSON.stringify(zooOf(ben)!.habitats), "Neues Gehege bei beiden");
   check(zooOf(anna)!.animals.length === 2 && (await settle(anna, ben)), "Pinguin-Paar bei beiden gleich");
 
   // Buy (Anna) → Ben sees it.
@@ -143,6 +173,41 @@ async function main(): Promise<void> {
   check(late && JSON.stringify(late.genes) === JSON.stringify(child?.genes) && late.name === child?.name, "Später beitretende Spielerin sieht dasselbe Jungtier");
 
   for (const who of [anna, clara]) who.socket.close();
+  await migration();
+}
+
+/** A 0.47 save with habitats in the city: the server moves them into a Tierpark. */
+async function migration(): Promise<void> {
+  const old = createCity(GRID_SIZE, GRID_SIZE, { seed: 31, biome: "temperate", water: 0, lakes: 0, forest: 0, rivers: 0 });
+  old.terrain.fill(0);
+  old.funds = 100_000;
+  ensureProgress(old);
+  applyCommand(old, { type: "road", cells: Array.from({ length: 12 }, (_, x) => cellIndex(old, x + 2, 10)) });
+  stepZoo(old);
+  const z = old.progress!.zoo!;
+  delete z.park;
+  const cells = [cellIndex(old, 4, 11), cellIndex(old, 7, 11)];
+  const types = ["savanne", "wiese"] as const;
+  cells.forEach((cell, k) => {
+    old.services[cell] = HABITAT_KIND[types[k]];
+    z.habitats.push({ cell, type: types[k], items: [{ id: 80 + k, kind: "food", x: 2, y: 5, fill: 60 }], keeper: false, fed: true, watered: true });
+  });
+  const animal = (id: number, species: string, cell: number, name: string): Animal => ({ id, name, species, cell, sex: id % 2 ? "m" : "w", born: -5000, health: 90, trust: 80, happy: 85, genes: { hue: 0, size: 1, pattern: 0.5, robust: 0.5, temper: 0.5 }, origin: "breeder", story: 0, gen: 0 });
+  z.animals.push(animal(1, "zebra", cells[0], "Zora"), animal(2, "goat", cells[1], "Mecki"), animal(3, "rabbit", cells[1], "Hoppel"));
+  z.seq = 4;
+  const room = `zoo-old-${Date.now().toString(36)}`;
+  const response = await fetch(`${base}/api/cities`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cityToSave(old, "Zoo 0.47", room)) });
+  check(response.ok, `0.47-Spielstand hochgeladen (${response.status})`);
+  const dora = await join(room, "Dora");
+  const emil = await join(room, "Emil");
+  const until = Date.now() + 5000;
+  while (Date.now() < until && !zooOf(dora)?.park) await wait(100);
+  const m = zooOf(dora);
+  check(m?.park && m.gate === cells[0], "Server zieht die Gehege in einen Tierpark am ersten Gehege um");
+  check(m && m.habitats.length === 2 && m.animals.length === 3 && m.animals.every((a) => m.habitats.some((h) => h.cell === a.cell)), "Kein Tier geht beim Umzug verloren");
+  await wait(400);
+  check(JSON.stringify(zooOf(emil)) === JSON.stringify(zooOf(dora)), "Beide sehen denselben umgezogenen Park");
+  for (const who of [dora, emil]) who.socket.close();
 }
 
 main()

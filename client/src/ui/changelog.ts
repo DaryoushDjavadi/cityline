@@ -7,6 +7,19 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.48",
+    at: "19. Nov 2026, 23:32 Uhr",
+    title: "Tierpark als eigenes Level",
+    items: [
+      "Neu in der Kategorie Zoo: der Tierpark. Ein Eingangstor mit Zaun an der Straße, einmal pro Stadt. Antippen und „Tierpark betreten“ öffnet ein eigenes Park-Level mit 40 × 40 Feldern.",
+      "Im Park baust du wie in Zoo Tycoon: Gehege nebeneinander, Wege zum Ziehen, Essens- und Getränkestand, Souvenirshop, Toiletten, Bänke, Mülleimer, Bäume und Blumen. Den Eingang kannst du an den Rand verlegen.",
+      "Bewohner aus der Stadt kommen zu Besuch: Sie laufen nur auf Wegen, bleiben an den Gehegen stehen (Gedankenblasen und Herzen), kaufen an den Ständen (+€ schwebt hoch), setzen sich auf Bänke und gehen wieder.",
+      "Wie viele kommen, hängt von der Einwohnerzahl und davon ab, wie schön der Park ist. Eintritt und Verkäufe gehen in die Stadtkasse. Die Statistik zeigt Besucher, Zufriedenheit und Einnahmen pro Tag, mit Tipps, was fehlt.",
+      "Gehege, Innenansicht, Tierhandlung, Streicheln, Umbenennen, Gene, Stammbaum und Zucht funktionieren wie bisher, jetzt direkt aus dem Park heraus.",
+      "Alte Spielstände ziehen automatisch um: Gehege aus der Stadt wandern samt Tieren und Einrichtung in einen Tierpark an der Stelle des ersten Geheges. Im Koop baut ihr den Park gemeinsam.",
+    ],
+  },
+  {
     version: "0.47",
     at: "19. Nov 2026, 21:05 Uhr",
     title: "Zoo mit Tiergehegen",

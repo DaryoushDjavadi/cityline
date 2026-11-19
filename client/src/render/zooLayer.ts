@@ -19,6 +19,7 @@ import {
   type Animal,
   type CityState,
   type ZooState,
+  TIERPARK_KIND,
 } from "../../../shared/src/index.ts";
 import { animalGeometry, buildJeepGeometry, coatTint, patternColor } from "./zooModels.ts";
 import { buildPersonModels } from "./models.ts";
@@ -37,7 +38,7 @@ const INNER = 3.05;
 const TRACK = 3.9;
 const CLOTHES = [0x3d88c8, 0xe24a32, 0xf0b43c, 0x3d8a4a, 0xa85a8a, 0xf2efe8, 0x2a3e5c, 0xe98a5a];
 
-interface Site {
+export interface ZooSite {
   cell: number;
   type: string;
   x: number;
@@ -46,7 +47,10 @@ interface Site {
   animals: Animal[];
   /** Outward unit vectors toward neighbouring roads (visitor spots). */
   roads: { dx: number; dz: number }[];
+  /** Tierpark gate in the city: only a queue of visitors, no animals or grass. */
+  crowdOnly?: boolean;
 }
+type Site = ZooSite;
 
 const GRASS_SITES = 48;
 const OUTSIDE_GRASS: Record<DecorType, { colors: number[]; height: [number, number]; density: number }> = {
@@ -67,6 +71,8 @@ export class ZooLayer {
   private readonly color = new THREE.Color();
   private sites: Site[] = [];
   private visitors = 0;
+  /** City view: people queue at the Tierpark gate. Park view: real visitors walk the paths instead. */
+  private fenceCrowd = true;
   private tick = 0;
   private counts = { jeeps: 0, visitors: 0 };
   private readonly camera = new THREE.Vector3(0, 1e4, 0);
@@ -78,8 +84,8 @@ export class ZooLayer {
   private grassKey = "";
   private readonly grassPer: number;
 
-  constructor(scene: THREE.Scene) {
-    this.grassPer = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low" ? 28 : 90;
+  constructor(scene: THREE.Scene, grassPer?: number) {
+    this.grassPer = grassPer ?? (gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low" ? 28 : 90);
     this.grass = new THREE.InstancedMesh(tuftGeometry(6, 9), swayMaterial(0.8), GRASS_SITES * this.grassPer);
     this.grass.count = 0;
     this.grass.frustumCulled = false;
@@ -148,6 +154,18 @@ export class ZooLayer {
     this.visitors = zoo?.visitors ?? 0;
     this.sites = [];
     if (!zoo) return;
+    // Habitats live in the Tierpark level now; the city shows the gate with a queue of visitors.
+    if (zoo.gate >= 0 && city.services[zoo.gate] === TIERPARK_KIND) {
+      const { x, y } = cellCoords(city, zoo.gate);
+      const world = cellToWorld(city, x, y);
+      const roads: { dx: number; dz: number }[] = [];
+      for (const dir of DIRS) {
+        const nx = x + dir.dx;
+        const ny = y + dir.dy;
+        if (inBounds(city, nx, ny) && isRoad(city, cellIndex(city, nx, ny))) roads.push({ dx: dir.dx, dz: dir.dy });
+      }
+      this.sites.push({ cell: zoo.gate, type: "wiese", x: world.x, y: heightOf(zoo.gate), z: world.z, animals: [], roads: roads.slice(0, 1), crowdOnly: true });
+    }
     for (const habitat of zoo.habitats) {
       if (!habitatTypeOf(city.services[habitat.cell])) continue;
       const { x, y } = cellCoords(city, habitat.cell);
@@ -171,6 +189,15 @@ export class ZooLayer {
     this.plantGrass();
   }
 
+  /** Park level: habitats placed by the park view (world coordinates of their centres). */
+  setSites(sites: ZooSite[], tick: number, visitors: number): void {
+    this.sites = sites;
+    this.tick = tick;
+    this.visitors = visitors;
+    this.fenceCrowd = false;
+    this.plantGrass();
+  }
+
   /** Re-scatter grass only when the set of habitats (or their height) changed. */
   private plantGrass(): void {
     const key = this.sites.map((site) => `${site.cell}:${site.type}:${site.y.toFixed(2)}`).join("|");
@@ -182,7 +209,7 @@ export class ZooLayer {
     const p = new THREE.Vector3();
     const c = new THREE.Color();
     let n = 0;
-    for (const site of this.sites.slice(0, GRASS_SITES)) {
+    for (const site of this.sites.filter((entry) => !entry.crowdOnly).slice(0, GRASS_SITES)) {
       const random = rng(site.cell * 31 + 7);
       const look = OUTSIDE_GRASS[site.type as DecorType];
       const want = Math.round(this.grassPer * look.density);
@@ -263,9 +290,10 @@ export class ZooLayer {
         this.place(`${animal.species}:body`, coatTint(animal.genes.hue, this.color));
         this.place(`${animal.species}:pattern`, patternColor(info.color, geo.model, animal.genes.hue, animal.genes.pattern, this.color));
       }
-      if (site.animals.length === 0) continue;
+      if (site.animals.length === 0 && !site.crowdOnly) continue;
+      if (site.crowdOnly && this.visitors <= 0) continue;
       // Safari jeep on the inner track (not in the petting meadow).
-      if (site.type !== "wiese" && jeeps < JEEP_CAP) {
+      if (!site.crowdOnly && site.type !== "wiese" && jeeps < JEEP_CAP) {
         const perimeter = TRACK * 8;
         const s = ((time * 1.4 + site.cell * 3.7) % perimeter + perimeter) % perimeter;
         const side = Math.floor(s / (TRACK * 2));
@@ -279,7 +307,8 @@ export class ZooLayer {
         jeeps += 1;
       }
       // Visitors at the fence on the road side; more visitors → more people.
-      const share = this.visitors / Math.max(1, populated);
+      if (!this.fenceCrowd) continue;
+      const share = site.crowdOnly ? this.visitors : this.visitors / Math.max(1, populated);
       const crowd = Math.max(1, Math.min(6, Math.round(share / 5)));
       for (let k = 0; k < crowd && site.roads.length > 0 && people < VISITOR_CAP; k += 1) {
         const road = site.roads[k % site.roads.length];

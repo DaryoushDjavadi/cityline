@@ -4,6 +4,7 @@ import { ensureBeaches, isBeach, isCoastalLand, restoreMissingCoast } from "./te
 import { applyHubTrade } from "./trade.ts";
 import { applyOrder } from "./orders.ts";
 import { applyZoo, isHabitatKind } from "./zoo.ts";
+
 import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
@@ -30,6 +31,17 @@ import {
   type ServiceId,
   type ZoneId,
 } from "./types.ts";
+
+/** Tierpark: one per city, not in levels; the old habitat kinds are built inside the park now. */
+export function tierparkBlock(city: CityState, kind: number): string | null {
+  if (isHabitatKind(kind)) return "Gehege baust du jetzt im Tierpark: Tierpark bauen, anklicken und „Tierpark betreten“.";
+  if (kind !== ServiceKind.Tierpark) return null;
+  if (city.progress?.off) return "Den Tierpark gibt es nur in freien Städten, nicht in Levels.";
+  for (let index = 0; index < city.services.length; index += 1) {
+    if (city.services[index] === kind) return "Es gibt schon einen Tierpark. Gehege und Wege baust du darin.";
+  }
+  return null;
+}
 
 const STARTING_FUNDS = 100_000;
 /** Buildings must sit on a cell next to a road (Chebyshev distance 1). */
@@ -245,7 +257,8 @@ export function placeBlockReason(
   if (city.services[index] !== ServiceKind.None) return "Feld ist belegt.";
   const landmark = extra?.kind !== undefined ? landmarkBlock(city, extra.kind) : null;
   if (landmark) return landmark;
-  if (extra?.kind !== undefined && isHabitatKind(extra.kind) && city.progress?.off) return "Tiergehege gibt es nur in freien Städten, nicht in Levels.";
+  const park = extra?.kind !== undefined ? tierparkBlock(city, extra.kind) : null;
+  if (park) return park;
   if (!orthogonalRoad(city, index)) return "Öffentliche Gebäude brauchen eine Straße direkt daneben (orthogonal).";
   return "Hier geht das Gebäude nicht.";
 }
@@ -328,7 +341,7 @@ export function canPlace(
   if (isBeach(city, index)) return false;
   if (isRoad(city, index) || isLine(city, index) || isPipe(city, index) || city.services[index] !== ServiceKind.None) return false;
   if (extra?.kind !== undefined && landmarkBlock(city, extra.kind)) return false;
-  if (extra?.kind !== undefined && isHabitatKind(extra.kind) && city.progress?.off) return false;
+  if (extra?.kind !== undefined && tierparkBlock(city, extra.kind)) return false;
   return orthogonalRoad(city, index);
 }
 

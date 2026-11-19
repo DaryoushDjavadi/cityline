@@ -31,12 +31,14 @@ export const ServiceKind = {
   Wheel: 12,
   CityHall: 13,
   Tower: 14,
-  /** Zoo habitats (Tiergehege). */
+  /** Zoo habitats of 0.47 (now built inside the Tierpark; old saves migrate). */
   ZooSavanna: 15,
   ZooForest: 16,
   ZooWater: 17,
   ZooPolar: 18,
   ZooMeadow: 19,
+  /** Tierpark: the gate building; habitats, paths and stands live in its own park level. */
+  Tierpark: 20,
 } as const;
 
 export type ServiceId = (typeof ServiceKind)[keyof typeof ServiceKind];

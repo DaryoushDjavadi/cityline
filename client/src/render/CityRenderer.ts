@@ -12,6 +12,7 @@ import {
   cellToWorld,
   climateAt,
   inBounds,
+  cellIndex,
   computeTraffic,
   helpBadges,
   powerOutageBadges,
@@ -737,7 +738,7 @@ export class CityRenderer {
         const airportLit =
           !isHubService(service) || (city.utility[index] & (POWER_BIT | WATER_BIT)) === (POWER_BIT | WATER_BIT);
         const nightWarm = this.nightLit && airportLit && (city.utility[index] & POWER_BIT) !== 0;
-        const facing = service === ServiceKind.Harbor ? Math.atan2(waterDir(city, x, y).dx, waterDir(city, x, y).dy) : 0;
+        const facing = service === ServiceKind.Harbor ? Math.atan2(waterDir(city, x, y).dx, waterDir(city, x, y).dy) : service === ServiceKind.Tierpark ? roadFacing(city, x, y) : 0;
         this.placeModel(served.key, world.x, world.z, airportLit ? (nightWarm ? 0xfff1d2 : 0xffffff) : 0x8d847c, index, this.heightOf(index), facing);
       } else if (!isRoad(city, index) && !isLine(city, index) && !isPipe(city, index) && city.zones[index] === Zone.None && city.services[index] === ServiceKind.None && !isWater(city, index) && !isBeach(city, index)) {
         const forest = city.gen?.forest ?? 50;
@@ -2602,4 +2603,14 @@ function islandSurface(city: CityState): { ground: THREE.BufferGeometry; plot: T
   const lines = new THREE.BufferGeometry();
   lines.setAttribute("position", new THREE.Float32BufferAttribute(plot, 3));
   return { ground, plot: lines };
+}
+
+/** Angle that turns a model's +z side toward the first orthogonal road (Tierpark gate). */
+export function roadFacing(city: CityState, x: number, y: number): number {
+  for (const dir of [{ dx: 0, dy: 1 }, { dx: 0, dy: -1 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 }]) {
+    const nx = x + dir.dx;
+    const ny = y + dir.dy;
+    if (inBounds(city, nx, ny) && isRoad(city, cellIndex(city, nx, ny))) return Math.atan2(dir.dx, dir.dy);
+  }
+  return 0;
 }

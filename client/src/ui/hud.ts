@@ -54,11 +54,7 @@ export type ToolId =
   | "wheel"
   | "cityhall"
   | "tvtower"
-  | "zooSavanna"
-  | "zooForest"
-  | "zooWater"
-  | "zooPolar"
-  | "zooMeadow"
+  | "tierpark"
   | "bulldoze";
 
 export interface RoomCard {

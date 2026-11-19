@@ -4,6 +4,30 @@
  * the solo worker and coop clients compute the same births, names and genes.
  */
 import type { ApplyResult, CityState } from "./types.ts";
+import {
+  HABITAT_COST,
+  HABITAT_TILES,
+  PARK_INFO,
+  PARK_OBJECTS,
+  PARK_SIZE,
+  PARK_TILES,
+  TIERPARK_KIND,
+  TILE,
+  cleanPark,
+  freshPark,
+  habitatAtTile,
+  habitatFits,
+  habitatTiles,
+  isEdge,
+  occupancy,
+  parkEconomy,
+  parkIndex,
+  summarize,
+  tileAt,
+  writeTiles,
+  type ParkObject,
+  type ParkState,
+} from "./park.ts";
 
 // Plain numbers on purpose: types.ts → progressState.ts → zoo.ts is an import cycle, so no runtime
 // values from types.ts/grid.ts here. They must match ServiceKind.Zoo* and CELL_SIZE.
@@ -248,10 +272,18 @@ export interface ZooState {
   nursed: number;
   earned: number;
   lastBirth: { tick: number; id: number } | null;
+  /** Tierpark level (paths, stands, habitat layout). Missing until a Tierpark is built (or migrated). */
+  park?: ParkState;
+  /** City cell of the Tierpark building, −1 when there is none. */
+  gate: number;
+  /** Visitor satisfaction 0–100. */
+  satisfaction: number;
+  /** Stand sales per zoo step (2 s), part of income. */
+  sales: number;
 }
 
 export function freshZoo(): ZooState {
-  return { habitats: [], animals: [], seq: 1, itemSeq: 1, visitors: 0, income: 0, cost: 0, born: 0, bought: 0, nursed: 0, earned: 0, lastBirth: null };
+  return { habitats: [], animals: [], seq: 1, itemSeq: 1, visitors: 0, income: 0, cost: 0, born: 0, bought: 0, nursed: 0, earned: 0, lastBirth: null, gate: -1, satisfaction: 0, sales: 0 };
 }
 
 export function zooOf(city: CityState): ZooState | null {
@@ -373,18 +405,27 @@ export function spaceUsed(zoo: ZooState, cell: number): number {
   return used;
 }
 
-/** Make sure every habitat service on the map has a state entry, drop removed ones. */
-export function syncHabitats(city: CityState, zoo: ZooState): void {
-  const seen = new Set<number>();
-  for (let index = 0; index < city.services.length; index += 1) {
-    const type = habitatTypeOf(city.services[index]);
-    if (!type) continue;
-    seen.add(index);
-    const habitat = habitatAt(zoo, index);
-    if (!habitat) zoo.habitats.push(starterHabitat(zoo, index, type));
-    else if (habitat.type !== type) habitat.type = type;
+/** Old 0.47 city habitat services (ServiceKind 15–19). */
+const LEGACY_KINDS: Record<number, HabitatType> = { 15: "savanne", 16: "wald", 17: "wasser", 18: "polar", 19: "wiese" };
+
+/**
+ * Tierpark bookkeeping, every tick and before every zoo command: find the Tierpark building, create
+ * its park, migrate 0.47 habitats from the city into the park, and seat waiting animals.
+ */
+export function syncPark(city: CityState, zoo: ZooState): void {
+  let gate = -1;
+  let legacy: number[] | null = null;
+  const services = city.services;
+  for (let index = 0; index < services.length; index += 1) {
+    const kind = services[index];
+    if (kind === 0) continue;
+    if (kind === TIERPARK_KIND) {
+      if (gate < 0) gate = index;
+    } else if (LEGACY_KINDS[kind]) (legacy ??= []).push(index);
   }
-  if (zoo.habitats.some((habitat) => !seen.has(habitat.cell))) zoo.habitats = zoo.habitats.filter((habitat) => seen.has(habitat.cell));
+  if (legacy || (!zoo.park && zoo.habitats.length > 0)) gate = migrateHabitats(city, zoo, legacy ?? [], gate);
+  zoo.gate = gate;
+  if (gate >= 0 && !zoo.park) zoo.park = freshPark();
   // Animals of removed habitats wait (cell −1) and move into the first fitting habitat with room.
   for (const animal of zoo.animals) {
     const home = animal.cell >= 0 ? habitatAt(zoo, animal.cell) : null;
@@ -392,9 +433,81 @@ export function syncHabitats(city: CityState, zoo: ZooState): void {
     if (home && info && home.type === info.habitat) continue;
     animal.cell = -1;
     if (!info) continue;
-    const target = zoo.habitats.find((habitat) => habitat.type === info.habitat && spaceUsed(zoo, habitat.cell) + info.space <= HABITAT_SPACE);
+    const target = zoo.habitats.find((habitat) => habitat.type === info.habitat && spaceUsed(zoo, habitat.cell) + info.space <= HABITAT_SPACE && !clashWith(zoo, habitat.cell, info.id));
     if (target) animal.cell = target.cell;
   }
+}
+
+/** Habitat slots for migrated habitats: both sides of the main path, then along a cross path. */
+const SLOTS: { anchor: number; path: number[] }[] = (() => {
+  const out: { anchor: number; path: number[] }[] = [];
+  const spine = (top: number) => Array.from({ length: PARK_SIZE - 1 - top }, (_, k) => parkIndex(20, top + k));
+  for (let row = 0; row < 5; row += 1) {
+    const y = 33 - row * 6;
+    out.push({ anchor: parkIndex(15, y), path: spine(y) }, { anchor: parkIndex(21, y), path: spine(y) });
+  }
+  for (const x of [14, 21, 8, 27, 2, 33]) {
+    const cross: number[] = [];
+    for (let cx = Math.min(x, 20); cx <= Math.max(x + HABITAT_TILES - 1, 20); cx += 1) cross.push(parkIndex(cx, 7));
+    out.push({ anchor: parkIndex(x, 2), path: [...spine(7), ...cross] });
+  }
+  return out;
+})();
+
+/** Put a habitat into the first free slot and lay the path to it. Returns the anchor or −1. */
+function autoSlot(zoo: ZooState): number {
+  const park = zoo.park!;
+  const grid = occupancy(park, zoo.habitats);
+  for (const slot of SLOTS) {
+    if (!habitatTiles(slot.anchor).every((tile) => grid[tile] === TILE.grass)) continue;
+    const changes = new Map<number, number>();
+    for (const tile of slot.path) if (grid[tile] === TILE.grass) changes.set(tile, TILE.path);
+    writeTiles(park, changes);
+    return slot.anchor;
+  }
+  return -1;
+}
+
+function migrateHabitats(city: CityState, zoo: ZooState, legacy: number[], gate: number): number {
+  const fresh = !zoo.park;
+  if (!zoo.park) zoo.park = freshPark();
+  const old = fresh ? zoo.habitats : [];
+  if (fresh) zoo.habitats = [];
+  const byCell = new Map(old.map((habitat) => [habitat.cell, habitat]));
+  const types = new Map<number, HabitatType>();
+  for (const habitat of old) types.set(habitat.cell, habitat.type);
+  for (const index of legacy) if (!types.has(index)) types.set(index, LEGACY_KINDS[city.services[index]]);
+  if (gate < 0 && legacy.length > 0) {
+    gate = legacy[0];
+    city.services[gate] = TIERPARK_KIND;
+  }
+  for (const index of legacy) if (index !== gate) city.services[index] = 0;
+  const remap = new Map<number, number>();
+  for (const cell of [...types.keys()].sort((a, b) => a - b)) {
+    const anchor = autoSlot(zoo);
+    if (anchor < 0) continue;
+    const habitat = byCell.get(cell) ?? starterHabitat(zoo, anchor, types.get(cell)!);
+    habitat.cell = anchor;
+    zoo.habitats.push(habitat);
+    remap.set(cell, anchor);
+  }
+  if (fresh) {
+    for (const animal of zoo.animals) animal.cell = remap.get(animal.cell) ?? -1;
+    // A welcome gift: stands, a bench and a bin at the gate so visitors come right away.
+    if (remap.size > 0) {
+      const gift = new Map<number, number>([
+        [parkIndex(21, 38), TILE.food],
+        [parkIndex(19, 38), TILE.drink],
+        [parkIndex(21, PARK_SIZE - 1), TILE.bench],
+        [parkIndex(19, PARK_SIZE - 1), TILE.bin],
+      ]);
+      const grid = occupancy(zoo.park, zoo.habitats);
+      for (const [tile] of gift) if (grid[tile] !== TILE.grass) gift.delete(tile);
+      writeTiles(zoo.park, gift);
+    }
+  }
+  city.revision += 1;
+  return gate;
 }
 
 function starterHabitat(zoo: ZooState, cell: number, type: HabitatType): Habitat {
@@ -408,21 +521,21 @@ function starterHabitat(zoo: ZooState, cell: number, type: HabitatType): Habitat
 
 // ---------------------------------------------------------------- simulation
 
-function speciesCount(zoo: ZooState): number {
-  return new Set(zoo.animals.filter((animal) => animal.cell >= 0).map((animal) => animal.species)).size;
+function speciesCount(zoo: ZooState, shown?: Set<number>): number {
+  return new Set(zoo.animals.filter((animal) => animal.cell >= 0 && (!shown || shown.has(animal.cell))).map((animal) => animal.species)).size;
 }
 
 /** Visitor appeal: happy, healthy animals and many species draw people. */
-export function zooAppeal(zoo: ZooState): number {
+export function zooAppeal(zoo: ZooState, shown?: Set<number>): number {
   let appeal = 0;
   for (const animal of zoo.animals) {
-    if (animal.cell < 0) continue;
+    if (animal.cell < 0 || (shown && !shown.has(animal.cell))) continue;
     const info = speciesInfo(animal.species);
     if (!info) continue;
     const mood = (animal.happy * 0.65 + animal.health * 0.35) / 100;
     appeal += info.appeal * (0.25 + mood);
   }
-  return appeal * (1 + speciesCount(zoo) * 0.12);
+  return appeal * (1 + speciesCount(zoo, shown) * 0.12);
 }
 
 export const TICKET = 0.4;
@@ -431,12 +544,14 @@ export const TICKET = 0.4;
 export function stepZoo(city: CityState): void {
   const zoo = ensureZoo(city);
   if (!zoo) return;
-  syncHabitats(city, zoo);
+  syncPark(city, zoo);
   if (city.tick % ZOO_EVERY !== 0) return;
   if (zoo.habitats.length === 0 && zoo.animals.length === 0) {
     zoo.visitors = 0;
     zoo.income = 0;
     zoo.cost = 0;
+    zoo.sales = 0;
+    zoo.satisfaction = 0;
     return;
   }
   let cost = 0;
@@ -472,10 +587,32 @@ export function stepZoo(city: CityState): void {
     animal.happy = round1(Math.max(15, animal.happy - 0.2));
   }
   if (city.tick % BREED_EVERY === 0) stepBreeding(city, zoo);
-  const appeal = zooAppeal(zoo);
+  // Visitors only see habitats a path leads to, and only come while the Tierpark stands.
+  const summary = zoo.park && zoo.gate >= 0 ? summarize(zoo.park, zoo.habitats) : null;
+  const shown = new Set(summary?.habitats.map((spot) => spot.tile) ?? []);
+  let mood = 0;
+  let count = 0;
+  for (const animal of zoo.animals) {
+    if (!shown.has(animal.cell)) continue;
+    mood += animal.happy;
+    count += 1;
+  }
   const pop = populationHint(city);
-  zoo.visitors = Math.round(Math.min(appeal * 7, 25 + pop * 0.5));
-  zoo.income = Math.round(zoo.visitors * TICKET * 10) / 10;
+  if (summary && count > 0) {
+    const before = parkEconomy(summary, zoo.visitors, mood / count, speciesCount(zoo, shown));
+    const appeal = zooAppeal(zoo, shown) * before.factor;
+    zoo.visitors = Math.round(Math.min(appeal * 7, 25 + pop * 0.5));
+    const now = parkEconomy(summary, zoo.visitors, mood / count, speciesCount(zoo, shown));
+    zoo.satisfaction = now.satisfaction;
+    zoo.sales = now.sales;
+    cost += now.upkeep;
+  } else {
+    zoo.visitors = 0;
+    zoo.sales = 0;
+    zoo.satisfaction = summary ? 50 : 0;
+    if (summary) cost += parkEconomy(summary, 0, 50, 0).upkeep;
+  }
+  zoo.income = Math.round((zoo.visitors * TICKET + zoo.sales) * 10) / 10;
   zoo.cost = Math.round(cost * 10) / 10;
   zoo.earned = Math.round(zoo.earned + zoo.income);
 }
@@ -604,12 +741,10 @@ export function zooMood(city: CityState, homeX: number, homeY: number, width: nu
   const zoo = zooOf(city);
   if (!zoo || zoo.animals.length === 0) return 0;
   const appeal = zoo.visitors;
-  if (appeal <= 0) return 0;
-  for (const habitat of zoo.habitats) {
-    const hx = habitat.cell % width;
-    const hy = Math.floor(habitat.cell / width);
-    if (Math.max(Math.abs(hx - homeX), Math.abs(hy - homeY)) <= 10) return Math.min(0.08, 0.02 + appeal * 0.0006);
-  }
+  if (appeal <= 0 || zoo.gate < 0) return 0;
+  const hx = zoo.gate % width;
+  const hy = Math.floor(zoo.gate / width);
+  if (Math.max(Math.abs(hx - homeX), Math.abs(hy - homeY)) <= 10) return Math.min(0.08, 0.02 + appeal * 0.0006);
   return 0;
 }
 
@@ -625,7 +760,14 @@ export type ZooOp =
   | { op: "keeper"; cell: number; on: boolean }
   | { op: "care"; animal: number; act: CareAct }
   | { op: "rename"; animal: number; name: string }
-  | { op: "release"; animal: number };
+  | { op: "release"; animal: number }
+  /** Tierpark: build paths, stands, decor, a habitat (cells[0] = top-left tile) or move the entrance. */
+  | { op: "pbuild"; kind: ParkBuild; cells: number[] }
+  /** Tierpark: remove whatever stands on these tiles (not the entrance). */
+  | { op: "pclear"; cells: number[] };
+
+export type ParkBuild = ParkObject | HabitatType;
+export const MAX_PARK_CELLS = 400;
 
 /**
  * Who may move in: predators live only with their own species, and no other species joins a predator
@@ -653,7 +795,8 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
   if (city.progress?.off) return fail("zoo_off");
   const zoo = ensureZoo(city);
   if (!zoo) return fail("zoo_off");
-  syncHabitats(city, zoo);
+  syncPark(city, zoo);
+  if (op.op === "pbuild" || op.op === "pclear") return applyPark(city, zoo, op);
   if (op.op === "care" || op.op === "rename" || op.op === "release") {
     const animal = zoo.animals.find((entry) => entry.id === op.animal);
     if (!animal) return fail("zoo_gone");
@@ -743,6 +886,66 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
   return done();
 }
 
+function applyPark(city: CityState, zoo: ZooState, op: Extract<ZooOp, { op: "pbuild" | "pclear" }>): ApplyResult {
+  const park = zoo.park;
+  if (!park || zoo.gate < 0) return fail("park_none");
+  const grid = occupancy(park, zoo.habitats);
+  if (op.op === "pclear") {
+    const changes = new Map<number, number>();
+    const gone = new Set<number>();
+    for (const tile of op.cells) {
+      if (tile < 0 || tile >= PARK_TILES) continue;
+      if (grid[tile] === TILE.habitat) {
+        const habitat = habitatAtTile(zoo.habitats, tile);
+        if (habitat) gone.add(habitat.cell);
+      } else if (grid[tile] !== TILE.grass && grid[tile] !== TILE.entrance) changes.set(tile, TILE.grass);
+    }
+    if (changes.size === 0 && gone.size === 0) return fail("park_nothing");
+    writeTiles(park, changes);
+    if (gone.size > 0) {
+      zoo.habitats = zoo.habitats.filter((habitat) => !gone.has(habitat.cell));
+      syncPark(city, zoo);
+    }
+    return done();
+  }
+  if (HABITAT_TYPES.includes(op.kind as HabitatType)) {
+    const anchor = op.cells[0];
+    if (!habitatFits(anchor)) return fail("park_blocked");
+    if (!habitatTiles(anchor).every((tile) => grid[tile] === TILE.grass)) return fail("park_blocked");
+    const cost = HABITAT_COST[op.kind] ?? 2000;
+    if (city.funds < cost) return fail("funds");
+    city.funds -= cost;
+    zoo.habitats.push(starterHabitat(zoo, anchor, op.kind as HabitatType));
+    syncPark(city, zoo);
+    return done(cost);
+  }
+  const kind = op.kind as ParkObject;
+  const info = PARK_INFO[kind];
+  if (kind === "entrance") {
+    const tile = op.cells[0];
+    if (!isEdge(tile) || tile === park.entrance || (grid[tile] !== TILE.grass && grid[tile] !== TILE.path)) return fail("park_edge");
+    if (city.funds < info.cost) return fail("funds");
+    city.funds -= info.cost;
+    writeTiles(park, new Map([[park.entrance, TILE.path], [tile, TILE.entrance]]));
+    park.entrance = tile;
+    return done(info.cost);
+  }
+  const cells = [...new Set(op.cells)].filter((tile) => tile >= 0 && tile < PARK_TILES && grid[tile] === TILE.grass);
+  if (cells.length === 0) return fail("park_blocked");
+  const cost = cells.length * info.cost;
+  if (city.funds < cost) return fail("funds");
+  city.funds -= cost;
+  writeTiles(park, new Map(cells.map((tile) => [tile, info.code])));
+  return done(cost);
+}
+
+/** Park layout of habitats (for views): which tile code is where. */
+export function parkGrid(zoo: ZooState): Uint8Array | null {
+  return zoo.park ? occupancy(zoo.park, zoo.habitats) : null;
+}
+
+export { tileAt as parkTileAt };
+
 function care(city: CityState, zoo: ZooState, animal: Animal, act: CareAct): ApplyResult {
   if (animal.cell < 0) return fail("zoo_no_habitat");
   const tick = city.tick;
@@ -803,6 +1006,16 @@ export function parseZooOp(raw: unknown): ZooOp | null {
     }
     case "release":
       return animalOk ? { op: "release", animal: r.animal as number } : null;
+    case "pbuild":
+    case "pclear": {
+      if (!Array.isArray(r.cells) || r.cells.length === 0 || r.cells.length > MAX_PARK_CELLS) return null;
+      if (!r.cells.every((tile) => int(tile, 0, PARK_TILES - 1))) return null;
+      const cells = r.cells as number[];
+      if (r.op === "pclear") return { op: "pclear", cells };
+      const kind = r.kind as ParkBuild;
+      if (!PARK_OBJECTS.includes(kind as ParkObject) && !HABITAT_TYPES.includes(kind as HabitatType)) return null;
+      return { op: "pbuild", kind, cells };
+    }
     default:
       return null;
   }
@@ -815,7 +1028,7 @@ const num = (value: unknown, fallback = 0): number => (typeof value === "number"
 export function cloneZoo(raw: unknown): ZooState | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const z = raw as Partial<ZooState>;
-  const habitats: Habitat[] = Array.isArray(z.habitats)
+  let habitats: Habitat[] = Array.isArray(z.habitats)
     ? z.habitats.slice(0, 256).flatMap((entry) => {
       if (!entry || typeof entry !== "object" || !HABITAT_TYPES.includes(entry.type)) return [];
       const items = Array.isArray(entry.items)
@@ -836,6 +1049,18 @@ export function cloneZoo(raw: unknown): ZooState | undefined {
   const animals: Animal[] = Array.isArray(z.animals)
     ? z.animals.slice(0, MAX_ANIMALS).flatMap((entry) => (entry && typeof entry === "object" ? cloneAnimal(entry) : []))
     : [];
+  const park = cleanPark(z.park);
+  if (park) {
+    // Park habitats must fit and must not overlap (a hand-edited save could try).
+    const taken = new Uint8Array(PARK_TILES);
+    habitats = habitats.filter((habitat) => {
+      if (!habitatFits(habitat.cell)) return false;
+      const tiles = habitatTiles(habitat.cell);
+      if (tiles.some((tile) => taken[tile] || tileAt(park, tile) !== TILE.grass)) return false;
+      for (const tile of tiles) taken[tile] = 1;
+      return true;
+    });
+  }
   const last = z.lastBirth && typeof z.lastBirth === "object" ? { tick: num(z.lastBirth.tick) | 0, id: num(z.lastBirth.id) >>> 0 } : null;
   return {
     habitats,
@@ -850,6 +1075,10 @@ export function cloneZoo(raw: unknown): ZooState | undefined {
     nursed: num(z.nursed) >>> 0,
     earned: Math.max(0, num(z.earned)),
     lastBirth: last,
+    gate: Math.max(-1, num(z.gate, -1) | 0),
+    satisfaction: clamp(num(z.satisfaction), 0, 100),
+    sales: clamp(num(z.sales), 0, 100_000),
+    ...(park ? { park } : {}),
   };
 }
 
