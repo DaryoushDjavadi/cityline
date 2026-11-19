@@ -7,8 +7,43 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.46",
+    at: "19. Nov 2026, 19:31 Uhr",
+    title: "Schlankes Baumenü, näher ranzoomen",
+    items: [
+      "Baumenü viel flacher: Icon-Leiste und eine Reihe kleiner Kacheln, Beschreibung im Tooltip. Beim Platzieren klappt die Auswahl weg, nur ein kleiner Chip mit Gebäude und Preis bleibt.",
+      "Obere Leiste schlanker und eleganter, auf dem Handy überlagert sich nichts mehr.",
+      "Viel näher zoomen, bis auf Straßenhöhe; nah dran kippt die Kamera in die Seitenansicht.",
+      "Nacht und Meer auf Handys und der Grafikstufe Schonend nicht mehr zu dunkel. Bei Regen verschwinden Sterne und Mond.",
+      "Neuigkeiten zeigen jetzt Datum und Uhrzeit.",
+    ],
+  },
+  {
+    version: "0.45",
+    at: "19. Nov 2026, 16:27 Uhr",
+    title: "Neues Baumenü, hellere Nacht, Auftragstafel",
+    items: [
+      "Baumenü mit Icon-Leiste unten: Straßen, Wohnen, Arbeit, Versorgung, Handel, Öffentlich, Wahrzeichen, Werkzeuge. Kacheln mit Preis und Tastenkürzel, Tooltip zeigt, was ein Gebäude braucht; gesperrte Gebäude sagen, warum.",
+      "Schnellknöpfe für Strom- und Wasserleitungen, Abriss, Verschieben und Drehen direkt neben den Kategorien. Auf dem Handy öffnet sich das Menü als Leiste von unten.",
+      "Nacht nur noch leicht dunkler: warmes Blau-Violett, leuchtende Fenster, weiche Übergänge am Abend und Morgen.",
+      "Mehr Leben: Anwohner vor den Häusern, Parkbesucher, Schlange am Riesenrad, Rauch aus Schornsteinen, Vogelschwärme, Möwen am Hafen und mehr Verkehr, je größer die Stadt wird.",
+      "Neue Auftragstafel (Taste J): ab 24 Einwohnern drei Lieferaufträge für Nahrung, Waren oder Fisch, mit Zeitlimit und +30 % Express-Bonus. Abliefern mit Stempel und Münzregen.",
+    ],
+  },
+  {
+    version: "0.44",
+    at: "18. Nov 2026, 01:39 Uhr",
+    title: "Musik, Stadtleben und mehr Tempo",
+    items: [
+      "Dynamische Musik, die sich mit der Tageszeit ändert, dazu Stadtgeräusche je nach Kamera: Verkehr, Vögel, Grillen, Brandung, Möwen, Schiffshorn und Flugzeuge.",
+      "Klang-Einstellungen: Musik, Stadtgeräusche und UI-Sounds einzeln an/aus und regelbar. Der Lautsprecher oben schaltet alles sofort stumm.",
+      "Stadtränge vom Außenposten bis zur Metropole, Wahrzeichen (Riesenrad, Rathaus, Fernsehturm), Ereignisse mit Entscheidungen, Tagesaufgabe, 18 Erfolge, Glücksbonus und Bürger-Feed — alles hinter dem Pokal-Knopf.",
+      "Deutlich weniger Rechenzeit pro Bild und ein viel kleinerer Download. Der Ton lädt erst nach dem ersten Klick.",
+    ],
+  },
+  {
     version: "0.43",
-    at: "17. Nov 2026",
+    at: "17. Nov 2026, 12:08 Uhr",
     title: "Hafen am Ufer, Leitungen klarer",
     items: [
       "Hafen steht auf dem Küstenfeld direkt am Meer — ohne Straße. Klick ins Wasser setzt ihn aufs Ufer, der Steg ragt hinaus. Rot: „Hafen muss direkt am Wasser stehen.“",
@@ -19,7 +54,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.42",
-    at: "17. Nov 2026",
+    at: "17. Nov 2026, 02:08 Uhr",
     title: "Hafen, Meer und Handel im Feinschliff",
     items: [
       "Hafen mit Kai, Pier, Kran (bewegt Container), Lager, Leuchtturm und bunten Containern. Schiffe haben Rumpf, Kajüte und Kielwasser, legen am Pier an und bleiben auf dem Wasser.",
@@ -31,7 +66,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.41",
-    at: "16. Nov 2026",
+    at: "17. Nov 2026, 01:25 Uhr",
     title: "Hafen, Hügel und Strandglück",
     items: [
       "Neuer Hafen unter Verkehr: nur an der Meeresküste, mit Pier, Kran und Containern. Schiffe legen an und fahren aufs Meer.",
@@ -44,7 +79,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.40",
-    at: "16. Nov 2026",
+    at: "16. Nov 2026, 13:48 Uhr",
     title: "Stadt im Konzeptlicht",
     items: [
       "Beleuchtung, Himmel, Meer und Gelände folgen der Key-Art: warmes Sonnenlicht, weiche Schatten, klareres Blau im Wasser, helleres Gras und Sand am Ufer.",
@@ -55,7 +90,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.39",
-    at: "8. Nov 2026",
+    at: "8. Nov 2026, 14:52 Uhr",
     title: "Aufträge im Blick & neues Baumenü",
     items: [
       "Der aktuelle Auftrag steht jetzt immer oben im Bild — mit Fortschritt, Belohnung und kurzem Hinweis beim Start. Auf dem Handy lässt er sich einklappen.",
@@ -65,7 +100,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.38",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Stabiler Bau & Handy",
     items: [
       "Straßen und Zonen überschreiben keine Gebäude mehr. Laternen abreißen lässt Straße und Leitung stehen.",
@@ -75,7 +110,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.37",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Nachtlicht & Laternen",
     items: [
       "Nachts ist die Stadt dunkel — Häuser und Betriebe mit Strom leuchten selbst und ein Stück weit um sich herum.",
@@ -84,7 +119,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.36",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Werte immer im Blick",
     items: [
       "Die Statusleiste (Kasse, Einwohner, Strom …) ist standardmäßig sichtbar und lässt sich über „Werte“ ausblenden.",
@@ -93,7 +128,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.35",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Solo oder Koop wählen",
     items: [
       "Neue Stadt: Solo starten oder Koop starten.",
@@ -102,7 +137,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.34",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Karten & Biome",
     items: [
       "Beim Anlegen: Biom wählen (gemäßigt, trocken, alpin, tropisch, Archipel), Seed und Slider für Meer, Seen, Flüsse und Wald.",
@@ -112,7 +147,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.33",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Stadt im Rhythmus",
     items: [
       "Rushhour morgens und abends: mehr Autos und Fußgänger, vollere Straßen, langsameres Tempo.",
@@ -121,7 +156,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.32",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Bauernhof ausbauen",
     items: [
       "Höfe starten mit Getreide. Im Infofenster: Tiere kaufen, zurück zu Getreide, Bewässerung und Silo.",
@@ -131,7 +166,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.31",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Bessere Autos",
     items: [
       "Limousine, Kleinwagen, Kombi und Transporter haben eigene Modelle mit Fenstern, Rädern und Lichtern statt einfacher Kisten.",
@@ -139,7 +174,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.30",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Tag, Nacht und Fußgänger",
     items: [
       "Gemeinsamer Tag-Nacht-Zyklus (etwa 5 Minuten pro Tag) für Solo und Koop, mit Uhr und Wetter oben.",
@@ -149,7 +184,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.29",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Drehen und Nahzoom",
     items: [
       "Neuer Schauen-Modus Drehen neben Verschieben: Ziehen orbitiert die Kamera, mit Cursor-Hinweis.",
@@ -158,7 +193,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.28",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Feedback und Atmosphäre",
     items: [
       "Kurze Sounds beim Bauen, Ablehnen, Auftrag und Level-Ende.",
@@ -170,7 +205,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.27",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 22:12 Uhr",
     title: "Testbericht-Fixes",
     items: [
       "Gebäude gehen vor Autos bei der Lupe; Infofenster springt nicht mehr von allein um. Bauwerkzeuge bleiben aktiv.",
@@ -182,7 +217,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.26",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 18:28 Uhr",
     title: "Flughafen: Strom, Wasser, Nahrung",
     items: [
       "Der Flughafen gilt als versorgt, wenn Leitungen oder Rohre ihn berühren, oder wenn Kraftwerk und Wasserwerk direkt daneben stehen.",
@@ -191,7 +226,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.25",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 18:26 Uhr",
     title: "Städtemenü",
     items: [
       "Das Startmenü ist klarer: Name oben, dann Neue Stadt und Levels, darunter die Städte als Karten.",
@@ -201,7 +236,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.24",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 17:49 Uhr",
     title: "Leitungen, Flughafen, Nahrung",
     items: [
       "Strom und Wasser folgen dem Raster: Ecken und T-Stücke ohne schräge Geisterstücke.",
@@ -213,7 +248,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.23",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 17:17 Uhr",
     title: "Handy und Tablet",
     items: [
       "Auf schmalen Bildschirmen klappen Menü, Aufgabe, Kasse, Nachfrage und Chat ein. Die Karte bleibt frei.",
@@ -223,7 +258,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.22",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 17:01 Uhr",
     title: "Eigene Städte, Chat, Koop",
     items: [
       "Jede Stadt hat einen eigenen Speicherplatz. Eine neue Stadt überschreibt keine andere, auch nicht bei gleichem Namen.",
@@ -234,7 +269,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.21",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 16:39 Uhr",
     title: "Automatisch speichern",
     items: [
       "Eigene Städte speichern sich alle zwei Minuten von selbst, nicht im Level-Modus.",
@@ -243,7 +278,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.20",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 16:36 Uhr",
     title: "Städtemenü, Verschieben, Koop-Zeiger",
     items: [
       "Im Städtemenü steht zuerst dein Name, dann eine neue Stadt erstellen, danach die vorgefertigten Levels.",
@@ -253,7 +288,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.19",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 16:28 Uhr",
     title: "Chat, Städtemenü, Baumenü",
     items: [
       "Rechts oben gibt es Chat. Zugeklappt zeigt eine Zahl, wenn etwas Neues da ist.",
@@ -265,7 +300,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.18",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 14:15 Uhr",
     title: "HUD ohne Überlappung",
     items: [
       "Aufgabe, Menü, Spielerliste und Inspektor liegen nebeneinander, nicht übereinander.",
@@ -274,7 +309,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.17",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 14:15 Uhr",
     title: "Level-Koop und Spielerliste",
     items: [
       "Die Aufgabe bleibt oben rechts sichtbar. Ein Klick öffnet das Briefing wieder.",
@@ -284,7 +319,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.16",
-    at: "4. Nov 2026",
+    at: "4. Nov 2026, 14:15 Uhr",
     title: "Level-Modus",
     items: [
       "Im Menü Städte gibt es zehn Level. Level 1 ist frei, der Rest geht nacheinander auf.",
@@ -294,7 +329,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.15",
-    at: "3. Nov 2026, 18:10",
+    at: "3. Nov 2026, 18:10 Uhr",
     title: "Aufträge und Nachfrage",
     items: [
       "Links unten liegt immer ein Auftrag. Erledigt bringt eine Prämie.",
@@ -304,7 +339,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.14",
-    at: "3. Nov 2026, 17:45",
+    at: "3. Nov 2026, 17:45 Uhr",
     title: "Runde Küste",
     items: [
       "Die Inselkante ist gerundet, ohne die eckigen Kacheln am Ufer.",
@@ -313,7 +348,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.13",
-    at: "3. Nov 2026, 17:08",
+    at: "3. Nov 2026, 17:08 Uhr",
     title: "Runde Insel, dichtes Ufer",
     items: [
       "Die Insel ist eine Küste mit Buchten, kein Rechteck mehr.",
@@ -322,7 +357,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.12",
-    at: "3. Nov 2026, 17:00",
+    at: "3. Nov 2026, 17:00 Uhr",
     title: "Meer, Modelle, Aufschütten",
     items: [
       "Um die Insel liegt Meer bis zum Horizont, die Fläche bewegt sich.",
@@ -333,7 +368,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.11",
-    at: "3. Nov 2026, 16:46",
+    at: "3. Nov 2026, 16:46 Uhr",
     title: "Insel und Kasse",
     items: [
       "Neue Städte liegen auf einer Insel, mit Küste, Fluss und manchmal einem See.",
@@ -343,7 +378,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.10",
-    at: "3. Nov 2026, 16:20",
+    at: "3. Nov 2026, 16:20 Uhr",
     title: "Brücken, Jobs, einzelne Häuser",
     items: [
       "Brücken über Wasser, mit Rampe und Türmen. Autos fahren auf der Fahrbahn.",
@@ -354,7 +389,7 @@ export const CHANGELOG: PatchNote[] = [
   },
   {
     version: "0.9",
-    at: "3. Nov 2026, 15:30",
+    at: "3. Nov 2026, 15:30 Uhr",
     title: "Stadt, Netze, Speicher",
     items: [
       "Häuser zeigen Familien, Autos und Bildung. Ein Abschluss braucht eine Schule in der Nähe.",
@@ -363,3 +398,20 @@ export const CHANGELOG: PatchNote[] = [
     ],
   },
 ];
+
+const MONTHS: Record<string, number> = { Jan: 1, Feb: 2, "Mär": 3, Mar: 3, Apr: 4, Mai: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Okt: 10, Nov: 11, Dez: 12 };
+
+/** "19. Nov 2026, 16:27 Uhr" → "2026-11-19T16:27+01:00" (Berlin time; the patch notes are all CET). */
+export function noteIso(at: string): string | null {
+  const m = /^(\d{1,2})\.\s*([A-Za-zä]{3})\w*\.?\s+(\d{4}),\s*(\d{1,2}):(\d{2})/.exec(at);
+  const month = m ? MONTHS[m[2]] : undefined;
+  if (!m || !month) return null;
+  const pad = (n: number | string) => String(n).padStart(2, "0");
+  return `${m[3]}-${pad(month)}-${pad(m[1])}T${pad(m[4])}:${m[5]}+01:00`;
+}
+
+/** Newest first, whatever order the list above is written in (stable for equal times). */
+export function sortedNotes(notes: PatchNote[] = CHANGELOG): PatchNote[] {
+  const time = (note: PatchNote) => Date.parse(noteIso(note.at) ?? "") || 0;
+  return notes.map((note, index) => ({ note, index })).sort((a, b) => time(b.note) - time(a.note) || a.index - b.index).map((entry) => entry.note);
+}

@@ -73,6 +73,7 @@ import {
   pendingAt,
   quoteTrade,
   inBounds,
+  cellHeight,
   isLine,
   isWorkplace,
   jobOpenings,
@@ -331,6 +332,7 @@ export class Game {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.camera = new RtsCamera();
+    this.camera.heightAt = (x, z) => this.cameraFloor(x, z);
     this.view = new CityRenderer(canvas);
     this.worker = new Worker(new URL("../sim/sim.worker.ts", import.meta.url), { type: "module" });
     this.worker.onmessage = (event: MessageEvent<TickMessage>) => this.onTick(event.data);
@@ -986,7 +988,8 @@ export class Game {
     this.city.gen = showcase.city.gen ? { ...showcase.city.gen } : undefined;
     this.city.tick = hourToTick(Number.isFinite(hour) ? hour : 7);
     refreshUtilities(this.city);
-    this.view.setWeatherOverride("clear");
+    const weather = params.get("weather");
+    this.view.setWeatherOverride(weather === "rain" || weather === "cloud" ? weather : "clear");
     this.view.setDecorations(false);
     this.overlays.zones = false;
     this.hud.setOverlays(this.overlays);
@@ -2004,9 +2007,25 @@ export class Game {
     this.hud.setStatus(parts.join(" · "));
   }
 
+  /** Rough top of whatever stands under a world point (terrain + building), so the close-up camera never clips in. */
+  private cameraFloor(x: number, z: number): number {
+    const cell = worldToCell(this.city, x, z);
+    if (!cell || !inBounds(this.city, cell.x, cell.y)) return 0;
+    const index = cellIndex(this.city, cell.x, cell.y);
+    const ground = cellHeight(this.city, cell.x, cell.y);
+    if (this.city.services[index]) return ground + 12;
+    const level = this.city.levels[index];
+    if (level <= 0) return ground;
+    const zone = this.city.zones[index];
+    if (zone === Zone.Farm) return ground + 5;
+    if (zone === Zone.Industrial) return ground + 12;
+    const tall = zone === Zone.Commercial ? [0, 9, 16, 34] : [0, 8, 14, 30];
+    return ground + (tall[Math.min(level, 3)] ?? 30);
+  }
+
   private flash(text: string): void {
     this.statusUntil = performance.now() + 2600;
-    this.hud.setStatus(text);
+    this.hud.flashStatus(text);
   }
 
   private emitCursor(event: PointerEvent): void {
