@@ -22,6 +22,8 @@ import {
   isLine,
   isPipe,
   isRoad,
+  populationOf,
+  lifeActivity,
   isWater,
   occupancyStamp,
   oceanMask,
@@ -40,7 +42,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
+import { applyLook, COLOR_GRADE, createAtmosphere, goldenAmount, nightAmount, nightWindowCompile, poseSun, seaMaterial, type Atmosphere } from "./look.ts";
+import { AmbientLayer, crowdScale, planAmbient } from "./ambient.ts";
 import { gfxProfile, loadGfxPreset, type GfxPreset, type GfxProfile } from "./quality.ts";
 import {
   buildBoatGeometry,
@@ -162,6 +165,10 @@ export class CityRenderer {
   private readonly personBodySlot = new Map<PersonPose, number>();
   private readonly personHeadSlot = new Map<PersonPose, number>();
   private readonly towels: THREE.InstancedMesh;
+  private readonly ambient: AmbientLayer;
+  private ambientStamp = "";
+  private ambientPlannedAt = 0;
+  private population = 0;
   private readonly umbrellas: THREE.InstancedMesh;
   private readonly smileys: THREE.InstancedMesh;
   private readonly smileyDummy = new THREE.Object3D();
@@ -344,6 +351,7 @@ export class CityRenderer {
       this.personHeadSlot.set(model.key, 0);
       this.scene.add(bodies, heads);
     }
+    this.ambient = new AmbientLayer(this.scene);
     this.towels = mesh(buildTowelGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), 48);
     this.umbrellas = mesh(buildUmbrellaGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }), 24);
     const smileMap = smileyTexture();
@@ -557,6 +565,7 @@ export class CityRenderer {
   sync(city: CityState, overlays: Overlays): void {
     this.shown = city;
     this.traffic = computeTraffic(city).load;
+    this.population = populationOf(city);
     if (this.roadsChanged(city)) this.rebuildGraph(city);
     this.syncCars(city);
     this.syncPedestrians(city);
@@ -566,6 +575,7 @@ export class CityRenderer {
     this.tourists = tradeTourists(city, this.quality.level === "low" ? 4 : this.quality.level === "medium" ? 8 : 12);
     this.rebuildGround(city);
     const stamp = this.staticSignature(city, overlays);
+    this.syncAmbient(city, stamp);
     if (stamp === this.staticStamp) {
       this.paintCars();
       this.paintPedestrians();
@@ -844,6 +854,10 @@ export class CityRenderer {
     this.flightTime += dt;
     if (this.flights.length > 0) this.paintPlanes();
     if (this.boats.length > 0) this.paintBoats();
+    const dayAmt = 1 - nightAmount(climate.hour);
+    this.ambient.paint(this.flightTime, dayAmt, this.quality.level !== "low", this.quality.level !== "low");
+    // Clouds drift slowly instead of hanging still.
+    this.atmosphere.clouds.position.set(Math.sin(this.seaTime * 0.012) * 46, 0, Math.cos(this.seaTime * 0.009) * 22);
     if (this.shown) {
       this.paintCranes();
       this.paintFoam();
@@ -918,8 +932,37 @@ export class CityRenderer {
     }
   }
 
+  /** Residents, park visitors, smoke and birds: replanned on city change or every ~2 in-game hours. */
+  private syncAmbient(city: CityState, stamp: string): void {
+    const climate = climateAt(city.tick);
+    const bucket = `${Math.floor(city.tick / 50)}:${climate.isNight ? 1 : 0}`;
+    const key = `${stamp}:${bucket}`;
+    if (key === this.ambientStamp) return;
+    // A growing city changes the static stamp nearly every tick; replan at most every 1.5 s then.
+    const now = performance.now();
+    const sameBucket = this.ambientStamp.endsWith(`:${bucket}`);
+    if (sameBucket && now - this.ambientPlannedAt < 1500) return;
+    this.ambientStamp = key;
+    this.ambientPlannedAt = now;
+    const level = this.quality.level;
+    const budget =
+      level === "low" ? { people: 14, smoke: 0, flocks: 0 }
+      : level === "medium" ? { people: 52, smoke: 96, flocks: 3 }
+      : { people: 84, smoke: 156, flocks: 5 };
+    this.ambient.setPlan(planAmbient(city, (index) => this.heightOf(index), lifeActivity(climate), budget, climate.isNight));
+  }
+
+  /** Counts for tests / perf probes. */
+  lifeStats(): { cars: number; pedestrians: number; residents: number; smoke: number; birds: number; beach: number } {
+    const ambient = this.ambient.stats();
+    return { cars: this.walkers.length, pedestrians: this.pedestrians.length, residents: ambient.people, smoke: ambient.smoke, birds: ambient.birds, beach: this.beachCrowd.length };
+  }
+
   private syncCars(city: CityState): void {
-    const roster = streetCars(city, this.quality.level === "low" ? 28 : this.quality.level === "medium" ? 48 : 72);
+    const base = this.quality.level === "low" ? 28 : this.quality.level === "medium" ? 48 : 72;
+    // Weak devices keep the old budget; medium/high scale with population.
+    const scale = this.quality.level === "low" ? 1 : crowdScale(this.population);
+    const roster = streetCars(city, Math.min(110, Math.round(base * scale)));
     const previous = new Map(this.walkers.map((walker) => [walker.id, walker]));
     this.walkers = roster.map((car) => previous.get(car.id) ?? this.spawnCar(city, car));
     for (const walker of this.walkers) {
@@ -1064,7 +1107,8 @@ export class CityRenderer {
   }
 
   private syncPedestrians(city: CityState): void {
-    const roster = streetPedestrians(city, this.quality.level === "low" ? 18 : this.quality.level === "medium" ? 36 : 56);
+    const base = this.quality.level === "low" ? 18 : this.quality.level === "medium" ? 36 : 56;
+    const roster = streetPedestrians(city, Math.round(base * (this.quality.level === "low" ? 1 : crowdScale(this.population))));
     const previous = new Map(this.pedestrians.map((ped) => [ped.id, ped]));
     this.pedestrians = roster.map((entry) => previous.get(entry.id) ?? this.spawnPedestrian(city, entry));
   }
@@ -1230,6 +1274,13 @@ export class CityRenderer {
         smiles += 1;
       }
     }
+    for (const person of this.ambient.people) {
+      const scale = (person.child ? 0.72 : 1) * (low ? 1.05 : 1.42);
+      const pose: PersonPose = low ? "low" : person.pose;
+      // Idle chatter: a slow turn of the shoulders.
+      const sway = Math.sin(this.flightTime * 0.6 + person.phase) * 0.35;
+      this.placePerson(pose, person.x, person.y, person.z, scale, person.rotY + sway, person.color);
+    }
     for (const [key, instances] of this.personBodies) this.finish(instances, this.personBodySlot.get(key) ?? 0);
     for (const [key, instances] of this.personHeads) this.finish(instances, this.personHeadSlot.get(key) ?? 0);
     this.finish(this.towels, this.quality.level === "low" ? 0 : towels);
@@ -1283,7 +1334,7 @@ export class CityRenderer {
       this.quality,
     );
     this.nightLit = stamped.nightLit;
-    this.windowNight.value = this.nightLit ? 1 : goldenAmount(lookClimate.hour) * 0.12;
+    this.windowNight.value = Math.max(Math.min(1, nightAmount(lookClimate.hour) * 1.6), goldenAmount(lookClimate.hour) * 0.12);
     this.renderer.toneMappingExposure = stamped.exposure;
     this.scene.background = this.atmosphere.skyMaterial.uniforms.uZenith.value;
     this.rain.visible = lookClimate.weather === "rain";
@@ -1441,7 +1492,8 @@ export class CityRenderer {
       if (city.services[index] === ServiceKind.Harbor) harbors.push(index);
     }
       const cargoN = this.quality.level === "low" ? 1 : this.quality.level === "medium" ? 2 : 3;
-      const fishN = this.quality.level === "low" ? 0 : this.quality.level === "medium" ? 1 : 2;
+      const busy = Math.min(3, Math.floor(this.population / 900));
+      const fishN = this.quality.level === "low" ? 0 : (this.quality.level === "medium" ? 1 : 2) + busy;
       const ferryN = this.quality.level === "low" ? 0 : 1;
       this.boats = [];
       for (const cell of harbors) {

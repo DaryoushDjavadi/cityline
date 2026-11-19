@@ -1,5 +1,5 @@
 import { moodBonus } from "./progress.ts";
-import { climateAt, isOnDuty } from "./climate.ts";
+import { climateAt, isOnDuty, lifeActivity } from "./climate.ts";
 import { serviceInfo } from "./catalog.ts";
 import { ROAD_FLAG, cellCoords, cellIndex, inBounds } from "./grid.ts";
 import { isBeach, waterDir } from "./terrain.ts";
@@ -96,7 +96,7 @@ export function houseReport(city: CityState, home: number): Household[] {
 
 export function streetCars(city: CityState, limit = 72): StreetCar[] {
   const climate = climateAt(city.tick);
-  const activity = climate.streetActivity;
+  const activity = lifeActivity(climate);
   const rainy = climate.weather === "rain";
   const cap = Math.max(8, Math.round(limit * (0.22 + activity * 0.95) * (rainy ? 0.85 : 1)));
   const cars: StreetCar[] = [];
@@ -138,7 +138,7 @@ const PED_COLORS = [0xd45a3c, 0x2f7d9a, 0x3d8a4a, 0xa85a8a, 0xe2a03a, 0x3d4a8a, 
 export function streetPedestrians(city: CityState, limit = 56): StreetPedestrian[] {
   const climate = climateAt(city.tick);
   const night = climate.isNight;
-  const activity = climate.streetActivity;
+  const activity = lifeActivity(climate);
   const rainy = climate.weather === "rain";
   const cap = Math.max(4, Math.round(limit * (0.18 + activity * 0.95) * (rainy ? 0.55 : 1)));
   const walkers: StreetPedestrian[] = [];

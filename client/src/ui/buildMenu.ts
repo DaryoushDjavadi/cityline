@@ -1,9 +1,9 @@
 import { BUILDINGS, COST, SERVICES as SERVICE_INFO, ServiceKind } from "../../../shared/src/index.ts";
 import type { ToolId } from "./hud.ts";
 
-export type BuildCategoryId = "buildings" | "traffic" | "utility" | "services" | "food" | "terrain";
+export type BuildCategoryId = "roads" | "homes" | "work" | "utility" | "trade" | "civic" | "landmarks" | "tools";
 
-interface BuildItem {
+export interface BuildItem {
   tool: ToolId;
   /** Short tile label. */
   label: string;
@@ -13,9 +13,11 @@ interface BuildItem {
   per?: string;
   group?: string;
   blurb: string;
+  /** Short requirement chips shown in the tooltip, e.g. "Straße daneben". */
+  needs: string[];
 }
 
-interface BuildCategory {
+export interface BuildCategory {
   id: BuildCategoryId;
   label: string;
   icon: string;
@@ -55,6 +57,11 @@ const ICONS: Record<string, string> = {
   cityhall: `<path d="M3 20h18"/><path d="M5 20v-8h14v8"/><path d="M4 12l8-4 8 4"/><path d="M10 8V4.5h4V8"/><path d="M12 4.5V2.5M12 2.5h2.5"/><path d="M8 20v-5M12 20v-5M16 20v-5"/>`,
   tvtower: `<path d="M12 2v4"/><path d="M11 6h2v4h-2z"/><ellipse cx="12" cy="12" rx="4" ry="2.4"/><path d="M11 14.4 10 20h4l-1-5.6"/><path d="M7 21h10"/>`,
   civic: `<path d="M3 9 12 4l9 5"/><path d="M5 9v9M9.5 9v9M14.5 9v9M19 9v9"/><path d="M3 20h18"/>`,
+  homes: `<path d="M3 12 9 6.5l6 5.5"/><path d="M5 10.5V19h8v-8.5"/><path d="M13 9.5 16.5 6 21 10v9h-8"/><path d="M8 19v-3.5h2V19"/>`,
+  industry: `<path d="M3 20V12l5 3v-3l5 3V9h3V4h3v16Z"/><path d="M6.5 17.5h2M11 17.5h2"/><path d="M17.5 4c0-1 .8-1.6 1.7-1.6"/>`,
+  trade: `<path d="M3 15h18l-2.5 4.5h-13Z"/><path d="M6 15v-4h5v4"/><path d="M12.5 15V8h5v7"/><path d="M14 8V5.5"/><path d="M2.5 21.5c1.5.8 3 .8 4.5 0s3-.8 4.5 0 3 .8 4.5 0 3-.8 4.5 0"/>`,
+  landmark: `<path d="M12 2.5 14.6 8l6 .6-4.5 4 1.3 5.9L12 15.5l-5.4 3 1.3-5.9-4.5-4 6-.6Z"/>`,
+  tools: `<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.3-.7-.7-2.3Z"/>`,
   utility: `<path d="M9 2 4 11h4l-1 7 6-9H9Z"/><path d="M17 9s3.5 3.8 3.5 6.2a3.5 3.5 0 0 1-7 0C13.5 12.8 17 9 17 9Z"/>`,
 };
 
@@ -62,30 +69,53 @@ export function toolSvg(key: string, className = "tool-icon"): string {
   return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[key] ?? ICONS.cottage}</svg>`;
 }
 
-const building = (tool: keyof typeof BUILDINGS, label: string, group: string, blurb: string): BuildItem => ({
+const ZONE_NEEDS = ["Straße daneben", "Strom", "Wasser"];
+const CIVIC_NEEDS = ["Straße direkt daneben", "Strom & Wasser für volle Wirkung"];
+
+const building = (tool: keyof typeof BUILDINGS, label: string, group: string, blurb: string, needs = ZONE_NEEDS): BuildItem => ({
   tool,
   label,
   name: BUILDINGS[tool].name,
   cost: BUILDINGS[tool].cost,
   group,
   blurb,
+  needs,
 });
 
-const service = (tool: ToolId, kind: number, label: string, blurb?: string): BuildItem => {
+const service = (tool: ToolId, kind: number, label: string, needs: string[], blurb?: string, group?: string): BuildItem => {
   const info = SERVICE_INFO[kind];
-  return { tool, label, name: info.name, cost: info.cost, blurb: blurb ?? info.blurb };
+  return { tool, label, name: info.name, cost: info.cost, blurb: blurb ?? info.blurb, needs, group };
 };
 
+/** Cities-Skylines-style toolbar: 8 categories (hotkeys 1–8), each with a palette (hotkeys R T Z U I O). */
 export const BUILD_MENU: BuildCategory[] = [
   {
-    id: "buildings",
-    label: "Gebäude",
-    icon: "cottage",
-    blurb: "Wohnen, Gewerbe und Industrie. Jedes Gebäude braucht eine Straße direkt daneben.",
+    id: "roads",
+    label: "Straßen",
+    icon: "road",
+    blurb: "Straßen verbinden alles. Ziehen baut mehrere Felder am Stück, gerade oder mit einer Ecke.",
+    items: [
+      { tool: "road", label: "Straße", name: "Straße", cost: COST.road, per: "pro Feld", blurb: "Gerade oder mit einer rechtwinkligen Ecke ziehen. Jedes Gebäude braucht eine Straße direkt daneben.", needs: ["Freies Land"] },
+      { tool: "bridge", label: "Brücke", name: "Brücke", cost: COST.bridge, per: "pro Feld", blurb: "Straße über Wasser, angeschlossen an bestehende Straßen.", needs: ["Über Wasser", "Anschluss an Straße"] },
+    ],
+  },
+  {
+    id: "homes",
+    label: "Wohnen",
+    icon: "homes",
+    blurb: "Hier ziehen Familien ein. Mehr Einwohner bringen Steuern und Arbeiter.",
     items: [
       building("cottage", "Haus", "Wohnen", "Platz für eine Familie. Günstiger Start für jede Siedlung."),
       building("apartments", "Mehrfam.", "Wohnen", "Mehrere Familien auf einem Feld."),
       building("tower", "Hochhaus", "Wohnen", "Viele Einwohner auf kleiner Fläche."),
+    ],
+  },
+  {
+    id: "work",
+    label: "Arbeit",
+    icon: "industry",
+    blurb: "Gewerbe und Industrie schaffen Jobs. Ohne Arbeitsplätze ziehen Leute wieder weg.",
+    items: [
       building("shop", "Laden", "Gewerbe", "Kleines Gewerbe mit ersten Jobs."),
       building("office", "Büro", "Gewerbe", "Mehr Jobs, gut für gebildete Bewohner."),
       building("mall", "Kaufhaus", "Gewerbe", "Großes Gewerbe mit vielen Stellen."),
@@ -95,67 +125,68 @@ export const BUILD_MENU: BuildCategory[] = [
     ],
   },
   {
-    id: "traffic",
-    label: "Verkehr",
-    icon: "road",
-    blurb: "Straßen verbinden alles. Ziehen baut mehrere Felder am Stück.",
-    items: [
-      { tool: "road", label: "Straße", name: "Straße", cost: COST.road, per: "pro Feld", blurb: "Gerade oder mit einer rechtwinkligen Ecke ziehen." },
-      { tool: "bridge", label: "Brücke", name: "Brücke", cost: COST.bridge, per: "pro Feld", blurb: "Straße über Wasser, angeschlossen an bestehende Straßen." },
-      service("lamp", ServiceKind.Lamp, "Laterne"),
-      service("airport", ServiceKind.Airport, "Flughafen", "Schneller Handel, wenig Kapazität. Logistik-Verbund mit einem nahen Hafen."),
-      service("harbor", ServiceKind.Harbor, "Hafen", "Direkt an die Meeresküste, auf Sand oder Land. Der Steg ragt ins Wasser. Danach Straße, Strom und Wasser anschließen."),
-    ],
-  },
-  {
     id: "utility",
     label: "Versorgung",
     icon: "utility",
-    blurb: "Ziehen legt eine gerade oder L-förmige Leitung. Ein Gebäude ist versorgt, wenn Leitung oder Werk ein Feld daneben liegt.",
+    blurb: "Strom und Wasser: Werk bauen, dann Leitung bzw. Rohr bis zu den Häusern ziehen. Versorgt ist, was die Leitung direkt berührt.",
     items: [
-      service("power", ServiceKind.Power, "Kraftwerk"),
-      service("water", ServiceKind.Water, "Wasserwerk"),
-      { tool: "line", label: "Leitung", name: "Stromleitung", cost: COST.line, per: "pro Feld", blurb: "Ziehen: gerade oder mit einer Ecke. Über Straße und Wasser. Rechtsklick reißt nur die Leitung ab. Gebäude direkt daneben gelten als versorgt." },
-      { tool: "pipe", label: "Rohr", name: "Wasserrohr", cost: COST.pipe, per: "pro Feld", blurb: "Wie die Stromleitung, für Wasser. Rechtsklick entfernt nur das Rohr." },
+      service("power", ServiceKind.Power, "Kraftwerk", ["Freies Land", "danach Leitung ziehen"], undefined, "Strom"),
+      { tool: "line", label: "Stromleitung", name: "Stromleitung", cost: COST.line, per: "pro Feld", group: "Strom", blurb: "Vom Kraftwerk zu den Häusern ziehen: gerade oder mit einer Ecke, auch über Straßen und Wasser. Rechtsklick entfernt nur die Leitung.", needs: ["Beginnt am Kraftwerk oder an einer Leitung"] },
+      service("water", ServiceKind.Water, "Wasserwerk", ["Freies Land", "danach Rohr ziehen"], undefined, "Wasser"),
+      { tool: "pipe", label: "Wasserrohr", name: "Wasserrohr", cost: COST.pipe, per: "pro Feld", group: "Wasser", blurb: "Wie die Stromleitung, für Wasser. Rechtsklick entfernt nur das Rohr.", needs: ["Beginnt am Wasserwerk oder an einem Rohr"] },
+      service("lamp", ServiceKind.Lamp, "Laterne", ["An Straße oder Leitung"]),
     ],
   },
   {
-    id: "services",
-    label: "Dienste",
+    id: "trade",
+    label: "Handel",
+    icon: "trade",
+    blurb: "Hafen, Flughafen und Bauernhof: Nahrung erzeugen und Waren in die Welt verkaufen.",
+    items: [
+      service("harbor", ServiceKind.Harbor, "Hafen", ["Meeresküste", "Straße, Strom, Wasser"], "Direkt an die Meeresküste, auf Sand oder Land. Der Steg ragt ins Wasser. Bringt Handel und Lieferungen."),
+      service("airport", ServiceKind.Airport, "Flughafen", ["Viel freie Fläche", "Straße, Strom, Wasser"], "Schneller Handel, wenig Kapazität. Logistik-Verbund mit einem nahen Hafen."),
+      building("farm", "Bauernhof", "Nahrung", "Erzeugt Nahrung mit Arbeitern. Im Infofenster Tiere kaufen oder den Hof verbessern.", ["Straße daneben", "Arbeiter", "Strom & Wasser = mehr Ertrag"]),
+    ],
+  },
+  {
+    id: "civic",
+    label: "Öffentlich",
     icon: "civic",
-    blurb: "Öffentliche Gebäude wirken auf ihren Umkreis.",
+    blurb: "Schulen, Gesundheit, Sicherheit und Parks wirken auf ihren Umkreis und machen glücklich.",
     items: [
-      service("school", ServiceKind.School, "Schule"),
-      service("university", ServiceKind.University, "Uni"),
-      service("clinic", ServiceKind.Clinic, "Klinik"),
-      service("police", ServiceKind.Police, "Polizei"),
-      service("fire", ServiceKind.Fire, "Feuerwehr"),
-      service("park", ServiceKind.Park, "Park"),
-      { ...service("wheel", ServiceKind.Wheel, "Riesenrad"), group: "Wahrzeichen" },
-      { ...service("cityhall", ServiceKind.CityHall, "Rathaus"), group: "Wahrzeichen" },
-      { ...service("tvtower", ServiceKind.Tower, "Fernsehturm"), group: "Wahrzeichen" },
+      service("school", ServiceKind.School, "Schule", CIVIC_NEEDS),
+      service("university", ServiceKind.University, "Uni", CIVIC_NEEDS),
+      service("clinic", ServiceKind.Clinic, "Klinik", CIVIC_NEEDS),
+      service("police", ServiceKind.Police, "Polizei", CIVIC_NEEDS),
+      service("fire", ServiceKind.Fire, "Feuerwehr", CIVIC_NEEDS),
+      service("park", ServiceKind.Park, "Park", ["Straße direkt daneben"]),
     ],
   },
   {
-    id: "food",
-    label: "Nahrung",
-    icon: "farm",
-    blurb: "Nahrung kommt vom Bauernhof mit Arbeitern. Neue Städte brauchen kaum welche.",
+    id: "landmarks",
+    label: "Wahrzeichen",
+    icon: "landmark",
+    blurb: "Je eins pro Stadt, freigeschaltet über den Stadt-Rang. Machen glücklich und bringen Einnahmen.",
     items: [
-      building("farm", "Bauernhof", "Landwirtschaft", "Startet mit Getreide. Im Infofenster Tiere kaufen oder den Hof verbessern."),
+      service("wheel", ServiceKind.Wheel, "Riesenrad", ["Rang Kleinstadt", "Straße direkt daneben"], undefined, "Wahrzeichen"),
+      service("cityhall", ServiceKind.CityHall, "Rathaus", ["Rang Stadt", "Straße direkt daneben"], undefined, "Wahrzeichen"),
+      service("tvtower", ServiceKind.Tower, "Fernsehturm", ["Rang Großstadt", "Straße direkt daneben"], undefined, "Wahrzeichen"),
     ],
   },
   {
-    id: "terrain",
-    label: "Gelände",
-    icon: "fill",
-    blurb: "Land gewinnen oder Felder wieder frei machen.",
+    id: "tools",
+    label: "Werkzeuge",
+    icon: "tools",
+    blurb: "Abreißen und Land aufschütten.",
     items: [
-      { tool: "fill", label: "Aufschütten", name: "Aufschütten", cost: COST.fill, per: "pro Feld", blurb: "Macht ein blaues Wasserfeld zu Land." },
-      { tool: "bulldoze", label: "Abriss", name: "Abriss", cost: 0, blurb: "Ein einzelnes Feld abreißen. Gebäude geben einen Teil der Kosten zurück." },
+      { tool: "bulldoze", label: "Abriss", name: "Abriss", cost: 0, blurb: "Felder abreißen (ziehen geht auch). Gebäude geben einen Teil der Kosten zurück.", needs: [] },
+      { tool: "fill", label: "Aufschütten", name: "Aufschütten", cost: COST.fill, per: "pro Feld", blurb: "Macht ein blaues Wasserfeld zu Land.", needs: ["Wasserfeld"] },
     ],
   },
 ];
+
+/** Palette hotkeys by position (event.key, so Z works on German and US layouts). */
+export const PALETTE_KEYS = ["r", "t", "z", "u", "i", "o"];
 
 const money = new Intl.NumberFormat("de-DE");
 
@@ -174,7 +205,11 @@ function loadTab(): BuildCategoryId {
   } catch {
     // Storage can be blocked; fall back to the first tab.
   }
-  return "buildings";
+  return "roads";
+}
+
+export function categoryOf(tool: ToolId): BuildCategory | null {
+  return BUILD_MENU.find((category) => category.items.some((item) => item.tool === tool)) ?? null;
 }
 
 export interface BuildMenu {
@@ -182,23 +217,49 @@ export interface BuildMenu {
   showTool: (tool: ToolId) => void;
   /** Marks tools as locked (e.g. landmarks below the needed rank); null unlocks. */
   setLocked: (locks: Partial<Record<ToolId, string | null>>) => void;
+  /** Hotkey 1–8: open that category's palette (toggles if already open). */
+  selectCategory: (index: number) => void;
+  /** Hotkey inside the open palette; returns the tool or null. */
+  paletteTool: (key: string) => ToolId | null;
+  /** Whether the palette is open (for hotkeys). */
+  paletteOpen: () => boolean;
 }
 
 export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, detailHost: HTMLElement): BuildMenu {
   let active = loadTab();
+  let open = true;
   let current: ToolId = "inspect";
-  const itemByTool = new Map<ToolId, { item: BuildItem; category: BuildCategory }>();
+  const locked = new Map<ToolId, string>();
+  const itemByTool = new Map<ToolId, { item: BuildItem; category: BuildCategory; button: HTMLButtonElement }>();
   const tabs = new Map<BuildCategoryId, HTMLButtonElement>();
   const panels = new Map<BuildCategoryId, HTMLElement>();
+  const rail = tabsHost.closest<HTMLElement>("#rail") ?? document.body;
 
   const detailName = document.createElement("b");
   const detailCost = document.createElement("span");
   detailCost.className = "build-detail-cost";
   const detailText = document.createElement("p");
+  const detailNeeds = document.createElement("div");
+  detailNeeds.className = "build-needs";
   const detailHead = document.createElement("div");
   detailHead.className = "build-detail-head";
   detailHead.append(detailName, detailCost);
-  detailHost.replaceChildren(detailHead, detailText);
+  detailHost.replaceChildren(detailHead, detailText, detailNeeds);
+
+  // Floating tooltip (desktop hover / keyboard focus).
+  const tip = document.createElement("div");
+  tip.id = "build-tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  rail.append(tip);
+
+  const chips = (item: BuildItem) => {
+    const lock = locked.get(item.tool);
+    const list = lock ? [lock, ...item.needs] : item.needs;
+    return list.map((need, index) => `<span class="need${lock && index === 0 ? " lock" : ""}">${escapeHtml(need)}</span>`).join("");
+  };
+
+  const costText = (item: BuildItem) => (item.cost > 0 ? `${money.format(item.cost)} €${item.per ? ` ${item.per}` : ""}` : "kostenlos");
 
   const paintDetail = (tool: ToolId | null) => {
     const entry = tool ? itemByTool.get(tool) : undefined;
@@ -208,38 +269,65 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
       detailName.textContent = category.label;
       detailCost.textContent = "";
       detailText.textContent = category.blurb;
+      detailNeeds.innerHTML = "";
       return;
     }
     const { item } = entry;
     detailHost.dataset.kind = "item";
     detailName.textContent = item.group ? `${item.name} · ${item.group}` : item.name;
-    detailCost.textContent = item.cost > 0 ? `${money.format(item.cost)} €${item.per ? ` ${item.per}` : ""}` : "kostenlos";
+    detailCost.textContent = costText(item);
     detailText.textContent = item.blurb;
+    detailNeeds.innerHTML = chips(item);
+  };
+
+  const showTip = (tool: ToolId) => {
+    const entry = itemByTool.get(tool);
+    if (!entry) return;
+    const { item, button } = entry;
+    const index = entry.category.items.indexOf(item);
+    const key = PALETTE_KEYS[index];
+    tip.innerHTML = `<div class="tip-head"><b>${escapeHtml(item.name)}</b>${key ? `<kbd>${key.toUpperCase()}</kbd>` : ""}</div><span class="tip-cost">${escapeHtml(costText(item))}</span><p>${escapeHtml(item.blurb)}</p>${item.needs.length || locked.has(item.tool) ? `<div class="build-needs"><small>Braucht</small>${chips(item)}</div>` : ""}`;
+    tip.hidden = false;
+    const railRect = rail.getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    let left = rect.left - railRect.left + rect.width / 2 - width / 2;
+    left = Math.max(4, Math.min(railRect.width - width - 4, left));
+    tip.style.left = `${left}px`;
+    tip.style.bottom = `${railRect.bottom - rect.top + 8}px`;
+  };
+  const hideTip = () => {
+    tip.hidden = true;
   };
 
   const paintTabs = () => {
     for (const [id, tab] of tabs) {
-      const on = id === active;
+      const on = id === active && open;
       tab.classList.toggle("active", on);
       tab.setAttribute("aria-selected", String(on));
-      tab.tabIndex = on ? 0 : -1;
+      tab.setAttribute("aria-expanded", String(on));
+      tab.tabIndex = id === active ? 0 : -1;
     }
     for (const [id, panel] of panels) panel.hidden = id !== active;
     gridHost.dataset.category = active;
+    rail.dataset.palette = open ? "open" : "closed";
     paintDetail(current);
   };
 
-  const select = (id: BuildCategoryId) => {
+  const select = (id: BuildCategoryId, toggle = false) => {
+    if (toggle && id === active) open = !open;
+    else open = true;
     active = id;
     try {
       localStorage.setItem(TAB_KEY, id);
     } catch {
       // Remembering the tab is optional.
     }
+    hideTip();
     paintTabs();
   };
 
-  for (const category of BUILD_MENU) {
+  BUILD_MENU.forEach((category, categoryIndex) => {
     const tab = document.createElement("button");
     tab.type = "button";
     tab.className = "build-tab";
@@ -247,10 +335,10 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
     tab.dataset.category = category.id;
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-controls", `build-panel-${category.id}`);
-    tab.title = category.label;
-    tab.innerHTML = `${toolSvg(category.icon, "tab-icon")}<span></span>`;
-    tab.querySelector("span")!.textContent = category.label;
-    tab.addEventListener("click", () => select(category.id));
+    tab.title = `${category.label} (Taste ${categoryIndex + 1})`;
+    tab.innerHTML = `<span class="tab-glyph">${toolSvg(category.icon, "tab-icon")}</span><span class="tab-label"></span><kbd class="tab-key">${categoryIndex + 1}</kbd>`;
+    tab.querySelector(".tab-label")!.textContent = category.label;
+    tab.addEventListener("click", () => select(category.id, true));
     tab.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
       event.preventDefault();
@@ -266,27 +354,36 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
     panel.className = "build-grid";
     panel.id = `build-panel-${category.id}`;
     panel.dataset.category = category.id;
+    panel.dataset.count = String(category.items.length);
     panel.setAttribute("role", "tabpanel");
     panel.setAttribute("aria-labelledby", tab.id);
-    for (const item of category.items) {
-      itemByTool.set(item.tool, { item, category });
+    category.items.forEach((item, itemIndex) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "build-item";
       button.dataset.tool = item.tool;
       if (item.group) button.dataset.group = item.group;
-      button.setAttribute("aria-label", `${item.name}, ${item.cost > 0 ? `${money.format(item.cost)} €` : "kostenlos"}`);
-      button.innerHTML = `<i class="build-item-icon">${toolSvg(item.tool, "tool-icon")}</i><span class="build-item-label"></span><em class="build-item-cost"></em>`;
+      const key = PALETTE_KEYS[itemIndex];
+      button.setAttribute("aria-label", `${item.name}, ${item.cost > 0 ? `${money.format(item.cost)} €` : "kostenlos"}${key ? `, Taste ${key.toUpperCase()}` : ""}`);
+      button.innerHTML = `<i class="build-item-icon">${toolSvg(item.tool, "tool-icon")}</i><span class="build-item-label"></span><em class="build-item-cost"></em>${key ? `<kbd class="build-item-key">${key.toUpperCase()}</kbd>` : ""}`;
       button.querySelector(".build-item-label")!.textContent = item.label;
       button.querySelector(".build-item-cost")!.textContent = shortCost(item.cost);
+      itemByTool.set(item.tool, { item, category, button });
       button.addEventListener("pointerenter", (event) => {
-        if (event.pointerType === "mouse") paintDetail(item.tool);
+        if (event.pointerType !== "mouse") return;
+        paintDetail(item.tool);
+        showTip(item.tool);
       });
       button.addEventListener("pointerleave", (event) => {
-        if (event.pointerType === "mouse") paintDetail(current);
+        if (event.pointerType !== "mouse") return;
+        paintDetail(current);
+        hideTip();
       });
       button.addEventListener("focus", () => paintDetail(item.tool));
-      button.addEventListener("blur", () => paintDetail(current));
+      button.addEventListener("blur", () => {
+        paintDetail(current);
+        hideTip();
+      });
       let pressTimer = 0;
       let longPressed = false;
       button.addEventListener("pointerdown", (event) => {
@@ -296,31 +393,40 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
         pressTimer = window.setTimeout(() => {
           longPressed = true;
           paintDetail(item.tool);
+          showTip(item.tool);
           button.classList.add("peek");
         }, 420);
       });
       const endPress = () => {
         window.clearTimeout(pressTimer);
         button.classList.remove("peek");
+        if (longPressed) window.setTimeout(hideTip, 1600);
       };
       button.addEventListener("pointerup", endPress);
       button.addEventListener("pointercancel", endPress);
       button.addEventListener("contextmenu", (event) => event.preventDefault());
       // A long press only previews; capture runs before the HUD's tool click handler.
       button.addEventListener("click", (event) => {
+        hideTip();
         if (!longPressed) return;
         longPressed = false;
         event.preventDefault();
         event.stopImmediatePropagation();
       }, { capture: true });
       panel.append(button);
-    }
+    });
     panels.set(category.id, panel);
     gridHost.append(panel);
-  }
+  });
   tabsHost.setAttribute("role", "tablist");
   tabsHost.setAttribute("aria-label", "Baukategorien");
   paintTabs();
+  // The status footer sits right above the bottom toolbar on desktop.
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => {
+      document.body.style.setProperty("--rail-h", `${Math.round(rail.offsetHeight)}px`);
+    }).observe(rail);
+  }
 
   return {
     showTool(tool) {
@@ -331,16 +437,35 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
     },
     setLocked(locks) {
       for (const [tool, reason] of Object.entries(locks) as [ToolId, string | null][]) {
-        const button = gridHost.querySelector<HTMLButtonElement>(`.build-item[data-tool="${tool}"]`);
-        if (!button) continue;
+        const entry = itemByTool.get(tool);
+        if (!entry) continue;
         if (reason) {
-          button.dataset.locked = "on";
-          button.title = reason;
+          locked.set(tool, reason);
+          entry.button.dataset.locked = "on";
         } else {
-          delete button.dataset.locked;
-          button.removeAttribute("title");
+          locked.delete(tool);
+          delete entry.button.dataset.locked;
         }
       }
+      paintDetail(current);
+    },
+    selectCategory(index) {
+      const category = BUILD_MENU[index];
+      if (category) select(category.id, true);
+    },
+    paletteTool(key) {
+      if (!open) return null;
+      const index = PALETTE_KEYS.indexOf(key.toLowerCase());
+      if (index < 0) return null;
+      const category = BUILD_MENU.find((entry) => entry.id === active);
+      return category?.items[index]?.tool ?? null;
+    },
+    paletteOpen() {
+      return open;
     },
   };
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch);
 }

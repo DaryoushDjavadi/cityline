@@ -2,6 +2,7 @@ import { chooseEvent, landmarkBlock } from "./progress.ts";
 import { buildingInfo, readBudget, refundForLevel, serviceInfo } from "./catalog.ts";
 import { ensureBeaches, isBeach, isCoastalLand, restoreMissingCoast } from "./terrain.ts";
 import { applyHubTrade } from "./trade.ts";
+import { applyOrder } from "./orders.ts";
 import { FARM_IRRIGATION, FARM_LIVESTOCK, FARM_SILO, FARM_UPGRADES, farmActionAvailable, isFarmAction } from "./farm.ts";
 import { demandRebate } from "./goals.ts";
 import { jobOpenings, listAdults } from "./people.ts";
@@ -445,6 +446,10 @@ export function applyCommand(city: CityState, command: Command): ApplyResult {
 
   if (command.type === "trade") {
     return applyHubTrade(city, command.index, command.deal);
+  }
+
+  if (command.type === "order") {
+    return applyOrder(city, command.slot, command.id, command.action);
   }
 
   if (command.type === "choose") {

@@ -128,3 +128,16 @@ function climateHash(value: number): number {
   x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
   return (x ^ (x >>> 16)) >>> 0;
 }
+
+/**
+ * How much visible street life there is (pedestrians, residents outside, cars on
+ * errands): rush-hour peaks plus a steady daytime bustle, quiet at night.
+ * Visual only — traffic simulation keeps using `streetActivityAt`.
+ */
+export function lifeActivity(climate: Pick<Climate, "hour" | "streetActivity">): number {
+  const h = climate.hour;
+  const rise = Math.min(1, Math.max(0, (h - 7) / 2));
+  const fall = Math.min(1, Math.max(0, (20.5 - h) / 2));
+  const daytime = 0.5 * Math.min(rise, fall);
+  return Math.max(climate.streetActivity, daytime);
+}

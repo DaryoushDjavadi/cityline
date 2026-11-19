@@ -231,6 +231,10 @@ export interface Hud {
   setOverlays: (overlays: { zones: boolean; power: boolean; water: boolean }) => void;
   setQuality: (preset: "auto" | "high" | "medium" | "low") => void;
   setLockedTools: (locks: Partial<Record<ToolId, string | null>>) => void;
+  /** Build hotkeys: 1–8 opens a category palette (and the menu). */
+  selectBuildCategory: (index: number) => void;
+  /** Palette hotkey (R T Z U I O) → tool, or null. */
+  paletteTool: (key: string) => ToolId | null;
   closeOverlays: () => boolean;
   clearToast: () => void;
   playerName: () => string;
@@ -1034,6 +1038,20 @@ export function createHud(events: HudControls): Hud {
     },
     setLockedTools(locks) {
       buildMenu.setLocked(locks);
+    },
+    selectBuildCategory(index) {
+      if (!menuOpen) {
+        menuOpen = true;
+        paintMenu();
+        events.onCompactPanel("menu");
+        buildMenu.selectCategory(index);
+        if (!buildMenu.paletteOpen()) buildMenu.selectCategory(index);
+        return;
+      }
+      buildMenu.selectCategory(index);
+    },
+    paletteTool(key) {
+      return menuOpen ? buildMenu.paletteTool(key) : null;
     },
     closeOverlays() {
       let closed = false;

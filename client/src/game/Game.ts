@@ -10,6 +10,7 @@ import { playSfx, unlockAudio, updateAudioScene } from "../audio/sfx.ts";
 import { sampleAudioScene } from "../audio/scene.ts";
 import { bindAudioControls } from "../ui/audioPanel.ts";
 import { CityLife } from "../ui/cityLife.ts";
+import { OrderBoardView } from "../ui/orderBoard.ts";
 import {
   BUILDINGS,
   CELL_SIZE,
@@ -100,6 +101,8 @@ import {
   worldToCell,
   writeCity,
   ensureProgress,
+  ensureBoard,
+  stepOrders,
   stepProgress,
   EVENT_TIMEOUT,
   type EventId,
@@ -275,6 +278,7 @@ export class Game {
   private lastSave = 0;
   private lastShipments: { cell: number; due: number; money: number; food: number }[] = [];
   private life!: CityLife;
+  private orders!: OrderBoardView;
   private lastAudioScene = 0;
   private lastStats: SimMeta["stats"] | null = null;
   private building = false;
@@ -342,6 +346,23 @@ export class Game {
       },
       locks: (locks) => this.hud.setLockedTools(locks),
       opened: () => {
+        this.orders?.toggle(false);
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+        this.setBriefOpen(false);
+        if (isCompactHud()) {
+          this.hud.setDemandOpen(false);
+          this.hud.setMenuOpen(false);
+        }
+      },
+    });
+    this.orders = new OrderBoardView({
+      order: (slot, id, action) => this.applyLocal({ type: "order", slot, id, action }),
+      sound: (cue) => playSfx(cue),
+      opened: () => {
+        this.life.toggle(false);
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -647,6 +668,10 @@ export class Game {
       stats() {
         return buildMeta(self.city).stats;
       },
+      /** Ambient life counts (cars, pedestrians, residents, smoke, birds). */
+      life() {
+        return self.view.lifeStats();
+      },
       /** Swap the current solo city for the look showcase (pop ~280) and keep simulating. */
       showcase(hour = 9) {
         const showcase = buildLookCity(hour);
@@ -686,6 +711,35 @@ export class Game {
       progress() {
         return self.city.progress ? JSON.parse(JSON.stringify(self.city.progress)) : null;
       },
+      /** Auftragstafel state (deep copy). */
+      orders() {
+        const board = self.city.progress?.orders;
+        return board ? JSON.parse(JSON.stringify(board)) : null;
+      },
+      /** Fill the order stocks for tests/screenshots. */
+      setOrderStock(stock: { food?: number; goods?: number; fish?: number }) {
+        const board = ensureBoard(self.city);
+        if (stock.food !== undefined) self.city.food = stock.food;
+        if (stock.goods !== undefined) board.goods = stock.goods;
+        if (stock.fish !== undefined) board.fish = stock.fish;
+        self.rememberWorker(false);
+        self.publish();
+        return { food: self.city.food, goods: board.goods, fish: board.fish };
+      },
+      /** Paused showcase: advance only the order board (time, production, refills). */
+      advanceOrders(ticks = 40) {
+        for (let k = 0; k < ticks; k += 1) {
+          self.city.tick += 1;
+          stepOrders(self.city);
+        }
+        self.rememberWorker(false);
+        self.publish();
+        return JSON.parse(JSON.stringify(self.city.progress?.orders ?? null));
+      },
+      openOrders(open = true) {
+        self.orders.toggle(open);
+        return self.orders.isOpen();
+      },
       chatter(count = 4) {
         return self.life.chatterNow(self.city, buildMeta(self.city), count);
       },
@@ -707,6 +761,12 @@ export class Game {
       },
       cellIndex(x: number, y: number) {
         return cellIndex(self.city, x, y);
+      },
+      findService(kind: number): { x: number; y: number } | null {
+        for (let i = 0; i < self.city.services.length; i += 1) {
+          if (self.city.services[i] === kind) return { x: i % self.city.width, y: Math.floor(i / self.city.width) };
+        }
+        return null;
       },
       countService(kind: number) {
         let n = 0;
@@ -1100,23 +1160,41 @@ export class Game {
   private onKey(event: KeyboardEvent, down: boolean): void {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-    const tools: Record<string, ToolId> = {
-      Digit1: "road",
-      Digit2: "bridge",
-      Digit3: "cottage",
-      Digit4: "shop",
-      Digit5: "workshop",
-      Digit6: "line",
-      Digit7: "bulldoze",
-      Digit8: "school",
-      Digit9: "university",
-      Digit0: "inspect",
-    };
-    if (down && tools[event.code]) {
-      this.setTool(tools[event.code]);
-      return;
+    if (down && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Age-of-Empires-style: 1–8 opens a build category, R T Z U I O picks from its palette.
+      const digit = /^Digit([0-9])$/.exec(event.code)?.[1];
+      if (digit === "0") {
+        this.setTool("inspect");
+        return;
+      }
+      if (digit && Number(digit) >= 1 && Number(digit) <= 8) {
+        this.hud.selectBuildCategory(Number(digit) - 1);
+        return;
+      }
+      const picked = event.key.length === 1 ? this.hud.paletteTool(event.key) : null;
+      if (picked) {
+        event.preventDefault();
+        this.setTool(picked);
+        return;
+      }
+      if (event.key === "l" || event.key === "L") {
+        this.setTool("line");
+        return;
+      }
+      if (event.key === "p" || event.key === "P") {
+        this.setTool("pipe");
+        return;
+      }
+      if (event.key === "j" || event.key === "J") {
+        this.orders.toggle();
+        return;
+      }
     }
     if (down && event.code === "Escape") {
+      if (this.orders.isOpen()) {
+        this.orders.toggle(false);
+        return;
+      }
       if (this.hud.closeOverlays()) return;
       if (this.building) this.cancelStroke(true);
       else {
@@ -1810,6 +1888,7 @@ export class Game {
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
     this.lastStats = meta.stats;
     this.life.update(this.city, meta);
+    this.orders.update(this.city);
     const syncStart = performance.now();
     this.view.sync(this.city, live);
     this.view.lastSyncMs = performance.now() - syncStart;
@@ -1859,6 +1938,7 @@ export class Game {
     this.selected = -1;
     this.lastShipments = [];
     this.life.reset();
+    this.orders.reset();
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -2348,6 +2428,7 @@ export class Game {
   private setRosterOpen(open: boolean): void {
     if (open) {
       this.life.toggle(false);
+      this.orders.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.chatOpen = false;
@@ -2361,6 +2442,7 @@ export class Game {
   private setChatOpen(open: boolean): void {
     if (open) {
       this.life.toggle(false);
+      this.orders.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.rosterOpen = false;

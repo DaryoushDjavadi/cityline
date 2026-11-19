@@ -201,27 +201,23 @@ export function applyLook(
   const day = climate.daylight;
   const rainy = climate.weather === "rain";
   const cloudy = climate.weather === "cloud" || rainy;
-  const night = climate.isNight;
   const goldenAmt = goldenAmount(climate.hour);
-  const nightAmt = night ? 1 - Math.min(1, Math.max(0, (day - 0.14) / 0.2)) : Math.max(0, 0.28 - day) / 0.28;
+  // Smooth 0..1 night blend (dusk 19:15–21:00, dawn 05:00–06:45) – no hard switch at 20:30.
+  const nightAmt = nightAmount(climate.hour);
+  const night = nightAmt > 0.5;
   const elev = sunElevation(climate.hour);
 
-  const zenith = night
-    ? tmp.set(0x1a3d66)
-    : rainy
-      ? tmp.set(0x7a93a8)
-      : tmp.set(goldenAmt > 0.45 ? 0x3a8ed4 : 0x2d7fc8);
-  const horizon = night
-    ? tmpB.set(0x2a4a72)
-    : rainy
-      ? tmpB.set(0xb7c4ce)
-      : tmpB.set(goldenAmt > 0.45 ? 0xf4c992 : 0xd5e4f0);
+  // Day palette (unchanged concept-art look) blended into a light blue-violet night.
+  const dayZenith = rainy ? tmp.set(0x7a93a8) : tmp.set(goldenAmt > 0.45 ? 0x3a8ed4 : 0x2d7fc8);
+  const dayHorizon = rainy ? tmpB.set(0xb7c4ce) : tmpB.set(goldenAmt > 0.45 ? 0xf4c992 : 0xd5e4f0);
+  const zenith = dayZenith.lerp(NIGHT.zenith, nightAmt);
+  const horizon = dayHorizon.lerp(rainy ? NIGHT.zenith : NIGHT.horizon, nightAmt);
 
   skyMaterial.uniforms.uZenith.value.copy(zenith);
   skyMaterial.uniforms.uHorizon.value.copy(horizon);
   skyMaterial.uniforms.uNight.value = nightAmt;
   skyMaterial.uniforms.uHaze.value = cloudy ? 0.35 : 0.04 + goldenAmt * 0.06;
-  skyMaterial.uniforms.uGlow.value = night ? 0.04 : 0.45 + goldenAmt * 0.4;
+  skyMaterial.uniforms.uGlow.value = (0.45 + goldenAmt * 0.4) * (1 - nightAmt) + 0.04 * nightAmt;
 
   const sunPos = poseSun(climate.hour, target);
   sun.position.copy(sunPos);
@@ -230,61 +226,89 @@ export function applyLook(
   const sunDir = sunPos.clone().sub(target).normalize();
   skyMaterial.uniforms.uSunDir.value.copy(sunDir);
 
-  fog.color.copy(night || rainy ? zenith : tmp.set(0x17608c));
+  fog.color.copy(rainy ? zenith : mixHex(0x17608c, NIGHT.fog, nightAmt));
   fog.near = rainy ? 280 : 4200;
   fog.far = rainy ? 1200 : 9000;
 
-  hemi.color.set(night ? 0xb0c0d8 : goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff);
-  hemi.groundColor.set(night ? 0x3a4a42 : 0x5a7a38);
-  hemi.intensity = night ? 0.8 : 0.62 + (1 - goldenAmt) * 0.18;
+  hemi.color.copy(mixHex(goldenAmt > 0.35 ? 0xffe0b8 : 0xe8f0ff, NIGHT.hemi, nightAmt));
+  hemi.groundColor.copy(mixHex(0x5a7a38, NIGHT.ground, nightAmt));
+  hemi.intensity = lerp(0.62 + (1 - goldenAmt) * 0.18, 0.98, nightAmt);
 
-  sun.color.set(night ? 0xc5d4ea : tmp.setRGB(1, 0.78 - goldenAmt * 0.16, 0.48 - goldenAmt * 0.16).getHex());
-  sun.intensity = (night ? 0.42 : 0.95 + elev * 0.55 + goldenAmt * 0.4) * (rainy ? 0.55 : cloudy ? 0.78 : 1);
+  const sunDay = tmp.setRGB(1, 0.78 - goldenAmt * 0.16, 0.48 - goldenAmt * 0.16).getHex();
+  sun.color.copy(mixHex(sunDay, NIGHT.moon, nightAmt));
+  sun.intensity = lerp(0.95 + elev * 0.55 + goldenAmt * 0.4, 0.62, nightAmt) * (rainy ? 0.55 : cloudy ? 0.78 : 1);
   sun.castShadow = quality.shadows && !night;
 
   fill.position.set(target.x - sunDir.x * 80, 36, target.z - sunDir.z * 80);
   fill.target.position.copy(target);
   fill.target.updateMatrixWorld();
-  fill.color.set(night ? 0x8aa0c0 : 0x9ec0e0);
-  fill.intensity = night ? 0.28 : 0.58;
+  fill.color.copy(mixHex(0x9ec0e0, NIGHT.fill, nightAmt));
+  fill.intensity = lerp(0.58, 0.42, nightAmt);
 
   seaMaterial.uniforms.uSunDir.value.copy(sunDir);
   seaMaterial.uniforms.uNight.value = nightAmt;
-  seaMaterial.uniforms.uShade.value = night ? 0.8 : rainy ? 0.84 : 1;
-  if (night) {
-    seaMaterial.uniforms.uDeep.value.set(0x143a66);
-    seaMaterial.uniforms.uMid.value.set(0x1d5580);
-    seaMaterial.uniforms.uShallow.value.set(0x2a6a90);
-    seaMaterial.uniforms.uLagoon.value.set(0x3d8aa8);
-    seaMaterial.uniforms.uHorizon.value.set(0x3d5a7a);
-  } else {
-    seaMaterial.uniforms.uDeep.value.set(0x17608c);
-    seaMaterial.uniforms.uMid.value.set(0x2176a4);
-    seaMaterial.uniforms.uShallow.value.set(0x2c88b2);
-    seaMaterial.uniforms.uLagoon.value.set(0x7ee8d6);
-    seaMaterial.uniforms.uHorizon.value.set(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8);
-  }
+  seaMaterial.uniforms.uShade.value = lerp(rainy ? 0.84 : 1, 0.9, nightAmt);
+  seaMaterial.uniforms.uDeep.value.copy(mixHex(0x17608c, NIGHT.seaDeep, nightAmt));
+  seaMaterial.uniforms.uMid.value.copy(mixHex(0x2176a4, NIGHT.seaMid, nightAmt));
+  seaMaterial.uniforms.uShallow.value.copy(mixHex(0x2c88b2, NIGHT.seaShallow, nightAmt));
+  seaMaterial.uniforms.uLagoon.value.copy(mixHex(0x7ee8d6, NIGHT.lagoon, nightAmt));
+  seaMaterial.uniforms.uHorizon.value.copy(mixHex(goldenAmt > 0.3 ? 0xe8b878 : 0x6eb4c8, NIGHT.seaHorizon, nightAmt));
 
-  clouds.visible = quality.clouds && !night;
+  clouds.visible = quality.clouds && nightAmt < 0.9;
   layoutClouds(clouds, target);
-  (clouds.material as THREE.MeshBasicMaterial).color.set(goldenAmt > 0.4 ? 0xffe6cc : 0xfff8f0);
+  (clouds.material as THREE.MeshBasicMaterial).color.copy(mixHex(goldenAmt > 0.4 ? 0xffe6cc : 0xfff8f0, 0xb4acd8, nightAmt));
 
   const starMat = stars.material as THREE.PointsMaterial;
   stars.visible = quality.stars && nightAmt > 0.25;
-  starMat.opacity = nightAmt * 0.85;
+  starMat.opacity = nightAmt * 0.75;
 
   moon.visible = nightAmt > 0.35;
   moon.position.set(target.x - sunDir.x * 340, 250, target.z - sunDir.z * 340);
 
-  sunDisc.visible = !night && elev > 0.04;
+  sunDisc.visible = nightAmt < 0.5 && elev > 0.04;
   const along = new THREE.Vector3(sunDir.x, 0, sunDir.z).normalize().multiplyScalar(640);
   sunDisc.position.set(target.x + along.x, 70 + elev * 50, target.z + along.z);
   (sunDisc.material as THREE.MeshBasicMaterial).color.set(goldenAmt > 0.3 ? 0xffd080 : 0xffeec0);
 
   return {
-    nightLit: night || day < 0.28,
-    exposure: night ? 1.05 : 0.98 + goldenAmt * 0.02,
+    nightLit: nightAmt > 0.3 || day < 0.28,
+    exposure: lerp(0.98 + goldenAmt * 0.02, 1.08, nightAmt),
   };
+}
+
+/** Light, readable night: blue-violet tint, never deep navy. */
+const NIGHT = {
+  zenith: new THREE.Color(0x4d5c9e),
+  horizon: new THREE.Color(0xa496c4),
+  fog: 0x4d5c9e,
+  hemi: 0xcac6ee,
+  ground: 0x5e6c64,
+  moon: 0xd6daf6,
+  fill: 0xa8aee0,
+  seaDeep: 0x2d5e92,
+  seaMid: 0x386ca0,
+  seaShallow: 0x437cab,
+  lagoon: 0x6cb2c8,
+  seaHorizon: 0x9490c0,
+};
+
+const mixA = new THREE.Color();
+const mixB = new THREE.Color();
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+function mixHex(day: number, night: number, t: number): THREE.Color {
+  return mixA.set(day).lerp(mixB.set(night), t).clone();
+}
+
+function smooth(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** 0 = day … 1 = full night, smooth through dusk and dawn. */
+export function nightAmount(hour: number): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 12) return smooth(19.25, 21, h);
+  return 1 - smooth(5, 6.75, h);
 }
 
 export function goldenAmount(hour: number): number {
@@ -383,7 +407,7 @@ function skyGradient(): THREE.ShaderMaterial {
         color += vec3(1.0, 0.78, 0.42) * glow * 0.7;
         color += vec3(1.0, 0.86, 0.58) * halo * low;
         color = mix(color, uHorizon, uHaze * (1.0 - band) * 0.04);
-        color = mix(color, vec3(0.07, 0.12, 0.24), uNight * 0.72);
+        color = mix(color, vec3(0.30, 0.33, 0.58), uNight * 0.22);
         gl_FragColor = vec4(color, 1.0);
       }
     `,
