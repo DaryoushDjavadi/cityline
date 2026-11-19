@@ -48,7 +48,8 @@ async function desktop(): Promise<void> {
     const bar = document.querySelector<HTMLElement>(".stats");
     if (!bar) return null;
     const items = [...bar.querySelectorAll<HTMLElement>(".stat")].filter((el) => el.offsetParent !== null);
-    const right = bar.getBoundingClientRect().right;
+    const actions = document.querySelector<HTMLElement>(".top-actions")?.getBoundingClientRect();
+    const right = Math.min(bar.getBoundingClientRect().right, actions && actions.width > 0 ? actions.left : Infinity);
     return { total: items.length, cut: items.filter((el) => el.getBoundingClientRect().right > right + 1).length };
   });
   check(stats && stats.cut === 0, `Werteleiste bei 1280 px nicht abgeschnitten (${stats?.cut}/${stats?.total})`);

@@ -102,6 +102,7 @@ import {
   writeCity,
   ensureProgress,
   ensureBoard,
+  stepOrders,
   stepProgress,
   EVENT_TIMEOUT,
   type EventId,
@@ -724,6 +725,16 @@ export class Game {
         self.rememberWorker(false);
         self.publish();
         return { food: self.city.food, goods: board.goods, fish: board.fish };
+      },
+      /** Paused showcase: advance only the order board (time, production, refills). */
+      advanceOrders(ticks = 40) {
+        for (let k = 0; k < ticks; k += 1) {
+          self.city.tick += 1;
+          stepOrders(self.city);
+        }
+        self.rememberWorker(false);
+        self.publish();
+        return JSON.parse(JSON.stringify(self.city.progress?.orders ?? null));
       },
       openOrders(open = true) {
         self.orders.toggle(open);

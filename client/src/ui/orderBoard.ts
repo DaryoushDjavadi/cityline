@@ -189,11 +189,11 @@ export class OrderBoardView {
       <p class="order-quote">„${customer.line}“</p>
       <ul class="order-lines">${lines}</ul>
       <div class="order-timer"><span data-bar></span></div>
-      <footer>
+      <div class="order-foot">
         <span class="order-reward"><b data-reward>+${euro.format(order.reward)} €</b><small data-express></small></span>
         <button type="button" class="order-skip" data-act="skip" data-slot="${slot}" data-id="${order.id}" title="Ablehnen" aria-label="Auftrag ablehnen">×</button>
         <button type="button" class="order-go" data-act="deliver" data-slot="${slot}" data-id="${order.id}">Liefern</button>
-      </footer>
+      </div>
     </article>`;
   }
 
@@ -267,10 +267,11 @@ export class OrderBoardView {
     window.setTimeout(() => ghost.remove(), 1300);
     const target = document.querySelector<HTMLElement>('[data-stat="funds"]') ?? this.button;
     const to = target.getBoundingClientRect();
-    const crates = ["📦", "🥖", "🐟", "🪙", "🪙", "🪙"];
+    const order = this.city?.progress?.orders?.slots[slot];
+    const crates = [...(order?.lines.map((line) => GOOD_INFO[line.good].icon) ?? ["📦"]), "€", "€", "€", "€"];
     crates.forEach((icon, index) => {
       const bit = document.createElement("span");
-      bit.className = "order-fly";
+      bit.className = icon === "€" ? "order-fly coin" : "order-fly";
       bit.textContent = icon;
       const sx = rect.left + rect.width * (0.25 + (index % 3) * 0.25);
       const sy = rect.top + rect.height * 0.55;
