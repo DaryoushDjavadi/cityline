@@ -16,11 +16,12 @@ import {
 } from "../../../shared/src/index.ts";
 import { animalGeometry, coatTint, itemGeometry, patternColor } from "../render/zooModels.ts";
 import { wanderPose, type Pose } from "../render/zooMotion.ts";
+import { blobShadowMaterial, buildInteriorDecor, setWindTime, type DecorType, type InteriorDecor } from "../render/zooDecor.ts";
+import { gfxProfile, loadGfxPreset } from "../render/quality.ts";
 
 export const SPOT = 2.2;
 const HALF = (ITEM_GRID * SPOT) / 2;
-const GROUND: Record<string, number> = { savanne: 0xd9bc72, wald: 0x5f8c4c, wasser: 0x86ae68, polar: 0xe8eff4, wiese: 0x8cc26a };
-const FENCE: Record<string, number> = { savanne: 0x8a6a44, wald: 0x6a4a30, wasser: 0xd8d2c6, polar: 0xbcc4cc, wiese: 0xf6f2e8 };
+const OUTSIDE: Record<string, number> = { savanne: 0x8fa85e, wald: 0x5f8a4a, wasser: 0x7aa85c, polar: 0xb8c8b4, wiese: 0x86b45e };
 
 export type InteriorTool = ItemKind | "remove" | null;
 
@@ -76,6 +77,10 @@ export class InteriorScene {
   readonly camera = new THREE.PerspectiveCamera(42, 1, 0.5, 200);
   private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.02 });
   private readonly ground: THREE.Mesh;
+  private readonly outer: THREE.Mesh;
+  private readonly low: boolean;
+  private dressing: InteriorDecor | null = null;
+  private readonly blob = blobShadowMaterial();
   private readonly grid: THREE.LineSegments;
   private readonly ghost: THREE.Mesh;
   private readonly decor = new THREE.Group();
@@ -105,18 +110,35 @@ export class InteriorScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
-    this.scene.background = new THREE.Color(0xbfd9e6);
-    this.scene.fog = new THREE.Fog(0xbfd9e6, 45, 90);
-    const hemi = new THREE.HemisphereLight(0xfff4e0, 0x5a6e4a, 1.7);
-    const sun = new THREE.DirectionalLight(0xfff0d8, 2.1);
-    sun.position.set(12, 22, 9);
+    this.renderer.toneMappingExposure = 1.08;
+    this.low = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low";
+    if (!this.low) {
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+    // Warm late-morning light like the concept art: golden sun, soft sky fill.
+    this.scene.background = new THREE.Color(0xcfe3ea);
+    this.scene.fog = new THREE.Fog(0xd8e6e2, 42, 95);
+    const hemi = new THREE.HemisphereLight(0xfff1da, 0x6e6044, 1.45);
+    const sun = new THREE.DirectionalLight(0xffe2b4, 2.5);
+    sun.position.set(11, 19, 8);
+    if (!this.low) {
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1536, 1536);
+      const r = HALF + 2.5;
+      Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 4, far: 50 });
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 0.03;
+      sun.shadow.radius = 4;
+    }
     this.scene.add(hemi, sun);
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(140, 140).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x7a9c5e, roughness: 1 }));
-    outer.position.y = -0.05;
-    this.scene.add(outer);
-    this.ground = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2 + 1, 0.3, HALF * 2 + 1), new THREE.MeshStandardMaterial({ color: 0xd9bc72, roughness: 1 }));
+    this.outer = new THREE.Mesh(new THREE.PlaneGeometry(140, 140).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x7a9c5e, roughness: 1 }));
+    this.outer.position.y = -0.05;
+    this.outer.receiveShadow = true;
+    this.scene.add(this.outer);
+    this.ground = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2 + 1, 0.3, HALF * 2 + 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }));
     this.ground.position.y = -0.15;
+    this.ground.receiveShadow = true;
     this.scene.add(this.ground);
     const lines: number[] = [];
     for (let i = 0; i <= ITEM_GRID; i += 1) {
@@ -208,8 +230,14 @@ export class InteriorScene {
         body.userData.animal = animal.id;
         pattern.userData.animal = animal.id;
         const group = new THREE.Group();
-        group.add(body, pattern);
-        const [, h, l] = geo.model.lod;
+        body.castShadow = pattern.castShadow = !this.low;
+        const [w, h, l] = geo.model.lod;
+        const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), this.blob);
+        blob.scale.set(w * 1.5 + 0.2, 1, l * 1.25 + 0.2);
+        blob.position.y = 0.03;
+        blob.renderOrder = 1;
+        blob.raycast = () => undefined;
+        group.add(body, pattern, blob);
         // Interior close-up: small animals are drawn bigger so they read and click well.
         const boost = Math.max(1.15, Math.min(3, 1.9 / Math.max(h, l * 0.6)));
         view = { group, body, pattern, boost, react: null };
@@ -250,45 +278,41 @@ export class InteriorScene {
   private buildDecor(type: string): void {
     this.habitatType = type;
     this.decor.clear();
-    (this.ground.material as THREE.MeshStandardMaterial).color.setHex(GROUND[type] ?? 0x8cc26a);
-    const fenceColor = FENCE[type] ?? 0x8a6a44;
-    const post = new THREE.CylinderGeometry(0.14, 0.14, type === "wald" ? 2.6 : 1.5, 6);
-    const postMat = new THREE.MeshStandardMaterial({ color: fenceColor, roughness: 0.9 });
+    this.dressing?.dispose();
+    const pool = type === "wasser" || type === "polar" ? { x: HALF - SPOT * 1.8, z: -HALF + SPOT * 1.3, w: SPOT * 3.6, d: SPOT * 2.6 } : null;
     const edge = HALF + 0.5;
-    const posts = new THREE.InstancedMesh(post, postMat, 4 * (ITEM_GRID * 2 + 1));
-    const m = new THREE.Matrix4();
-    let n = 0;
-    for (let i = 0; i <= ITEM_GRID * 2; i += 1) {
-      const t = -edge + (i * edge * 2) / (ITEM_GRID * 2);
-      for (const [x, z] of [[t, -edge], [t, edge], [-edge, t], [edge, t]]) {
-        m.makeTranslation(x, type === "wald" ? 1.3 : 0.75, z);
-        posts.setMatrixAt(n++, m);
-      }
-    }
-    posts.count = n;
-    this.decor.add(posts);
-    for (const y of type === "wald" ? [1.0, 2.0] : [0.55, 1.15]) {
-      for (const [x, z, w, d] of [[0, -edge, edge * 2, 0.12], [0, edge, edge * 2, 0.12], [-edge, 0, 0.12, edge * 2], [edge, 0, 0.12, edge * 2]]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(w, 0.12, d), postMat);
-        rail.position.set(x, y, z);
-        this.decor.add(rail);
-      }
-    }
-    if (type === "wasser" || type === "polar") {
-      const pool = new THREE.Mesh(new THREE.BoxGeometry(SPOT * 3.6, 0.06, SPOT * 2.6), new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x3d8cba : 0x4aa8cc, roughness: 0.25, metalness: 0.1 }));
-      pool.position.set(HALF - SPOT * 1.8, 0.01, -HALF + SPOT * 1.3);
-      this.decor.add(pool);
-    }
+    this.dressing = buildInteriorDecor(type as DecorType, { half: HALF, edge, step: (edge * 2) / (ITEM_GRID * 2), pool, low: this.low });
+    this.decor.add(this.dressing.group);
+    const groundMat = this.ground.material as THREE.MeshStandardMaterial;
+    groundMat.map = this.dressing.groundMap;
+    groundMat.color.setHex(0xffffff);
+    groundMat.needsUpdate = true;
+    (this.outer.material as THREE.MeshStandardMaterial).color.setHex(OUTSIDE[type] ?? 0x7a9c5e);
     // Scenery outside the fence so the space reads as part of a zoo.
     const tree = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x6e5238 }));
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 2.2, 7), new THREE.MeshStandardMaterial({ color: 0x6e5238, roughness: 1 }));
     trunk.position.y = 1.1;
-    const crown = new THREE.Mesh(type === "wald" || type === "polar" ? new THREE.ConeGeometry(1.4, 3.2, 7) : new THREE.SphereGeometry(1.5, 8, 6), new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x5a8a6a : 0x6e9a50 }));
-    crown.position.y = 3;
-    tree.add(trunk, crown);
-    for (const [x, z] of [[-HALF - 4, -HALF + 2], [-HALF - 5, HALF - 4], [HALF + 5, HALF - 2], [-4, -HALF - 5], [6, -HALF - 6]]) {
+    const conifer = type === "wald" || type === "polar";
+    const crownMat = new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x5a8a6a : 0x6e9a50, roughness: 0.9, flatShading: true });
+    tree.add(trunk);
+    if (conifer) {
+      for (const [y, r, h] of [[2.3, 1.5, 2.0], [3.3, 1.15, 1.7], [4.2, 0.75, 1.3]]) {
+        const tier = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), crownMat);
+        tier.position.y = y;
+        tree.add(tier);
+      }
+    } else {
+      for (const [x, y, z, r] of [[0, 3.0, 0, 1.4], [0.8, 2.6, 0.3, 1.0], [-0.7, 2.7, -0.2, 1.05]]) {
+        const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), crownMat);
+        blob.position.set(x, y, z);
+        tree.add(blob);
+      }
+    }
+    tree.traverse((object) => (object.castShadow = true));
+    for (const [x, z, s] of [[-HALF - 4, -HALF + 2, 1], [-HALF - 5, HALF - 4, 1.2], [HALF + 5, HALF - 2, 0.9], [-4, -HALF - 5, 1.1], [6, -HALF - 6, 1.3], [HALF + 6, -3, 1]]) {
       const copy = tree.clone();
       copy.position.set(x, 0, z);
+      copy.scale.setScalar(s);
       this.decor.add(copy);
     }
   }
@@ -314,6 +338,8 @@ export class InteriorScene {
       mesh.position.set(at.x, 0, at.z);
       mesh.scale.setScalar(item.kind === "shelter" ? 1.35 : item.kind === "rock" ? 1.4 : 1.25);
       mesh.userData.item = item.id;
+      mesh.castShadow = !this.low;
+      mesh.receiveShadow = true;
       this.items.set(item.id, { mesh, fill });
       this.scene.add(mesh);
     }
@@ -321,6 +347,7 @@ export class InteriorScene {
 
   frame(dt: number): void {
     this.time += dt;
+    setWindTime(this.time);
     // Follow the selected animal (Zoo-Tycoon style); stay there after deselecting.
     const chosen = this.selected >= 0 ? this.poses.get(this.selected) : undefined;
     if (chosen) {
@@ -468,6 +495,7 @@ export class InteriorScene {
   }
 
   dispose(): void {
+    this.dressing?.dispose();
     for (const entry of this.items.values()) entry.mesh.geometry.dispose();
     for (const texture of this.textures.values()) texture.dispose();
     this.renderer.dispose();
