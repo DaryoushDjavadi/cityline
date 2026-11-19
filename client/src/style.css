@@ -3768,8 +3768,8 @@ body[data-park="on"][data-zoo-interior="on"] #zoo-panel { visibility: hidden; }
 .pk-item.poor { opacity: 0.55; }
 .pk-item:hover, .pk-tab:hover { background: rgba(255, 240, 210, 0.12); }
 .pk-toast { top: 78px; }
-.pk-hint.idle { animation: pk-hint-fade 9s ease-in forwards; }
-@keyframes pk-hint-fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+.pk-hint.idle { animation: pk-hint-fade 6s ease-in forwards; }
+@keyframes pk-hint-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
 .pk-coin {
   position: absolute; transform: translate(-50%, -100%); font-weight: 800; font-size: 15px; color: #ffe27a; white-space: nowrap;
   text-shadow: 0 1px 0 #6a4a10, 0 0 6px rgba(60, 40, 0, 0.55); animation: pk-coin 1.5s ease-out forwards;
