@@ -1,4 +1,5 @@
 import { buildingInfo, serviceInfo, tradeDeal } from "./catalog.ts";
+import { parseZooOp } from "./zoo.ts";
 import { Zone, type Command, type PublicPlayer, type ServiceId, type SimMeta, type ZoneId } from "./types.ts";
 
 export interface JoinPayload {
@@ -181,6 +182,10 @@ export function parseCommand(raw: unknown): Command | null {
     if ((command.option as number) < 0 || (command.option as number) > 3) return null;
     return { type: "choose", event: command.event, option: command.option as number };
   }
+  if (command.type === "zoo") {
+    const op = parseZooOp((raw as { zoo?: unknown }).zoo);
+    return op ? { type: "zoo", zoo: op } : null;
+  }
   if (command.type === "order") {
     if (!Number.isInteger(command.slot) || !Number.isInteger(command.id)) return null;
     if ((command.slot as number) < 0 || (command.slot as number) > 2 || (command.id as number) < 0) return null;
@@ -196,7 +201,7 @@ export function parseCommand(raw: unknown): Command | null {
 }
 
 export function commandCells(command: Command): number[] {
-  if (command.type === "choose" || command.type === "order") return [];
+  if (command.type === "choose" || command.type === "order" || command.type === "zoo") return [];
   if (command.type === "service" || command.type === "budget" || command.type === "gift" || command.type === "trade" || command.type === "farm") return [command.index];
   if (command.type === "hire") return [command.workplace, command.home];
   return command.cells;

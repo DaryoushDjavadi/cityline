@@ -18,3 +18,4 @@ export * from "./cityAuth.ts";
 export * from "./trade.ts";
 export * from "./progress.ts";
 export * from "./orders.ts";
+export * from "./zoo.ts";

@@ -446,7 +446,12 @@ export function cityLedger(city: CityState): { income: number; upkeep: number } 
     const base = zone === Zone.Industrial ? 16 : 12;
     income += base * skill * utility * trade * (cellBudget(city, workplace) / 100);
   }
-  return { income: Math.floor(applyBoost(city, income)), upkeep: maintenanceCost(city) };
+  // Zoo: admission (not boosted by landmarks) and food/keeper costs.
+  const zoo = city.progress && !city.progress.off ? city.progress.zoo : undefined;
+  return {
+    income: Math.floor(applyBoost(city, income) + (zoo?.income ?? 0)),
+    upkeep: maintenanceCost(city) + Math.round(zoo?.cost ?? 0),
+  };
 }
 
 function educate(city: CityState): void {

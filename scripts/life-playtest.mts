@@ -139,7 +139,7 @@ async function desktop(): Promise<void> {
   await page.locator("#open-city").click();
   await page.waitForTimeout(500);
   check(await page.locator("#life").isVisible(), "Stadt-Panel öffnet");
-  check((await page.locator(".life-ach li").count()) === 18, "18 Erfolge gelistet");
+  check((await page.locator(".life-ach li").count()) === 21, "21 Erfolge gelistet");
   check((await page.locator(".life-ach li.got").count()) >= 2, "Erfolge freigeschaltet (Showcase)");
   check((await page.locator(".life-feed li").count()) >= 4, "Bürger-Feed im Panel");
   await page.screenshot({ path: path.join(SHOTS, "06-city-panel.png") });

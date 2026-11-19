@@ -24,6 +24,11 @@ export const COST = {
   wheel: 24000,
   hall: 40000,
   tower: 75000,
+  zooSavanna: 1800,
+  zooForest: 1600,
+  zooWater: 2200,
+  zooPolar: 2600,
+  zooMeadow: 900,
 } as const;
 
 export const DIRS = [

@@ -9,7 +9,7 @@ export interface BuiltModel {
 
 type Shape = "box" | "cyl" | "cone" | "sphere";
 
-interface Part {
+export interface Part {
   shape: Shape;
   x: number;
   y: number;
@@ -23,7 +23,7 @@ interface Part {
   rz?: number;
 }
 
-const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({
+export const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({
   shape: "box",
   x,
   y,
@@ -35,15 +35,16 @@ const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number
   ...rot,
 });
 
-function partGeometry(part: Part): THREE.BufferGeometry {
+function partGeometry(part: Part, detail = 1): THREE.BufferGeometry {
   let geometry: THREE.BufferGeometry;
-  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, Math.max(part.sx, part.sz) < 0.15 ? 6 : 12);
-  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, 6);
+  const seg = (n: number) => Math.round(n * detail);
+  if (part.shape === "cyl") geometry = new THREE.CylinderGeometry(part.sx, part.sz, part.sy, seg(Math.max(part.sx, part.sz) < 0.15 ? 6 : 12));
+  else if (part.shape === "cone") geometry = new THREE.ConeGeometry(part.sx, part.sy, seg(6));
   else if (part.shape === "sphere") {
     // Tiny spheres (eyes, hair tufts) don't need full tessellation: people are instanced by the hundred.
     const tiny = part.sx < 0.12;
     const small = part.sx < 0.3;
-    geometry = new THREE.SphereGeometry(part.sx, tiny ? 5 : small ? 8 : 10, tiny ? 3 : small ? 6 : 7);
+    geometry = new THREE.SphereGeometry(part.sx, seg(tiny ? 5 : small ? 8 : 10), seg(tiny ? 3 : small ? 6 : 7));
     if (part.sy !== part.sx || part.sz !== part.sx) geometry.scale(1, part.sy / part.sx, part.sz / part.sx);
   } else geometry = new THREE.BoxGeometry(part.sx, part.sy, part.sz);
   if (part.rx || part.ry || part.rz) {
@@ -58,8 +59,9 @@ function partGeometry(part: Part): THREE.BufferGeometry {
   return geometry;
 }
 
-function compose(parts: Part[]): THREE.BufferGeometry {
-  const pieces = parts.map(partGeometry);
+/** Merge parts into one vertex-colored geometry; `detail` > 1 tessellates round parts finer (close-ups). */
+export function compose(parts: Part[], detail = 1): THREE.BufferGeometry {
+  const pieces = parts.map((part) => partGeometry(part, detail));
   let vertices = 0;
   let indices = 0;
   for (const piece of pieces) {
@@ -100,15 +102,161 @@ function compose(parts: Part[]): THREE.BufferGeometry {
   return geometry;
 }
 
-function pitch(color: number): Part[] {
+/**
+ * Gable roof: two panels resting on the wall top (wallTop at ±half depth) with an eave overhang,
+ * meeting exactly at the ridge (z = 0), plus a ridge cap that covers the seam.
+ */
+function pitch(color: number, opts: { width?: number; half?: number; wallTop?: number; eave?: number; angle?: number; x?: number; z?: number; ridgeColor?: number } = {}): Part[] {
+  const { width = 6.3, half = 2.35, wallTop = 3.05, eave = 0.45, angle = 0.55, x = 0, z = 0, ridgeColor = color } = opts;
+  const t = 0.26;
+  const run = half + eave;
+  const tan = Math.tan(angle);
+  const cos = Math.cos(angle);
+  // Extend each panel past the ridge by the thickness so the top edges meet without a gap.
+  const len = run / cos + t * tan;
+  const zc = run / 2 - (t * tan * cos) / 2;
+  const yAt = (z: number) => wallTop + t / (2 * cos) + (half - z) * tan;
+  const yc = yAt(zc);
+  const ridge = yAt(0) + t / (2 * cos);
   return [
-    box(0, 3.45, -1.05, 6.3, 0.28, 3.5, color, { rx: 0.62 }),
-    box(0, 3.45, 1.05, 6.3, 0.28, 3.5, color, { rx: -0.62 }),
-    box(0, 3.92, 0, 6.35, 0.16, 0.42, color),
+    box(x, yc, z - zc, width, t, len, color, { rx: -angle }),
+    box(x, yc, z + zc, width, t, len, color, { rx: angle }),
+    box(x, ridge, z, width + 0.05, 0.16, 0.36, ridgeColor),
   ];
 }
 
 const WIN = 0x8ec8ea;
+
+// ---------------------------------------------------------------- zoo habitats
+// Footprint ±4.7 (cell 10). Inner safari track at ±3.9, animals wander inside ±3.2.
+
+const cyl = (x: number, y: number, z: number, r: number, h: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({ shape: "cyl", x, y, z, sx: r, sy: h, sz: r, color, ...rot });
+const ball = (x: number, y: number, z: number, r: number, color: number, sy = r): Part => ({ shape: "sphere", x, y, z, sx: r, sy, sz: r, color });
+
+/** Posts every `step` around the square edge at ±half plus `rails` horizontal rails. */
+function fence(half: number, post: Part["shape"], postR: number, height: number, postColor: number, railColor: number, rails: number[], step = 1.55): Part[] {
+  const parts: Part[] = [];
+  const n = Math.round((half * 2) / step);
+  for (let i = 0; i <= n; i += 1) {
+    const t = -half + (i * half * 2) / n;
+    for (const [x, z] of [[t, -half], [t, half], [-half, t], [half, t]] as const) {
+      if (i === 0 && (z === half || x === half)) continue;
+      if (post === "cyl") parts.push(cyl(x, height / 2, z, postR, height, postColor));
+      else parts.push(box(x, height / 2, z, postR * 2, height, postR * 2, postColor));
+    }
+  }
+  for (const y of rails) {
+    parts.push(box(0, y, -half, half * 2, 0.12, 0.1, railColor), box(0, y, half, half * 2, 0.12, 0.1, railColor));
+    parts.push(box(-half, y, 0, 0.1, 0.12, half * 2, railColor), box(half, y, 0, 0.1, 0.12, half * 2, railColor));
+  }
+  return parts;
+}
+
+/** Dirt ring for the safari jeep. */
+function track(color: number): Part[] {
+  const r = 3.9;
+  return [
+    box(0, 0.27, -r, r * 2 + 0.7, 0.04, 0.7, color),
+    box(0, 0.27, r, r * 2 + 0.7, 0.04, 0.7, color),
+    box(-r, 0.27, 0, 0.7, 0.04, r * 2 - 0.7, color),
+    box(r, 0.27, 0, 0.7, 0.04, r * 2 - 0.7, color),
+  ];
+}
+
+function acacia(x: number, z: number, s: number): Part[] {
+  return [
+    cyl(x, 1.2 * s, z, 0.14 * s, 2.4 * s, 0x6e5238, { rz: 0.12 }),
+    cyl(x + 0.25 * s, 2.5 * s, z, 1.35 * s, 0.32 * s, 0x86a24e),
+    cyl(x + 0.1 * s, 2.75 * s, z + 0.1 * s, 0.95 * s, 0.24 * s, 0x95b058),
+  ];
+}
+
+function conifer(x: number, z: number, s: number, color = 0x4f7e46): Part[] {
+  return [
+    cyl(x, 0.5 * s, z, 0.16 * s, 1 * s, 0x6a4a30),
+    { shape: "cone", x, y: 1.6 * s, z, sx: 0.95 * s, sy: 1.7 * s, sz: 0.95 * s, color },
+    { shape: "cone", x, y: 2.5 * s, z, sx: 0.7 * s, sy: 1.3 * s, sz: 0.7 * s, color: color + 0x060a06 },
+  ];
+}
+
+function habitatParts(type: "savanne" | "wald" | "wasser" | "polar" | "wiese"): Part[] {
+  if (type === "savanne") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0xd9bc72),
+      ...track(0xc29a5e),
+      box(-1.4, 0.26, 1.2, 3.2, 0.04, 2.2, 0xbfae5a),
+      box(1.6, 0.26, -1.4, 2.4, 0.04, 2.6, 0xc8b462),
+      ...acacia(-2.4, -2.3, 1),
+      ...acacia(2.7, 2.5, 0.8),
+      ball(1.9, 0.4, 0.9, 0.7, 0xa89a86, 0.45),
+      ball(2.5, 0.3, 1.3, 0.45, 0x9a8c78, 0.3),
+      box(-0.4, 0.27, -0.6, 1.6, 0.05, 1.0, 0x6aa4c4),
+      ...fence(4.6, "cyl", 0.1, 1.2, 0x8a6a44, 0xa07c50, [0.55, 1.0]),
+    ];
+  }
+  if (type === "wald") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x5f8c4c),
+      ...track(0x8a7050),
+      box(0.8, 0.26, 0.6, 3.6, 0.04, 2.8, 0x6e9a56),
+      ...conifer(-2.5, -2.4, 1.05),
+      ...conifer(2.6, -2.2, 0.9, 0x587f44),
+      ...conifer(-2.3, 2.6, 0.85, 0x4a7640),
+      ball(2.4, 0.6, 2.4, 0.9, 0x6a9a50),
+      ball(1.7, 0.45, 2.9, 0.6, 0x5a8a46),
+      cyl(-0.6, 0.38, -0.2, 0.22, 1.9, 0x7a5638, { rz: Math.PI / 2, ry: 0.5 }),
+      ...fence(4.6, "cyl", 0.17, 2.1, 0x6a4a30, 0x5a3e28, [1.0, 1.8], 0.75),
+    ];
+  }
+  if (type === "wasser") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x86ae68),
+      ...track(0xc9b48c),
+      box(0.2, 0.25, 0.1, 5.6, 0.1, 5.0, 0xe4d2a0),
+      box(0.2, 0.28, 0.1, 5.0, 0.08, 4.4, 0x4aa8cc),
+      box(0.6, 0.31, -0.3, 2.6, 0.04, 2.0, 0x6cc0dc),
+      ball(-1.8, 0.45, 1.5, 0.55, 0xb0a898, 0.35),
+      cyl(2.9, 0.75, 2.2, 0.05, 1.5, 0x6e9a40),
+      cyl(3.1, 0.65, 2.0, 0.05, 1.3, 0x7aa84a),
+      cyl(2.7, 0.7, 2.5, 0.05, 1.4, 0x6e9a40),
+      cyl(-2.8, 0.7, -2.4, 0.05, 1.4, 0x7aa84a),
+      cyl(-2.6, 0.6, -2.7, 0.05, 1.2, 0x6e9a40),
+      ...fence(4.6, "box", 0.09, 1.1, 0xd8d2c6, 0x9fd0e2, [0.35, 0.6, 0.85], 2.3),
+    ];
+  }
+  if (type === "polar") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0xe8eff4),
+      ...track(0xc8d2da),
+      box(-0.6, 0.27, 0.6, 4.4, 0.08, 3.6, 0x3d8cba),
+      box(-0.3, 0.3, 0.3, 1.3, 0.1, 1.0, 0xf6fbff),
+      box(1.9, 0.75, -1.7, 2.2, 1.2, 1.8, 0xd4e8f4, { ry: 0.3 }),
+      box(2.4, 1.5, -1.9, 1.2, 0.6, 1.0, 0xe6f2fa, { ry: 0.5 }),
+      box(-2.4, 0.55, -2.2, 1.5, 0.8, 1.2, 0xcfe4f0, { ry: -0.4 }),
+      ball(2.3, 0.4, 2.3, 0.6, 0xb8c2c8, 0.4),
+      ...fence(4.6, "box", 0.11, 1.3, 0xbcc4cc, 0x5c9ac4, [1.2]),
+      box(0, 0.45, -4.6, 9.2, 0.5, 0.14, 0xc8ced4),
+      box(0, 0.45, 4.6, 9.2, 0.5, 0.14, 0xc8ced4),
+      box(-4.6, 0.45, 0, 0.14, 0.5, 9.2, 0xc8ced4),
+      box(4.6, 0.45, 0, 0.14, 0.5, 9.2, 0xc8ced4),
+    ];
+  }
+  const flowers: Part[] = [];
+  const tones = [0xf4d04a, 0xf28aa8, 0xffffff, 0xb59ae4];
+  for (let i = 0; i < 14; i += 1) flowers.push(ball(-3.4 + ((i * 2.7) % 6.8), 0.32, -3.2 + ((i * 1.9) % 6.4), 0.12, tones[i % 4], 0.08));
+  return [
+    box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x8cc26a),
+    box(0, 0.26, 3.2, 1.4, 0.04, 2.6, 0xd8c09a),
+    ...flowers,
+    box(-2.4, 1.0, -2.3, 2.6, 1.6, 2.0, 0xc84a3a),
+    box(-2.4, 1.0, -1.28, 0.9, 1.1, 0.06, 0xf4efe4),
+    ...pitch(0x7a4632, { x: -2.4, z: -2.3, width: 2.9, half: 1.0, wallTop: 1.8, eave: 0.22, angle: 0.6 }),
+    cyl(2.3, 0.55, -2.4, 0.55, 0.65, 0xe2c25e, { rz: Math.PI / 2 }),
+    cyl(2.9, 0.5, -1.4, 0.5, 0.6, 0xd8b852, { rz: Math.PI / 2 }),
+    box(1.8, 0.45, 1.6, 1.6, 0.4, 0.5, 0x9a7650),
+    ...fence(4.6, "box", 0.07, 0.8, 0xf6f2e8, 0xf6f2e8, [0.35, 0.62], 0.75),
+  ];
+}
 
 const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   cottage: {
@@ -120,7 +268,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
       box(0, 1.15, 2.4, 1.15, 1.9, 0.16, 0x6a4532),
       box(-1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
       box(1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
-      box(1.7, 3.9, 0.4, 0.45, 1.5, 0.45, 0x7a6c60),
+      box(1.7, 4.55, 0.55, 0.45, 1.4, 0.45, 0x7a6c60),
     ],
   },
   apartments: {
@@ -205,8 +353,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.2, 0, 8.6, 0.4, 7.2, 0x6a6058),
       box(0, 2.6, 0, 8.2, 4.4, 6.6, 0xb24e36),
-      box(-1.6, 5.3, 0, 2.2, 0.28, 6.4, 0x8d5a40, { rx: 0.4 }),
-      box(1.6, 5.3, 0, 2.2, 0.28, 6.4, 0x8d5a40, { rx: -0.4 }),
+      ...pitch(0x8d5a40, { width: 8.5, half: 3.3, wallTop: 4.8, eave: 0.3, angle: 0.35 }),
       box(0, 1.4, 3.4, 3.2, 2.1, 0.16, 0x3d3834),
       { shape: "cyl", x: -2.6, y: 6.4, z: -2.2, sx: 0.45, sy: 3.6, sz: 0.5, color: 0x6a5e56 },
       ...stripedStack(2.4, -2.2, 7.2, 0.55, 5.2),
@@ -248,8 +395,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.18, 0, 8.4, 0.36, 6.2, 0x8a7560),
       box(0, 2, 0, 8, 3.2, 5.6, 0xf2e4d4),
-      box(0, 4.15, -0.9, 8.3, 0.28, 3.6, 0xc46a4a, { rx: 0.5 }),
-      box(0, 4.15, 0.9, 8.3, 0.28, 3.6, 0xc46a4a, { rx: -0.5 }),
+      ...pitch(0xc46a4a, { width: 8.3, half: 2.8, wallTop: 3.6, eave: 0.35, angle: 0.5 }),
       box(0, 1.2, 2.85, 1.6, 2, 0.14, 0x5c3a2a),
       box(-2.4, 2.2, 2.85, 1.3, 1.1, 0.1, WIN),
       box(2.4, 2.2, 2.85, 1.3, 1.1, 0.1, WIN),
@@ -313,6 +459,11 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
       { shape: "cyl", x: 0, y: 8.3, z: 0, sx: 0.1, sy: 1.5, sz: 0.1, color: 0xe2b15a },
     ],
   },
+  zooSavanne: { height: 3.2, parts: habitatParts("savanne") },
+  zooWald: { height: 4.6, parts: habitatParts("wald") },
+  zooWasser: { height: 1.6, parts: habitatParts("wasser") },
+  zooPolar: { height: 2.4, parts: habitatParts("polar") },
+  zooWiese: { height: 2.9, parts: habitatParts("wiese") },
   farm: { height: 7.2, parts: farmWheatParts() },
   farmWet: { height: 7.2, parts: [...farmWheatParts(), ...farmIrrigationParts()] },
   farmSilo: { height: 8.6, parts: [...farmWheatParts(), ...farmSiloParts()] },
@@ -477,6 +628,11 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.Wheel) return { key: "wheel", height: CATALOG.wheel.height };
   if (kind === ServiceKind.CityHall) return { key: "cityhall", height: CATALOG.cityhall.height };
   if (kind === ServiceKind.Tower) return { key: "tvtower", height: CATALOG.tvtower.height };
+  if (kind === ServiceKind.ZooSavanna) return { key: "zooSavanne", height: CATALOG.zooSavanne.height };
+  if (kind === ServiceKind.ZooForest) return { key: "zooWald", height: CATALOG.zooWald.height };
+  if (kind === ServiceKind.ZooWater) return { key: "zooWasser", height: CATALOG.zooWasser.height };
+  if (kind === ServiceKind.ZooPolar) return { key: "zooPolar", height: CATALOG.zooPolar.height };
+  if (kind === ServiceKind.ZooMeadow) return { key: "zooWiese", height: CATALOG.zooWiese.height };
   return null;
 }
 
@@ -542,7 +698,7 @@ function cityHallParts(): Part[] {
     box(0, 0.38, 3.3, 4.2, 0.16, 1.4, 0xe2d8c4),
     box(0, 2.5, 0, 8.4, 4.4, 4.2, 0xefe2c8),
     box(0, 4.85, 0, 8.8, 0.3, 4.6, 0xd8c49a),
-    ...pitch(0xb5523a).map((part) => ({ ...part, sx: part.sx * 1.45, sz: part.sz * 0.85, y: part.y + 2.5 })),
+    ...pitch(0xb5523a, { width: 9.1, half: 2.3, wallTop: 5.0, eave: 0.4, angle: 0.5 }),
     box(0, 3.55, 2.55, 6.4, 0.35, 1.1, 0xe7dcc4),
     ...columns,
     ...windows,
@@ -586,9 +742,7 @@ function harborParts(): Part[] {
     box(-4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
     box(4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
     box(-2.55, 1.85, -2.2, 4.6, 2.7, 4.0, 0xf3ece0),
-    box(-2.55, 3.45, -2.2, 5.05, 0.2, 2.2, 0xc44732, { rx: 0.5 }),
-    box(-2.55, 3.45, -1.15, 5.05, 0.2, 2.2, 0xc44732, { rx: -0.5 }),
-    box(-2.55, 3.82, -1.68, 5.1, 0.1, 0.32, 0x8a2e22),
+    ...pitch(0xc44732, { width: 5.05, half: 2.0, wallTop: 3.2, eave: 0.35, angle: 0.5, x: -2.55, z: -2.2, ridgeColor: 0x8a2e22 }),
     box(-4.7, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
     box(-0.4, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
     box(-2.55, 2.05, -0.18, 1.8, 1.25, 0.08, WIN),

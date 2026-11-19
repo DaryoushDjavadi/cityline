@@ -7,6 +7,20 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.47",
+    at: "19. Nov 2026, 21:05 Uhr",
+    title: "Zoo mit Tiergehegen",
+    items: [
+      "Neue Baukategorie Zoo: fünf Gehege (Savanne, Wald, Wasser, Polar, Streichelzoo). Die Tiere laufen darin herum, Besucher schauen zu und ein Safari-Jeep fährt Runden.",
+      "Tierhandlung mit 17 Arten aus vier Herkünften: Zirkus-Rettung, schlechte Haltung, Züchter und Auswilderungsprogramm. Jedes Tier hat einen deutschen Namen und seine eigene Geschichte. Umbenennen geht, auch im Koop.",
+      "Raubtiere wie Löwe, Bär, Wolf und Eisbär leben nur mit Artgenossen; der Shop zeigt, was nicht zusammenpasst.",
+      "Innenansicht jedes Geheges: streicheln, spielen und füttern mit Herzen, Näpfe und Spielzeug platzieren, ein Pfleger füllt nach. Mit „Zur Stadt“ geht es zurück.",
+      "Nachwuchs mit Familiennamen, Stammbaum und vererbten, sichtbaren Genen. Dazu Eintritt, laufende Kosten und neue Erfolge.",
+      "Schönere Gehege: Boden je Lebensraum, wehende Gräser, Büsche, Blumen, Steine, Wasser mit Ufer und Eisschollen, warmes Licht mit weichen Schatten, Holzzäune. Gras auch draußen in der Stadtansicht.",
+      "Runde, niedliche Low-Poly-Tiere. Dächer von Haus, Rathaus und Hafen sitzen jetzt richtig, und Bäume direkt vor der nahen Kamera blenden aus.",
+    ],
+  },
+  {
     version: "0.46",
     at: "19. Nov 2026, 19:31 Uhr",
     title: "Schlankes Baumenü, näher ranzoomen",

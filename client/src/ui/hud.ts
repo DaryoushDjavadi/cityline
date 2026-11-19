@@ -54,6 +54,11 @@ export type ToolId =
   | "wheel"
   | "cityhall"
   | "tvtower"
+  | "zooSavanna"
+  | "zooForest"
+  | "zooWater"
+  | "zooPolar"
+  | "zooMeadow"
   | "bulldoze";
 
 export interface RoomCard {
@@ -233,7 +238,7 @@ export interface Hud {
   setOverlays: (overlays: { zones: boolean; power: boolean; water: boolean }) => void;
   setQuality: (preset: "auto" | "high" | "medium" | "low") => void;
   setLockedTools: (locks: Partial<Record<ToolId, string | null>>) => void;
-  /** Build hotkeys: 1–8 opens a category palette (and the menu). */
+  /** Build hotkeys: 1–9 opens a category palette (and the menu). */
   selectBuildCategory: (index: number) => void;
   /** Palette hotkey (R T Z U I O) → tool, or null. */
   paletteTool: (key: string) => ToolId | null;

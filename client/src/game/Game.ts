@@ -11,6 +11,7 @@ import { sampleAudioScene } from "../audio/scene.ts";
 import { bindAudioControls } from "../ui/audioPanel.ts";
 import { CityLife } from "../ui/cityLife.ts";
 import { OrderBoardView } from "../ui/orderBoard.ts";
+import { ZooView } from "../ui/zooView.ts";
 import {
   BUILDINGS,
   CELL_SIZE,
@@ -18,6 +19,8 @@ import {
   LEVEL_COUNT,
   POWER_BIT,
   ServiceKind,
+  habitatTypeOf,
+  stepZoo,
   TRADE,
   WATER_BIT,
   Zone,
@@ -161,6 +164,11 @@ const HINTS: Partial<Record<ToolId, string>> = {
   wheel: `Riesenrad (Wahrzeichen) neben eine Straße. ${COST.wheel.toLocaleString("de-DE")} €. Macht die Nachbarschaft glücklich.`,
   cityhall: `Rathaus (Wahrzeichen) neben eine Straße. ${COST.hall.toLocaleString("de-DE")} €. +6 % Einnahmen.`,
   tvtower: `Fernsehturm (Wahrzeichen) neben eine Straße. ${COST.tower.toLocaleString("de-DE")} €. Tourismus und Einnahmen.`,
+  zooSavanna: `Savannen-Gehege neben eine Straße. ${COST.zooSavanna.toLocaleString("de-DE")} €. Für Löwen, Elefanten, Giraffen, Zebras, Kängurus.`,
+  zooForest: `Waldgehege neben eine Straße. ${COST.zooForest.toLocaleString("de-DE")} €. Für Bären, Affen, Rote Pandas, Wölfe.`,
+  zooWater: `Wasser-Gehege neben eine Straße. ${COST.zooWater.toLocaleString("de-DE")} €. Für Seehunde, Flamingos, Otter.`,
+  zooPolar: `Polar-Gehege neben eine Straße. ${COST.zooPolar.toLocaleString("de-DE")} €. Für Pinguine und Eisbären.`,
+  zooMeadow: `Streichelzoo neben eine Straße. ${COST.zooMeadow.toLocaleString("de-DE")} €. Für Kaninchen, Ziegen, Alpakas.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
   bulldoze: "Ziehen reißt Felder in einer Linie ab. Bei Leitungen reicht auch Rechtsklick auf die Leitung.",
 };
@@ -180,6 +188,11 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
   wheel: ServiceKind.Wheel,
   cityhall: ServiceKind.CityHall,
   tvtower: ServiceKind.Tower,
+  zooSavanna: ServiceKind.ZooSavanna,
+  zooForest: ServiceKind.ZooForest,
+  zooWater: ServiceKind.ZooWater,
+  zooPolar: ServiceKind.ZooPolar,
+  zooMeadow: ServiceKind.ZooMeadow,
 };
 
 const REASONS: Record<string, string> = {
@@ -195,6 +208,18 @@ const REASONS: Record<string, string> = {
   stock_full: "Der Nahrungsspeicher ist voll.",
   no_market: "Dafür braucht die Stadt das passende Gewerbe oder die Industrie.",
   busy: "Alle Handelsplätze sind belegt. Warte auf die Schiffe oder Flugzeuge.",
+  zoo_off: "Den Zoo gibt es nur in freien Städten, nicht in Levels.",
+  zoo_gone: "Dieses Tier oder Gehege gibt es nicht mehr.",
+  zoo_name: "Name: 1–18 Zeichen, Buchstaben, Ziffern, Leerzeichen und . ' - &.",
+  zoo_no_habitat: "Hier steht kein Gehege.",
+  zoo_wrong_habitat: "Diese Art passt nicht in dieses Gehege.",
+  zoo_predator: "Raubtiere leben nur mit Artgenossen – das gäbe Ärger im Gehege.",
+  zoo_full: "Im Gehege ist kein Platz mehr.",
+  zoo_items_full: "Mehr Einrichtung passt nicht ins Gehege.",
+  zoo_spot_taken: "Der Platz ist schon belegt.",
+  zoo_full_bowls: "Napf und Trog sind schon voll.",
+  zoo_cooldown: "Das Tier braucht kurz Ruhe.",
+  zoo_need_toy: "Zum Spielen braucht das Gehege ein Spielzeug.",
 };
 
 interface TickMessage {
@@ -280,6 +305,7 @@ export class Game {
   private lastShipments: { cell: number; due: number; money: number; food: number }[] = [];
   private life!: CityLife;
   private orders!: OrderBoardView;
+  private zooView!: ZooView;
   private lastAudioScene = 0;
   private lastStats: SimMeta["stats"] | null = null;
   private building = false;
@@ -349,6 +375,7 @@ export class Game {
       locks: (locks) => this.hud.setLockedTools(locks),
       opened: () => {
         this.orders?.toggle(false);
+        this.zooView?.hide();
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -365,6 +392,7 @@ export class Game {
       sound: (cue) => playSfx(cue),
       opened: () => {
         this.life.toggle(false);
+        this.zooView?.hide();
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -374,6 +402,31 @@ export class Game {
           this.hud.setDemandOpen(false);
           this.hud.setMenuOpen(false);
         }
+      },
+    });
+    this.zooView = new ZooView({
+      command: (zoo) => this.applyLocal({ type: "zoo", zoo }),
+      sound: (cue) => playSfx(cue),
+      flash: (text) => this.flash(text),
+      opened: () => {
+        this.life.toggle(false);
+        this.orders.toggle(false);
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+        this.setBriefOpen(false);
+        if (isCompactHud()) {
+          this.hud.setDemandOpen(false);
+          this.hud.setMenuOpen(false);
+        }
+      },
+      closed: () => {
+        this.selected = -1;
+      },
+      interior: (open) => {
+        document.body.dataset.zooInterior = open ? "on" : "off";
+        if (!open) this.resize();
       },
     });
     bindAudioControls();
@@ -454,6 +507,56 @@ export class Game {
       apply(command: Command) {
         self.applyLocal(command);
         return { funds: self.city.funds, revision: self.city.revision };
+      },
+      zoo() {
+        return JSON.parse(JSON.stringify(self.city.progress?.zoo ?? null));
+      },
+      zooUi() {
+        return self.zooView.e2e();
+      },
+      zooLayer() {
+        return self.view.zoo.stats();
+      },
+      openHabitat(cell: number) {
+        self.showCell(cellCoords(self.city, cell));
+      },
+      /** Time compression for tests (solo only): run the zoo n ticks ahead. */
+      advanceZoo(ticks: number) {
+        if (self.mode !== "single") return false;
+        for (let k = 0; k < ticks; k += 1) {
+          self.city.tick += 1;
+          stepZoo(self.city);
+        }
+        self.rememberWorker(true);
+        self.publish();
+        return true;
+      },
+      /** Free flat land block (w×h) near the camera target, for building a test zoo. */
+      findArea(w: number, h: number): { x: number; y: number } | null {
+        const center = worldToCell(self.city, self.camera.target.x, self.camera.target.z) ?? { x: self.city.width >> 1, y: self.city.height >> 1 };
+        for (let r = 0; r < 40; r += 1) {
+          for (let dy = -r; dy <= r; dy += 1) {
+            for (let dx = -r; dx <= r; dx += 1) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+              const x0 = center.x + dx;
+              const y0 = center.y + dy;
+              if (x0 < 2 || y0 < 2 || x0 + w >= self.city.width - 2 || y0 + h >= self.city.height - 2) continue;
+              let free = true;
+              const ground = cellHeight(self.city, x0, y0);
+              for (let y = y0; y < y0 + h && free; y += 1) {
+                for (let x = x0; x < x0 + w && free; x += 1) {
+                  const index = cellIndex(self.city, x, y);
+                  if (placeBlockReason(self.city, index, "road") || self.cellHasStructure(index) || Math.abs(cellHeight(self.city, x, y) - ground) > 0.01) free = false;
+                }
+              }
+              if (free) return { x: x0, y: y0 };
+            }
+          }
+        }
+        return null;
+      },
+      zooAnimalPose(id: number) {
+        return self.view.zoo.poses.get(id) ?? null;
       },
       setTool(tool: ToolId) {
         self.setTool(tool);
@@ -869,6 +972,12 @@ export class Game {
   private frame(time: number): void {
     const dt = Math.min(0.05, (time - this.lastFrame) / 1000);
     this.lastFrame = time;
+    if (this.zooView.interiorOpen) {
+      // Interior view: its own scene; the city waits.
+      this.zooView.frame(dt);
+      requestAnimationFrame((next) => this.frame(next));
+      return;
+    }
     this.camera.update(dt);
     if (this.mode === "multi" && this.socket && time - this.lastLook > 280) {
       this.lastLook = time;
@@ -1164,13 +1273,13 @@ export class Game {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
     if (down && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      // Age-of-Empires-style: 1–8 opens a build category, R T Z U I O picks from its palette.
+      // Age-of-Empires-style: 1–9 opens a build category, R T Z U I O picks from its palette.
       const digit = /^Digit([0-9])$/.exec(event.code)?.[1];
       if (digit === "0") {
         this.setTool("inspect");
         return;
       }
-      if (digit && Number(digit) >= 1 && Number(digit) <= 8) {
+      if (digit && Number(digit) >= 1 && Number(digit) <= 9) {
         this.hud.selectBuildCategory(Number(digit) - 1);
         return;
       }
@@ -1892,6 +2001,7 @@ export class Game {
     this.lastStats = meta.stats;
     this.life.update(this.city, meta);
     this.orders.update(this.city);
+    this.zooView.update(this.city);
     const syncStart = performance.now();
     this.view.sync(this.city, live);
     this.view.lastSyncMs = performance.now() - syncStart;
@@ -1942,6 +2052,9 @@ export class Game {
     this.lastShipments = [];
     this.life.reset();
     this.orders.reset();
+    this.zooView.closeInterior();
+    this.zooView.closeShop();
+    this.zooView.hide();
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -2026,6 +2139,7 @@ export class Game {
   private flash(text: string): void {
     this.statusUntil = performance.now() + 2600;
     this.hud.flashStatus(text);
+    this.zooView?.notice(text);
   }
 
   private emitCursor(event: PointerEvent): void {
@@ -2695,6 +2809,14 @@ export class Game {
 
   private showCell(cell: { x: number; y: number }): void {
     const index = cellIndex(this.city, cell.x, cell.y);
+    if (habitatTypeOf(this.city.services[index]) && !this.city.progress?.off) {
+      this.focus = null;
+      this.selected = index;
+      this.hud.hideInspect();
+      this.zooView.showHabitat(this.city, index);
+      return;
+    }
+    this.zooView.hide();
     this.selected = index;
     this.focus = "cell";
     const families = houseReport(this.city, index);
@@ -2870,6 +2992,7 @@ export class Game {
   }
 
   private showCar(car: { surname: string; driver: string; members: string; label: string; home: number }): void {
+    this.zooView.hide();
     this.focus = null;
     this.selected = car.home;
     const home = cellCoords(this.city, car.home);

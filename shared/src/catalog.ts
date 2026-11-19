@@ -1,4 +1,5 @@
 import { COST } from "./grid.ts";
+import { HABITAT_INFO } from "./zoo.ts";
 import { ServiceKind, Zone, type ServiceId, type ZoneId } from "./types.ts";
 
 export interface ServiceInfo {
@@ -123,6 +124,11 @@ export const SERVICES: Record<number, ServiceInfo> = {
     radius: 14,
     blurb: "Wahrzeichen ab Großstadt. +160 € / 2 s und +3 % Einnahmen. Von überall zu sehen.",
   },
+  [ServiceKind.ZooSavanna]: { kind: ServiceKind.ZooSavanna, name: "Savannen-Gehege", cost: COST.zooSavanna, upkeep: 3, radius: 10, blurb: HABITAT_INFO.savanne.blurb },
+  [ServiceKind.ZooForest]: { kind: ServiceKind.ZooForest, name: "Waldgehege", cost: COST.zooForest, upkeep: 3, radius: 10, blurb: HABITAT_INFO.wald.blurb },
+  [ServiceKind.ZooWater]: { kind: ServiceKind.ZooWater, name: "Wasser-Gehege", cost: COST.zooWater, upkeep: 4, radius: 10, blurb: HABITAT_INFO.wasser.blurb },
+  [ServiceKind.ZooPolar]: { kind: ServiceKind.ZooPolar, name: "Polar-Gehege", cost: COST.zooPolar, upkeep: 5, radius: 10, blurb: HABITAT_INFO.polar.blurb },
+  [ServiceKind.ZooMeadow]: { kind: ServiceKind.ZooMeadow, name: "Streichelzoo", cost: COST.zooMeadow, upkeep: 2, radius: 10, blurb: HABITAT_INFO.wiese.blurb },
 };
 
 export function serviceInfo(kind: number): ServiceInfo | null {
