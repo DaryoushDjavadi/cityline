@@ -63,6 +63,7 @@ const ICONS: Record<string, string> = {
   landmark: `<path d="M12 2.5 14.6 8l6 .6-4.5 4 1.3 5.9L12 15.5l-5.4 3 1.3-5.9-4.5-4 6-.6Z"/>`,
   tools: `<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.3-.7-.7-2.3Z"/>`,
   zoo: `<ellipse cx="12" cy="16" rx="4.2" ry="3.6"/><ellipse cx="6.2" cy="10.6" rx="1.8" ry="2.3"/><ellipse cx="17.8" cy="10.6" rx="1.8" ry="2.3"/><ellipse cx="9.4" cy="6.4" rx="1.7" ry="2.3"/><ellipse cx="14.6" cy="6.4" rx="1.7" ry="2.3"/>`,
+  tierpark: `<path d="M3 21V9.5L12 4l9 5.5V21"/><path d="M7 21v-7a5 5 0 0 1 10 0v7"/><path d="M3 21h18"/><circle cx="12" cy="9" r="1.2"/>`,
   zooSavanna: `<path d="M3 20h18"/><path d="M12 20v-8"/><path d="M5 11c2-2 12-2 14 0-3 1.4-11 1.4-14 0Z"/><path d="M12 12 9 9.5M12 12l3-2.5"/>`,
   zooForest: `<path d="M8 20v-3M16 20v-3"/><path d="M8 3 4 11h2.5L3.5 17h9L9.5 11H12Z"/><path d="M16 6l-3 6h2l-2.5 5h7L17 12h2Z"/>`,
   zooWater: `<path d="M3 15c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/><path d="M3 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/><path d="M7 12c1-3 4-5 7-4 1.6.5 2.6 1.6 3 3"/><circle cx="15.5" cy="8.6" r=".6"/>`,
@@ -193,13 +194,9 @@ export const BUILD_MENU: BuildCategory[] = [
     id: "zoo",
     label: "Zoo",
     icon: "zoo",
-    blurb: "Tiergehege bauen, Tiere aufnehmen und pflegen. Glückliche Tiere locken Besucher an.",
+    blurb: "Tierpark bauen und betreten: Gehege, Wege, Stände und Deko wie im Zoo Tycoon. Glückliche Tiere locken Besucher an.",
     items: [
-      service("zooSavanna", ServiceKind.ZooSavanna, "Savanne", ["Straße direkt daneben"], undefined, "Gehege"),
-      service("zooForest", ServiceKind.ZooForest, "Wald", ["Straße direkt daneben"], undefined, "Gehege"),
-      service("zooWater", ServiceKind.ZooWater, "Wasser", ["Straße direkt daneben"], undefined, "Gehege"),
-      service("zooPolar", ServiceKind.ZooPolar, "Polar", ["Straße direkt daneben"], undefined, "Gehege"),
-      service("zooMeadow", ServiceKind.ZooMeadow, "Streichelzoo", ["Straße direkt daneben"], undefined, "Gehege"),
+      service("tierpark", ServiceKind.Tierpark, "Tierpark", ["Straße direkt daneben", "Einmal pro Stadt"], undefined, "Tierpark"),
     ],
   },
 ];

@@ -164,11 +164,7 @@ const HINTS: Partial<Record<ToolId, string>> = {
   wheel: `Riesenrad (Wahrzeichen) neben eine Straße. ${COST.wheel.toLocaleString("de-DE")} €. Macht die Nachbarschaft glücklich.`,
   cityhall: `Rathaus (Wahrzeichen) neben eine Straße. ${COST.hall.toLocaleString("de-DE")} €. +6 % Einnahmen.`,
   tvtower: `Fernsehturm (Wahrzeichen) neben eine Straße. ${COST.tower.toLocaleString("de-DE")} €. Tourismus und Einnahmen.`,
-  zooSavanna: `Savannen-Gehege neben eine Straße. ${COST.zooSavanna.toLocaleString("de-DE")} €. Für Löwen, Elefanten, Giraffen, Zebras, Kängurus.`,
-  zooForest: `Waldgehege neben eine Straße. ${COST.zooForest.toLocaleString("de-DE")} €. Für Bären, Affen, Rote Pandas, Wölfe.`,
-  zooWater: `Wasser-Gehege neben eine Straße. ${COST.zooWater.toLocaleString("de-DE")} €. Für Seehunde, Flamingos, Otter.`,
-  zooPolar: `Polar-Gehege neben eine Straße. ${COST.zooPolar.toLocaleString("de-DE")} €. Für Pinguine und Eisbären.`,
-  zooMeadow: `Streichelzoo neben eine Straße. ${COST.zooMeadow.toLocaleString("de-DE")} €. Für Kaninchen, Ziegen, Alpakas.`,
+  tierpark: `Tierpark neben eine Straße. ${COST.tierpark.toLocaleString("de-DE")} €. Eingangstor zum eigenen Park-Level: Gehege, Wege und Stände baust du darin.`,
   lamp: `Laterne für die Nacht. Auf Straße oder Stromleitung; leitet Strom weiter. ${COST.lamp} €.`,
   bulldoze: "Ziehen reißt Felder in einer Linie ab. Bei Leitungen reicht auch Rechtsklick auf die Leitung.",
 };
@@ -188,11 +184,7 @@ const SERVICES: Partial<Record<ToolId, ServiceId>> = {
   wheel: ServiceKind.Wheel,
   cityhall: ServiceKind.CityHall,
   tvtower: ServiceKind.Tower,
-  zooSavanna: ServiceKind.ZooSavanna,
-  zooForest: ServiceKind.ZooForest,
-  zooWater: ServiceKind.ZooWater,
-  zooPolar: ServiceKind.ZooPolar,
-  zooMeadow: ServiceKind.ZooMeadow,
+  tierpark: ServiceKind.Tierpark,
 };
 
 const REASONS: Record<string, string> = {

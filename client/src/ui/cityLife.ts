@@ -15,6 +15,8 @@ import {
   eventDef,
   incomeBoost,
   landmarkBlock,
+  ServiceKind,
+  tierparkBlock,
   type CityProgress,
   type CityState,
   type SimMeta,
@@ -22,7 +24,7 @@ import {
 import { cityChatter, type FeedLine } from "./feed.ts";
 import type { Cue } from "../audio/sfx.ts";
 
-export type LandmarkTool = "wheel" | "cityhall" | "tvtower" | "zooSavanna" | "zooForest" | "zooWater" | "zooPolar" | "zooMeadow";
+export type LandmarkTool = "wheel" | "cityhall" | "tvtower" | "tierpark";
 const TOOL_BY_KEY: Record<string, LandmarkTool> = { wheel: "wheel", hall: "cityhall", tower: "tvtower" };
 
 export interface CityLifeHooks {
@@ -321,8 +323,7 @@ export class CityLife {
   private updateLocks(city: CityState): void {
     const locks: Partial<Record<LandmarkTool, string | null>> = {};
     for (const mark of LANDMARKS) locks[TOOL_BY_KEY[mark.key]] = landmarkBlock(city, mark.kind);
-    const zooLock = city.progress?.off ? "Nur in freien Städten" : null;
-    for (const tool of ["zooSavanna", "zooForest", "zooWater", "zooPolar", "zooMeadow"] as const) locks[tool] = zooLock;
+    locks.tierpark = city.progress?.off ? "Nur in freien Städten" : tierparkBlock(city, ServiceKind.Tierpark) ? "Steht schon" : null;
     const key = JSON.stringify(locks);
     if (key === this.lockKey) return;
     this.lockKey = key;

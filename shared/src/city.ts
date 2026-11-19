@@ -33,7 +33,7 @@ import {
 } from "./types.ts";
 
 /** Tierpark: one per city, not in levels; the old habitat kinds are built inside the park now. */
-function tierparkBlock(city: CityState, kind: number): string | null {
+export function tierparkBlock(city: CityState, kind: number): string | null {
   if (isHabitatKind(kind)) return "Gehege baust du jetzt im Tierpark: Tierpark bauen, anklicken und „Tierpark betreten“.";
   if (kind !== ServiceKind.Tierpark) return null;
   if (city.progress?.off) return "Den Tierpark gibt es nur in freien Städten, nicht in Levels.";
