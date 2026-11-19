@@ -122,7 +122,8 @@ export type Command =
   | { type: "hire"; workplace: number; home: number; slot: number }
   | { type: "trade"; index: number; deal: string }
   | { type: "farm"; index: number; action: "livestock" | "wheat" | "irrigation" | "silo" }
-  | { type: "choose"; event: string; option: number };
+  | { type: "choose"; event: string; option: number }
+  | { type: "order"; slot: number; id: number; action: "deliver" | "skip" };
 
 export interface ApplyResult {
   ok: boolean;

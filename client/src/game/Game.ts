@@ -10,6 +10,7 @@ import { playSfx, unlockAudio, updateAudioScene } from "../audio/sfx.ts";
 import { sampleAudioScene } from "../audio/scene.ts";
 import { bindAudioControls } from "../ui/audioPanel.ts";
 import { CityLife } from "../ui/cityLife.ts";
+import { OrderBoardView } from "../ui/orderBoard.ts";
 import {
   BUILDINGS,
   CELL_SIZE,
@@ -100,6 +101,7 @@ import {
   worldToCell,
   writeCity,
   ensureProgress,
+  ensureBoard,
   stepProgress,
   EVENT_TIMEOUT,
   type EventId,
@@ -275,6 +277,7 @@ export class Game {
   private lastSave = 0;
   private lastShipments: { cell: number; due: number; money: number; food: number }[] = [];
   private life!: CityLife;
+  private orders!: OrderBoardView;
   private lastAudioScene = 0;
   private lastStats: SimMeta["stats"] | null = null;
   private building = false;
@@ -342,6 +345,23 @@ export class Game {
       },
       locks: (locks) => this.hud.setLockedTools(locks),
       opened: () => {
+        this.orders?.toggle(false);
+        this.focus = null;
+        this.hud.hideInspect();
+        this.setRosterOpen(false);
+        this.setChatOpen(false);
+        this.setBriefOpen(false);
+        if (isCompactHud()) {
+          this.hud.setDemandOpen(false);
+          this.hud.setMenuOpen(false);
+        }
+      },
+    });
+    this.orders = new OrderBoardView({
+      order: (slot, id, action) => this.applyLocal({ type: "order", slot, id, action }),
+      sound: (cue) => playSfx(cue),
+      opened: () => {
+        this.life.toggle(false);
         this.focus = null;
         this.hud.hideInspect();
         this.setRosterOpen(false);
@@ -689,6 +709,25 @@ export class Game {
       },
       progress() {
         return self.city.progress ? JSON.parse(JSON.stringify(self.city.progress)) : null;
+      },
+      /** Auftragstafel state (deep copy). */
+      orders() {
+        const board = self.city.progress?.orders;
+        return board ? JSON.parse(JSON.stringify(board)) : null;
+      },
+      /** Fill the order stocks for tests/screenshots. */
+      setOrderStock(stock: { food?: number; goods?: number; fish?: number }) {
+        const board = ensureBoard(self.city);
+        if (stock.food !== undefined) self.city.food = stock.food;
+        if (stock.goods !== undefined) board.goods = stock.goods;
+        if (stock.fish !== undefined) board.fish = stock.fish;
+        self.rememberWorker(false);
+        self.publish();
+        return { food: self.city.food, goods: board.goods, fish: board.fish };
+      },
+      openOrders(open = true) {
+        self.orders.toggle(open);
+        return self.orders.isOpen();
       },
       chatter(count = 4) {
         return self.life.chatterNow(self.city, buildMeta(self.city), count);
@@ -1135,8 +1174,16 @@ export class Game {
         this.setTool("pipe");
         return;
       }
+      if (event.key === "j" || event.key === "J") {
+        this.orders.toggle();
+        return;
+      }
     }
     if (down && event.code === "Escape") {
+      if (this.orders.isOpen()) {
+        this.orders.toggle(false);
+        return;
+      }
       if (this.hud.closeOverlays()) return;
       if (this.building) this.cancelStroke(true);
       else {
@@ -1830,6 +1877,7 @@ export class Game {
     this.hud.setStats(meta, (bit) => goalProgress(this.city, bit));
     this.lastStats = meta.stats;
     this.life.update(this.city, meta);
+    this.orders.update(this.city);
     const syncStart = performance.now();
     this.view.sync(this.city, live);
     this.view.lastSyncMs = performance.now() - syncStart;
@@ -1879,6 +1927,7 @@ export class Game {
     this.selected = -1;
     this.lastShipments = [];
     this.life.reset();
+    this.orders.reset();
     this.statusUntil = 0;
     this.hud.hideInspect();
     this.hud.hideLevelEnd();
@@ -2368,6 +2417,7 @@ export class Game {
   private setRosterOpen(open: boolean): void {
     if (open) {
       this.life.toggle(false);
+      this.orders.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.chatOpen = false;
@@ -2381,6 +2431,7 @@ export class Game {
   private setChatOpen(open: boolean): void {
     if (open) {
       this.life.toggle(false);
+      this.orders.toggle(false);
       this.focus = null;
       this.hud.hideInspect();
       this.rosterOpen = false;

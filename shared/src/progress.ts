@@ -10,6 +10,7 @@ import { DAY_TICKS, climateAt } from "./climate.ts";
 import { cellCoords, cellIndex, inBounds } from "./grid.ts";
 import { HAPPY_SMILE, houseHappiness, isWorkplace, nearBeach } from "./people.ts";
 import { nextRand } from "./sim.ts";
+import { stepOrders } from "./orders.ts";
 import { ServiceKind, Zone, type ApplyResult, type CityState } from "./types.ts";
 import { FIRST_EVENT_DELAY, ensureProgress, type ChallengeKind, type CityEffect, type CityProgress, type DailyChallenge, type EventId } from "./progressState.ts";
 
@@ -561,6 +562,7 @@ export function stepProgress(city: CityState): void {
   if (p.effects.length > 0 && p.effects.some((effect) => effect.until <= city.tick)) {
     p.effects = p.effects.filter((effect) => effect.until > city.tick);
   }
+  stepOrders(city);
   if (p.seeded && city.tick % PROGRESS_EVERY !== 0) return;
   const m = cityMetrics(city);
   p.stats.mood = Math.round(m.mood * 10) / 10;
