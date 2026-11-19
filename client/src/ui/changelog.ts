@@ -7,6 +7,17 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.49",
+    at: "20. Nov 2026, 00:25 Uhr",
+    title: "Fix: Gehege-Innenansicht lässt sich wieder verlassen",
+    items: [
+      "Fix: Gehege-Innenansicht lässt sich wieder verlassen. Der Tierpark gab beim Verlassen seine 3D-Ansicht nicht frei; nach ein paar Besuchen konnte die Innenansicht nicht mehr starten und blieb als leere Fläche ohne funktionierenden Zurück-Knopf stehen.",
+      "Startet eine Ansicht doch einmal nicht, bleibst du jetzt im Park bzw. in der Stadt und bekommst einen Hinweis.",
+      "Esc geht Schritt für Schritt zurück: Innenansicht → Gehege-Panel → Tierpark → Stadt.",
+      "Die Kopfleisten von Tierpark und Innenansicht halten Abstand zu Notch und Statusleiste.",
+    ],
+  },
+  {
     version: "0.48",
     at: "19. Nov 2026, 23:32 Uhr",
     title: "Tierpark als eigenes Level",

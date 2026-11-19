@@ -138,6 +138,146 @@ async function dragTiles(page: Page, from: number, to: number): Promise<void> {
   await page.waitForTimeout(250);
 }
 
+
+const FIX_SHOTS = process.env.FIX_SHOTS ?? "/workspace/cityline-shots/fix-innen";
+mkdirSync(FIX_SHOTS, { recursive: true });
+
+/**
+ * Regression (0.49): the interior view must always let you out – via "← Zum Tierpark" (real
+ * click/tap at its position) and via Escape – back into a park that renders and reacts, and from
+ * there to the city. Repeated visits must not leak WebGL contexts, and without a context the
+ * interior must not open an empty overlay.
+ */
+async function exitRegression(page: Page, mobile: boolean): Promise<void> {
+  const tag = mobile ? "Mobile" : "Desktop";
+  const press = async (selector: string) => {
+    const locator = page.locator(selector);
+    if (mobile) await locator.tap();
+    else await locator.click();
+  };
+  const warnings: string[] = [];
+  page.on("console", (msg) => {
+    if (/Too many active WebGL contexts|Context Lost/i.test(msg.text())) warnings.push(msg.text());
+  });
+  /** Habitat panel on its overview (an animal picked inside shows its card first). */
+  const openPanel = async () => {
+    await pk(page, "openHabitat", CELLS.savanne);
+    await page.waitForTimeout(200);
+    const list = page.locator('#zoo-panel [data-act="list"]');
+    if (await list.isVisible().catch(() => false)) await list.click();
+    await page.waitForTimeout(100);
+  };
+  const state = () => page.evaluate(() => ({
+    interior: !(document.querySelector("#zoo-interior") as HTMLElement).hidden,
+    flag: document.body.dataset.zooInterior,
+    park: !(document.querySelector("#park-view") as HTMLElement).hidden,
+    panel: !(document.querySelector("#zoo-panel") as HTMLElement).hidden,
+  }));
+  if (!(await pk<boolean>(page, "isOpen"))) await pk(page, "enter");
+  await page.waitForTimeout(400);
+  await pk(page, "lookAt", P(17, 33), mobile ? 70 : 60);
+  await openPanel();
+  await press("#zoo-open-interior");
+  await page.waitForTimeout(600);
+  check((await state()).interior, `${tag}: Innenansicht offen`);
+
+  // A. The button, clicked/tapped at its real position.
+  const box = (await page.locator("#zoo-interior .zi-back").boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const hit = await page.evaluate(({ x, y }) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest(".zi-back") !== null, { x: cx, y: cy });
+  check(hit, `${tag}: »← Zum Tierpark« liegt oben und wird nicht verdeckt`);
+  if (mobile) await page.touchscreen.tap(cx, cy);
+  else await page.mouse.click(cx, cy);
+  await page.waitForTimeout(500);
+  let now = await state();
+  check(!now.interior && now.flag === "off" && now.park, `${tag}: Knopf verlässt die Innenansicht in den Tierpark (${JSON.stringify(now)})`);
+  const before = JSON.stringify(await pk(page, "walkers"));
+  await page.waitForTimeout(700);
+  const after = JSON.stringify(await pk(page, "walkers"));
+  check(before !== after, `${tag}: Park-Szene läuft danach weiter`);
+  await hideToasts(page);
+  await page.screenshot({ path: path.join(FIX_SHOTS, `${mobile ? "mobile" : "desktop"}-nach-verlassen.png`) });
+  // Controls still work: clicking/tapping the habitat opens its panel again.
+  await page.locator("#zoo-close").click().catch(() => undefined);
+  await page.waitForTimeout(200);
+  const spot = await pk<{ x: number; y: number }>(page, "habitatScreen", CELLS.savanne);
+  if (mobile) await page.touchscreen.tap(spot.x, spot.y);
+  else await page.mouse.click(spot.x, spot.y);
+  await page.waitForTimeout(400);
+  check((await state()).panel, `${tag}: Park reagiert danach wieder (Gehege antippen öffnet das Panel)`);
+  await openPanel();
+
+  // B. Escape, one step per press: interior → panel → park → city.
+  await press("#zoo-open-interior");
+  await page.waitForTimeout(600);
+  check((await state()).interior, `${tag}: Innenansicht wieder offen`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  now = await state();
+  check(!now.interior && now.park && now.panel, `${tag}: Esc schließt nur die Innenansicht (${JSON.stringify(now)})`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  now = await state();
+  check(!now.panel && now.park, `${tag}: Esc schließt dann das Gehege-Panel`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  now = await state();
+  check(!now.park, `${tag}: Esc führt dann zurück in die Stadt`);
+  const frameMs = await page.evaluate(() => (window as Window & { __cityline?: { frameMs?: number } }).__cityline?.frameMs);
+  check(typeof frameMs === "number", `${tag}: Stadt rendert wieder`);
+
+  // C. "Zur Stadt" button after an interior visit.
+  await pk(page, "enter");
+  await page.waitForTimeout(300);
+  await openPanel();
+  await press("#zoo-open-interior");
+  await page.waitForTimeout(500);
+  await press("#zoo-interior .zi-back");
+  await page.waitForTimeout(300);
+  await page.locator("#zoo-close").click().catch(() => undefined);
+  await press('#park-view [data-act="back"]');
+  await page.waitForTimeout(300);
+  check(!(await state()).park, `${tag}: »← Zur Stadt« nach der Innenansicht klappt`);
+
+  // D. Many visits: no leaked WebGL contexts, the interior opens every time.
+  let opened = 0;
+  for (let round = 0; round < 12; round += 1) {
+    await pk(page, "enter");
+    await page.waitForTimeout(150);
+    await openPanel();
+    await press("#zoo-open-interior");
+    await page.waitForTimeout(250);
+    if ((await state()).interior) opened += 1;
+    await press("#zoo-interior .zi-back");
+    await page.waitForTimeout(100);
+    await pk(page, "leave");
+  }
+  check(opened === 12 && warnings.length === 0, `${tag}: 12 Besuche ohne verlorene WebGL-Kontexte (${opened}/12, ${warnings.length} Warnungen)`);
+
+  // E. No WebGL context for the interior: stay in the park instead of an empty overlay.
+  await pk(page, "enter");
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const proto = HTMLCanvasElement.prototype as unknown as { getContext: (...args: unknown[]) => unknown; __orig?: (...args: unknown[]) => unknown };
+    proto.__orig = proto.getContext;
+    proto.getContext = function (this: HTMLCanvasElement, ...args: unknown[]) {
+      return this.id === "zoo-canvas" ? null : proto.__orig!.apply(this, args);
+    };
+  });
+  await openPanel();
+  await press("#zoo-open-interior");
+  await page.waitForTimeout(400);
+  now = await state();
+  check(!now.interior && now.flag !== "on" && now.park, `${tag}: Ohne WebGL-Kontext bleibt man im Park statt festzustecken (${JSON.stringify(now)})`);
+  await page.evaluate(() => {
+    const proto = HTMLCanvasElement.prototype as unknown as { getContext: unknown; __orig?: unknown };
+    proto.getContext = proto.__orig;
+  });
+  await page.locator("#zoo-close").click().catch(() => undefined);
+  await pk(page, "leave");
+}
+
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--ignore-gpu-blocklist"] });
 const errors: string[] = [];
 
@@ -450,6 +590,7 @@ const errors: string[] = [];
   check(await page.locator("#park-view").isHidden(), "Zur Stadt schließt den Park");
   const ready = await page.evaluate(() => (window as Window & { __cityline?: { frameMs?: number } }).__cityline?.frameMs);
   check(typeof ready === "number", "Stadt rendert wieder");
+  await exitRegression(page, false);
   await page.close();
 }
 
@@ -523,6 +664,9 @@ const errors: string[] = [];
   await page.screenshot({ path: path.join(SHOTS, "tp-m5-innen.png") });
   const side = await page.locator("#zi-side").boundingBox();
   check(!side || (side.x >= 0 && side.x + side.width <= 391), "Mobile: Tierkarte passt");
+  await page.locator("#zoo-interior .zi-back").tap();
+  await page.waitForTimeout(300);
+  await exitRegression(page, true);
   await page.close();
 }
 

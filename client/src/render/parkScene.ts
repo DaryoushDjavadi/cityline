@@ -638,6 +638,10 @@ export class ParkScene {
   }
 
   dispose(): void {
+    // Free the WebGL context right away: every visit makes a fresh canvas, and leaked contexts
+    // push the browser over its limit (the city context gets dropped, new scenes fail to start).
+    // (Geometries are cached and partly shared with the city, so they are not disposed here.)
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 }

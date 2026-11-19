@@ -48,6 +48,8 @@ export interface ParkHooks {
   habitat: (cell: number) => void;
   /** Close the habitat panel (when building). */
   closeHabitat: () => void;
+  /** Short message in the city status line. */
+  flash: (text: string) => void;
 }
 
 export type ParkTool = ParkBuild | "clear" | null;
@@ -142,9 +144,15 @@ export class ParkView {
     window.addEventListener("keydown", (event) => {
       if (!this.scene || document.body.dataset.zooInterior === "on") return;
       if ((event.target as HTMLElement)?.tagName === "INPUT") return;
+      // The city is hidden while the park is open: its shortcuts must not act behind the park.
+      event.stopImmediatePropagation();
       if (event.key === "Escape") {
+        // One step per press: tool → statistics → habitat panel → back to the city.
+        event.preventDefault();
         if (this.tool) this.setTool(null);
         else if (this.statsOpen) this.toggleStats(false);
+        else if (document.body.dataset.zoo === "on") this.hooks.closeHabitat();
+        else this.close();
         return;
       }
       if (event.code === "KeyQ") this.scene.rotate(0.2);
@@ -213,7 +221,16 @@ export class ParkView {
     const canvas = old.cloneNode(false) as HTMLCanvasElement;
     old.replaceWith(canvas);
     const low = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low";
-    this.scene = new ParkScene(canvas, low);
+    try {
+      this.scene = new ParkScene(canvas, low);
+    } catch (error) {
+      // No WebGL context: stay in the city instead of an empty park without a way back.
+      console.warn("Tierpark nicht verfügbar", error);
+      this.overlay.hidden = true;
+      document.body.dataset.park = "off";
+      this.hooks.flash("Der Tierpark konnte gerade nicht starten. Versuch es gleich noch einmal.");
+      return;
+    }
     this.bindCanvas(canvas);
     this.tool = null;
     this.tab = "habitat";
