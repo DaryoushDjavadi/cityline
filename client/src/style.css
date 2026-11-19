@@ -3672,8 +3672,9 @@ body[data-zoo-interior="on"] #hud > *:not(#toast):not(#status) { visibility: hid
   .zi-top { left: 6px; right: 6px; top: 6px; padding: 6px 8px; gap: 6px; flex-wrap: wrap; }
   .zi-back { min-height: 34px; padding: 4px 10px; }
   .zi-title b { font-size: 14px; }
-  .zi-info { width: 100%; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .zi-info button { min-height: 30px; padding: 4px 8px; white-space: nowrap; }
+  .zi-info { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 5px; }
+  .zi-info button { min-height: 30px; padding: 4px 8px; white-space: nowrap; font-size: 12px; }
+  .zi-info .zi-chip { padding: 4px 7px; font-size: 12px; }
   .zi-tools { left: 6px; right: 6px; top: auto; bottom: 6px; flex-direction: row; overflow-x: auto; padding: 6px; scrollbar-width: none; }
   .zi-tools button { width: auto; min-width: 92px; grid-template-columns: 22px auto; }
   .zi-tools button span { font-size: 17px; }

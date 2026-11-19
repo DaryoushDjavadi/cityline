@@ -200,6 +200,9 @@ export class CityRenderer {
   private readonly pipeMesh: THREE.InstancedMesh;
   private readonly roofs: THREE.InstancedMesh;
   private readonly treeMeshes = new Map<string, THREE.InstancedMesh>();
+  /** x: fully hidden below this view depth, y: fully visible above (0 = off). */
+  private readonly treeFade = { value: new THREE.Vector2(0, 0) };
+  private readonly focus = new THREE.Vector3();
   private readonly treeSlots = new Map<string, number>();
   private readonly stones: THREE.InstancedMesh;
   private readonly lakes: THREE.InstancedMesh;
@@ -443,6 +446,26 @@ export class CityRenderer {
       this.scene.add(instances);
     }
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0 });
+    // Trees right in front of a close camera dissolve (screen-door dither, no sorting, no CPU cost).
+    const treeFade = this.treeFade;
+    treeMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTreeFade = treeFade;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying float vFadeDepth;")
+        .replace("#include <project_vertex>", "#include <project_vertex>\nvFadeDepth = -mvPosition.z;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform vec2 uTreeFade;\nvarying float vFadeDepth;")
+        .replace(
+          "#include <clipping_planes_fragment>",
+          `#include <clipping_planes_fragment>
+          if (uTreeFade.y > 0.0) {
+            float keep = clamp((vFadeDepth - uTreeFade.x) / (uTreeFade.y - uTreeFade.x), 0.0, 1.0);
+            float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+            if (keep < noise) discard;
+          }`,
+        );
+    };
+    treeMat.customProgramCacheKey = () => "tree-fade";
     for (const model of buildTreeModels()) {
       const instances = new THREE.InstancedMesh(model.geometry, treeMat, CAP);
       instances.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3), 3);
@@ -823,6 +846,7 @@ export class CityRenderer {
   }
 
   update(dt: number, target: THREE.Vector3): void {
+    this.focus.copy(target);
     const climate = climateAt(this.shown?.tick ?? 0);
     this.applyClimate(climate, target);
     this.seaTime += dt;
@@ -901,6 +925,9 @@ export class CityRenderer {
     }
     this.faceSmileys(camera);
     this.zoo.setCamera(camera.position);
+    const near = camera.position.distanceTo(this.focus);
+    if (near < 130) this.treeFade.value.set(near * 0.42, near * 0.68);
+    else this.treeFade.value.set(0, 0);
     if (this.composer && this.renderPass) {
       this.renderPass.camera = camera;
       this.composer.render();

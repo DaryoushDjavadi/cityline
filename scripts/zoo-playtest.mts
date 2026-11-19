@@ -183,12 +183,12 @@ const errors: string[] = [];
   // 3. Outside view.
   await e2e(page, "lookAt", sx + 2, sy + 0.3, 46, 0.85, 0, 0.5);
   await clean(page);
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(2600);
   await clean(page);
   const layer = await e2e<{ animals: number; far: number; jeeps: number; visitors: number; meshes: number }>(page, "zooLayer");
   check(layer.animals >= 15 && layer.jeeps >= 3 && layer.visitors >= 3, `Tiere, Jeeps und Besucher sichtbar (${JSON.stringify(layer)})`);
   await page.screenshot({ path: path.join(SHOTS, "zoo-02-gehege-aussen.png") });
-  await e2e(page, "lookAt", sx, sy + 0.6, 30, 0.9, 0, 0.8);
+  await e2e(page, "lookAt", sx + 1, sy + 0.1, 22, 1.0, 0, 0.4);
   await page.waitForTimeout(900);
   await clean(page);
   await page.screenshot({ path: path.join(SHOTS, "zoo-08-safari-besucher.png") });

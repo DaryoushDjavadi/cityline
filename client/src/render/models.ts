@@ -100,11 +100,26 @@ export function compose(parts: Part[]): THREE.BufferGeometry {
   return geometry;
 }
 
-function pitch(color: number): Part[] {
+/**
+ * Gable roof: two panels resting on the wall top (wallTop at ±half depth) with an eave overhang,
+ * meeting exactly at the ridge (z = 0), plus a ridge cap that covers the seam.
+ */
+function pitch(color: number, opts: { width?: number; half?: number; wallTop?: number; eave?: number; angle?: number; x?: number; z?: number; ridgeColor?: number } = {}): Part[] {
+  const { width = 6.3, half = 2.35, wallTop = 3.05, eave = 0.45, angle = 0.55, x = 0, z = 0, ridgeColor = color } = opts;
+  const t = 0.26;
+  const run = half + eave;
+  const tan = Math.tan(angle);
+  const cos = Math.cos(angle);
+  // Extend each panel past the ridge by the thickness so the top edges meet without a gap.
+  const len = run / cos + t * tan;
+  const zc = run / 2 - (t * tan * cos) / 2;
+  const yAt = (z: number) => wallTop + t / (2 * cos) + (half - z) * tan;
+  const yc = yAt(zc);
+  const ridge = yAt(0) + t / (2 * cos);
   return [
-    box(0, 3.45, -1.05, 6.3, 0.28, 3.5, color, { rx: 0.62 }),
-    box(0, 3.45, 1.05, 6.3, 0.28, 3.5, color, { rx: -0.62 }),
-    box(0, 3.92, 0, 6.35, 0.16, 0.42, color),
+    box(x, yc, z - zc, width, t, len, color, { rx: -angle }),
+    box(x, yc, z + zc, width, t, len, color, { rx: angle }),
+    box(x, ridge, z, width + 0.05, 0.16, 0.36, ridgeColor),
   ];
 }
 
@@ -233,8 +248,7 @@ function habitatParts(type: "savanne" | "wald" | "wasser" | "polar" | "wiese"): 
     ...flowers,
     box(-2.4, 1.0, -2.3, 2.6, 1.6, 2.0, 0xc84a3a),
     box(-2.4, 1.0, -1.28, 0.9, 1.1, 0.06, 0xf4efe4),
-    box(-2.4, 2.1, -2.75, 2.9, 0.18, 1.35, 0x7a4632, { rx: 0.6 }),
-    box(-2.4, 2.1, -1.85, 2.9, 0.18, 1.35, 0x7a4632, { rx: -0.6 }),
+    ...pitch(0x7a4632, { x: -2.4, z: -2.3, width: 2.9, half: 1.0, wallTop: 1.8, eave: 0.22, angle: 0.6 }),
     cyl(2.3, 0.55, -2.4, 0.55, 0.65, 0xe2c25e, { rz: Math.PI / 2 }),
     cyl(2.9, 0.5, -1.4, 0.5, 0.6, 0xd8b852, { rz: Math.PI / 2 }),
     box(1.8, 0.45, 1.6, 1.6, 0.4, 0.5, 0x9a7650),
@@ -252,7 +266,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
       box(0, 1.15, 2.4, 1.15, 1.9, 0.16, 0x6a4532),
       box(-1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
       box(1.35, 2.05, 2.38, 0.9, 0.85, 0.12, WIN),
-      box(1.7, 3.9, 0.4, 0.45, 1.5, 0.45, 0x7a6c60),
+      box(1.7, 4.55, 0.55, 0.45, 1.4, 0.45, 0x7a6c60),
     ],
   },
   apartments: {
@@ -337,8 +351,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.2, 0, 8.6, 0.4, 7.2, 0x6a6058),
       box(0, 2.6, 0, 8.2, 4.4, 6.6, 0xb24e36),
-      box(-1.6, 5.3, 0, 2.2, 0.28, 6.4, 0x8d5a40, { rx: 0.4 }),
-      box(1.6, 5.3, 0, 2.2, 0.28, 6.4, 0x8d5a40, { rx: -0.4 }),
+      ...pitch(0x8d5a40, { width: 8.5, half: 3.3, wallTop: 4.8, eave: 0.3, angle: 0.35 }),
       box(0, 1.4, 3.4, 3.2, 2.1, 0.16, 0x3d3834),
       { shape: "cyl", x: -2.6, y: 6.4, z: -2.2, sx: 0.45, sy: 3.6, sz: 0.5, color: 0x6a5e56 },
       ...stripedStack(2.4, -2.2, 7.2, 0.55, 5.2),
@@ -380,8 +393,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
     parts: [
       box(0, 0.18, 0, 8.4, 0.36, 6.2, 0x8a7560),
       box(0, 2, 0, 8, 3.2, 5.6, 0xf2e4d4),
-      box(0, 4.15, -0.9, 8.3, 0.28, 3.6, 0xc46a4a, { rx: 0.5 }),
-      box(0, 4.15, 0.9, 8.3, 0.28, 3.6, 0xc46a4a, { rx: -0.5 }),
+      ...pitch(0xc46a4a, { width: 8.3, half: 2.8, wallTop: 3.6, eave: 0.35, angle: 0.5 }),
       box(0, 1.2, 2.85, 1.6, 2, 0.14, 0x5c3a2a),
       box(-2.4, 2.2, 2.85, 1.3, 1.1, 0.1, WIN),
       box(2.4, 2.2, 2.85, 1.3, 1.1, 0.1, WIN),
@@ -449,7 +461,7 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   zooWald: { height: 4.6, parts: habitatParts("wald") },
   zooWasser: { height: 1.6, parts: habitatParts("wasser") },
   zooPolar: { height: 2.4, parts: habitatParts("polar") },
-  zooWiese: { height: 2.4, parts: habitatParts("wiese") },
+  zooWiese: { height: 2.9, parts: habitatParts("wiese") },
   farm: { height: 7.2, parts: farmWheatParts() },
   farmWet: { height: 7.2, parts: [...farmWheatParts(), ...farmIrrigationParts()] },
   farmSilo: { height: 8.6, parts: [...farmWheatParts(), ...farmSiloParts()] },
@@ -684,7 +696,7 @@ function cityHallParts(): Part[] {
     box(0, 0.38, 3.3, 4.2, 0.16, 1.4, 0xe2d8c4),
     box(0, 2.5, 0, 8.4, 4.4, 4.2, 0xefe2c8),
     box(0, 4.85, 0, 8.8, 0.3, 4.6, 0xd8c49a),
-    ...pitch(0xb5523a).map((part) => ({ ...part, sx: part.sx * 1.45, sz: part.sz * 0.85, y: part.y + 2.5 })),
+    ...pitch(0xb5523a, { width: 9.1, half: 2.3, wallTop: 5.0, eave: 0.4, angle: 0.5 }),
     box(0, 3.55, 2.55, 6.4, 0.35, 1.1, 0xe7dcc4),
     ...columns,
     ...windows,
@@ -728,9 +740,7 @@ function harborParts(): Part[] {
     box(-4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
     box(4.6, 0.52, -1.3, 0.2, 0.42, 6.0, 0x9aa0a8),
     box(-2.55, 1.85, -2.2, 4.6, 2.7, 4.0, 0xf3ece0),
-    box(-2.55, 3.45, -2.2, 5.05, 0.2, 2.2, 0xc44732, { rx: 0.5 }),
-    box(-2.55, 3.45, -1.15, 5.05, 0.2, 2.2, 0xc44732, { rx: -0.5 }),
-    box(-2.55, 3.82, -1.68, 5.1, 0.1, 0.32, 0x8a2e22),
+    ...pitch(0xc44732, { width: 5.05, half: 2.0, wallTop: 3.2, eave: 0.35, angle: 0.5, x: -2.55, z: -2.2, ridgeColor: 0x8a2e22 }),
     box(-4.7, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
     box(-0.4, 2.05, -2.2, 0.16, 2.2, 3.8, 0xe7dcc8),
     box(-2.55, 2.05, -0.18, 1.8, 1.25, 0.08, WIN),
