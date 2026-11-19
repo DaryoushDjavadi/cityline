@@ -41,7 +41,7 @@ async function desktop(): Promise<void> {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await boot(page);
-  check((await page.locator("#rail .build-tab").count()) === 8, "8 Kategorien in der Leiste");
+  check((await page.locator("#rail .build-tab").count()) === 9, "9 Kategorien in der Leiste");
   const rail = await page.locator("#rail").boundingBox();
   check(rail && rail.y + rail.height > 700 && rail.x > 200, `Leiste unten mittig (${rail?.x.toFixed(0)}, ${rail?.y.toFixed(0)})`);
   const stats = await page.evaluate(() => {
