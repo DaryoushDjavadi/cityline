@@ -93,18 +93,17 @@ async function selectTool(page: Page, tool: "road" | "cottage"): Promise<void> {
       await page.locator("#toggle-rail").click();
     }
   }
-  if (tool === "road") {
-    const tab = page.locator("#build-tab-traffic");
-    if (await tab.isVisible().catch(() => false)) await tab.click();
-  } else {
-    const tab = page.locator("#build-tab-buildings");
+  // Baumenü v2: category tabs (1 Straßen, 2 Wohnen) open a palette with the tools.
+  const button = page.locator(`#rail button[data-tool="${tool}"]`);
+  if (!(await button.isVisible().catch(() => false))) {
+    const tab = page.locator(`#build-tab-${tool === "road" ? "roads" : "homes"}`);
     if (await tab.isVisible().catch(() => false)) await tab.click();
   }
-  const button = page.locator(`#rail button[data-tool="${tool}"]`);
   if (await button.isVisible().catch(() => false)) {
     await button.click();
   } else {
-    await page.keyboard.press(tool === "road" ? "Digit1" : "Digit3");
+    await page.keyboard.press(tool === "road" ? "Digit1" : "Digit2");
+    await page.keyboard.press("r");
   }
   await page.waitForFunction((id) => document.body.dataset.tool === id, tool, { timeout: 5_000 });
   if (!compact && (await page.locator("#toggle-rail").isVisible().catch(() => false))) {
