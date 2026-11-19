@@ -1,11 +1,13 @@
 /**
  * Zoo animals, safari jeeps and fence visitors in the city view.
- * One InstancedMesh pair (body + pattern overlay) per species present, one block mesh for the
- * far LOD, one jeep mesh, one visitor pair. Meshes with no instances are hidden (no draw call).
+ * Everything is ONE BatchedMesh (one draw call): per species a body and a pattern-overlay
+ * geometry, a block geometry for the far LOD, the jeep and visitor bodies/heads.
+ * Instances are pooled per geometry; unused ones are hidden.
  */
 import * as THREE from "three";
 import {
   DIRS,
+  SPECIES,
   cellCoords,
   cellToWorld,
   growthScale,
@@ -44,57 +46,76 @@ interface Site {
 }
 
 export class ZooLayer {
-  private readonly bodies = new Map<string, THREE.InstancedMesh>();
-  private readonly patterns = new Map<string, THREE.InstancedMesh>();
-  private readonly blocks: THREE.InstancedMesh;
-  private readonly jeeps: THREE.InstancedMesh;
-  private readonly visitorBodies: THREE.InstancedMesh;
-  private readonly visitorHeads: THREE.InstancedMesh;
+  private readonly batch: THREE.BatchedMesh;
+  private readonly geo = new Map<string, number>();
+  private readonly pools = new Map<number, number[]>();
+  private readonly used = new Map<number, number>();
   private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.02 });
   private readonly dummy = new THREE.Object3D();
   private readonly color = new THREE.Color();
   private sites: Site[] = [];
   private visitors = 0;
   private tick = 0;
+  private counts = { jeeps: 0, visitors: 0 };
   private readonly camera = new THREE.Vector3(0, 1e4, 0);
   /** Latest pose per animal id (world coordinates), for picking and tests. */
   readonly poses = new Map<number, { x: number; y: number; z: number; far: boolean }>();
 
-  constructor(private readonly scene: THREE.Scene) {
+  constructor(scene: THREE.Scene) {
     const block = new THREE.BoxGeometry(1, 1, 1);
     block.translate(0, 0.5, 0);
-    const white = new Float32Array(block.getAttribute("position").count * 3).fill(1);
-    block.setAttribute("color", new THREE.BufferAttribute(white, 3));
-    this.blocks = this.instanced(block, LOD_CAP);
-    this.jeeps = this.instanced(buildJeepGeometry(), JEEP_CAP);
+    block.deleteAttribute("uv");
+    block.setAttribute("color", new THREE.BufferAttribute(new Float32Array(block.getAttribute("position").count * 3).fill(1), 3));
     const person = buildPersonModels().find((model) => model.key === "idle")!;
-    this.visitorBodies = this.instanced(person.body, VISITOR_CAP);
-    this.visitorHeads = this.instanced(person.head, VISITOR_CAP);
-  }
-
-  private instanced(geometry: THREE.BufferGeometry, cap: number): THREE.InstancedMesh {
-    const mesh = new THREE.InstancedMesh(geometry, this.material, cap);
-    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
-    mesh.count = 0;
-    mesh.visible = false;
-    mesh.frustumCulled = false;
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    this.scene.add(mesh);
-    return mesh;
-  }
-
-  private speciesMeshes(species: string): { body: THREE.InstancedMesh; pattern: THREE.InstancedMesh } {
-    let body = this.bodies.get(species);
-    let pattern = this.patterns.get(species);
-    if (!body || !pattern) {
-      const geo = animalGeometry(species);
-      body = this.instanced(geo.body, SPECIES_CAP);
-      pattern = this.instanced(geo.pattern, SPECIES_CAP);
-      this.bodies.set(species, body);
-      this.patterns.set(species, pattern);
+    const entries: [string, THREE.BufferGeometry][] = [["block", block], ["jeep", buildJeepGeometry()], ["visitorBody", person.body], ["visitorHead", person.head]];
+    for (const species of SPECIES) {
+      const geo = animalGeometry(species.id);
+      entries.push([`${species.id}:body`, geo.body], [`${species.id}:pattern`, geo.pattern]);
     }
-    return { body, pattern };
+    let vertices = 0;
+    let indices = 0;
+    for (const [, geometry] of entries) {
+      vertices += geometry.getAttribute("position").count;
+      indices += geometry.getIndex()?.count ?? geometry.getAttribute("position").count;
+    }
+    const instances = SPECIES_CAP * 2 * 6 + LOD_CAP + JEEP_CAP + VISITOR_CAP * 2;
+    this.batch = new THREE.BatchedMesh(instances, vertices, indices, this.material);
+    this.batch.sortObjects = false;
+    this.batch.perObjectFrustumCulled = true;
+    this.batch.frustumCulled = false;
+    this.batch.castShadow = false;
+    this.batch.receiveShadow = false;
+    this.batch.visible = false;
+    for (const [key, geometry] of entries) this.geo.set(key, this.batch.addGeometry(geometry));
+    scene.add(this.batch);
+  }
+
+  /** Next free instance of a geometry (pooled; grows on demand). */
+  private take(key: string): number | null {
+    const id = this.geo.get(key);
+    if (id === undefined) return null;
+    let pool = this.pools.get(id);
+    if (!pool) {
+      pool = [];
+      this.pools.set(id, pool);
+    }
+    const n = this.used.get(id) ?? 0;
+    if (n >= pool.length) {
+      if (this.batch.instanceCount >= this.batch.maxInstanceCount) return null;
+      pool.push(this.batch.addInstance(id));
+    }
+    this.used.set(id, n + 1);
+    const instance = pool[n];
+    this.batch.setVisibleAt(instance, true);
+    return instance;
+  }
+
+  private place(key: string, color: THREE.Color): void {
+    const instance = this.take(key);
+    if (instance === null) return;
+    this.dummy.updateMatrix();
+    this.batch.setMatrixAt(instance, this.dummy.matrix);
+    this.batch.setColorAt(instance, color);
   }
 
   /** Rebuild the habitat list after a state change. */
@@ -130,18 +151,11 @@ export class ZooLayer {
     this.camera.copy(position);
   }
 
-  get drawMeshes(): number {
-    let n = 0;
-    for (const mesh of [...this.bodies.values(), ...this.patterns.values(), this.blocks, this.jeeps, this.visitorBodies, this.visitorHeads]) if (mesh.visible) n += 1;
-    return n;
-  }
-
   update(time: number): void {
-    const bodyCount = new Map<string, number>();
-    let blocks = 0;
+    this.used.clear();
+    this.poses.clear();
     let jeeps = 0;
     let people = 0;
-    this.poses.clear();
     const populated = this.sites.filter((site) => site.animals.length > 0).length;
     for (const site of this.sites) {
       const local = new Map<number, Pose>();
@@ -165,30 +179,18 @@ export class ZooLayer {
         const dz = wz - this.camera.z;
         const far = dx * dx + dy * dy + dz * dz > ZOO_LOD_DISTANCE * ZOO_LOD_DISTANCE;
         this.poses.set(animal.id, { x: wx, y: wy, z: wz, far });
+        this.dummy.position.set(wx, wy, wz);
         if (far) {
-          if (blocks >= LOD_CAP) continue;
           const [w, h, l] = geo.model.lod;
-          this.dummy.position.set(wx, wy, wz);
           this.dummy.rotation.set(0, pose.heading, 0);
           this.dummy.scale.set(w * scale * 0.8, h * scale * 0.75, l * scale * 0.8);
-          this.dummy.updateMatrix();
-          this.blocks.setMatrixAt(blocks, this.dummy.matrix);
-          this.blocks.setColorAt(blocks, this.color.setHex(info.color).multiply(coatTint(animal.genes.hue)));
-          blocks += 1;
+          this.place("block", this.color.setHex(info.color).multiply(coatTint(animal.genes.hue)));
           continue;
         }
-        const slot = bodyCount.get(animal.species) ?? 0;
-        if (slot >= SPECIES_CAP) continue;
-        const meshes = this.speciesMeshes(animal.species);
-        this.dummy.position.set(wx, wy, wz);
         this.dummy.rotation.set(0, pose.heading, pose.roll);
         this.dummy.scale.setScalar(scale);
-        this.dummy.updateMatrix();
-        meshes.body.setMatrixAt(slot, this.dummy.matrix);
-        meshes.pattern.setMatrixAt(slot, this.dummy.matrix);
-        meshes.body.setColorAt(slot, coatTint(animal.genes.hue, this.color));
-        meshes.pattern.setColorAt(slot, patternColor(info.color, geo.model, animal.genes.hue, animal.genes.pattern, this.color));
-        bodyCount.set(animal.species, slot + 1);
+        this.place(`${animal.species}:body`, coatTint(animal.genes.hue, this.color));
+        this.place(`${animal.species}:pattern`, patternColor(info.color, geo.model, animal.genes.hue, animal.genes.pattern, this.color));
       }
       if (site.animals.length === 0) continue;
       // Safari jeep on the inner track (not in the petting meadow).
@@ -202,9 +204,7 @@ export class ZooLayer {
         this.dummy.position.set(site.x + px, site.y + 0.25 + Math.abs(Math.sin(time * 9 + site.cell)) * 0.03, site.z + pz);
         this.dummy.rotation.set(0, heading, 0);
         this.dummy.scale.setScalar(0.85);
-        this.dummy.updateMatrix();
-        this.jeeps.setMatrixAt(jeeps, this.dummy.matrix);
-        this.jeeps.setColorAt(jeeps, this.color.setHex(0xffffff));
+        this.place("jeep", this.color.setHex(0xffffff));
         jeeps += 1;
       }
       // Visitors at the fence on the road side; more visitors → more people.
@@ -219,34 +219,26 @@ export class ZooLayer {
         this.dummy.position.set(site.x + px, site.y + 0.12, site.z + pz);
         this.dummy.rotation.set(0, Math.atan2(-road.dx, -road.dz), 0);
         this.dummy.scale.setScalar(0.92);
-        this.dummy.updateMatrix();
-        this.visitorBodies.setMatrixAt(people, this.dummy.matrix);
-        this.visitorHeads.setMatrixAt(people, this.dummy.matrix);
-        this.visitorBodies.setColorAt(people, this.color.setHex(CLOTHES[(k + site.cell) % CLOTHES.length]));
-        this.visitorHeads.setColorAt(people, this.color.setHex(0xffffff));
+        this.place("visitorBody", this.color.setHex(CLOTHES[(k + site.cell) % CLOTHES.length]));
+        this.place("visitorHead", this.color.setHex(0xffffff));
         people += 1;
       }
     }
-    for (const [species, mesh] of this.bodies) this.finish(mesh, bodyCount.get(species) ?? 0);
-    for (const [species, mesh] of this.patterns) this.finish(mesh, bodyCount.get(species) ?? 0);
-    this.finish(this.blocks, blocks);
-    this.finish(this.jeeps, jeeps);
-    this.finish(this.visitorBodies, people);
-    this.finish(this.visitorHeads, people);
-  }
-
-  private finish(mesh: THREE.InstancedMesh, count: number): void {
-    mesh.count = count;
-    mesh.visible = count > 0;
-    if (count === 0) return;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // Hide pooled instances that were not used this frame.
+    let any = false;
+    for (const [id, pool] of this.pools) {
+      const n = this.used.get(id) ?? 0;
+      if (n > 0) any = true;
+      for (let i = n; i < pool.length; i += 1) this.batch.setVisibleAt(pool[i], false);
+    }
+    this.batch.visible = any;
+    this.counts = { jeeps, visitors: people };
   }
 
   /** Counts for tests and the perf probe. */
   stats(): { animals: number; far: number; jeeps: number; visitors: number; meshes: number } {
     let far = 0;
     for (const pose of this.poses.values()) if (pose.far) far += 1;
-    return { animals: this.poses.size, far, jeeps: this.jeeps.count, visitors: this.visitorBodies.count, meshes: this.drawMeshes };
+    return { animals: this.poses.size, far, jeeps: this.counts.jeeps, visitors: this.counts.visitors, meshes: this.batch.visible ? 1 : 0 };
   }
 }

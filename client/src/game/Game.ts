@@ -530,6 +530,30 @@ export class Game {
         self.publish();
         return true;
       },
+      /** Free flat land block (w×h) near the camera target, for building a test zoo. */
+      findArea(w: number, h: number): { x: number; y: number } | null {
+        const center = worldToCell(self.city, self.camera.target.x, self.camera.target.z) ?? { x: self.city.width >> 1, y: self.city.height >> 1 };
+        for (let r = 0; r < 40; r += 1) {
+          for (let dy = -r; dy <= r; dy += 1) {
+            for (let dx = -r; dx <= r; dx += 1) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+              const x0 = center.x + dx;
+              const y0 = center.y + dy;
+              if (x0 < 2 || y0 < 2 || x0 + w >= self.city.width - 2 || y0 + h >= self.city.height - 2) continue;
+              let free = true;
+              const ground = cellHeight(self.city, x0, y0);
+              for (let y = y0; y < y0 + h && free; y += 1) {
+                for (let x = x0; x < x0 + w && free; x += 1) {
+                  const index = cellIndex(self.city, x, y);
+                  if (placeBlockReason(self.city, index, "road") || self.cellHasStructure(index) || Math.abs(cellHeight(self.city, x, y) - ground) > 0.01) free = false;
+                }
+              }
+              if (free) return { x: x0, y: y0 };
+            }
+          }
+        }
+        return null;
+      },
       zooAnimalPose(id: number) {
         return self.view.zoo.poses.get(id) ?? null;
       },

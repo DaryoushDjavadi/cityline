@@ -66,6 +66,12 @@ const CARE: { act: CareAct; label: string; icon: string }[] = [
 ];
 
 const euro = new Intl.NumberFormat("de-DE");
+/** Only touch the DOM when the markup changed (keeps hover/focus and avoids detached buttons). */
+function setHtml(el: HTMLElement, html: string): void {
+  if (el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+}
 const esc = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function bar(label: string, value: number, tone = ""): string {
@@ -215,7 +221,7 @@ export class ZooView {
     const habitat = this.habitat();
     const city = this.city;
     if (!city || !habitat) {
-      this.body.innerHTML = `<p class="zoo-empty">Das Gehege wird eingerichtet …</p>`;
+      setHtml(this.body, `<p class="zoo-empty">Das Gehege wird eingerichtet …</p>`);
       return;
     }
     if (this.panel.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT") return;
@@ -223,7 +229,7 @@ export class ZooView {
     (this.panel.querySelector("#zoo-kicker") as HTMLElement).textContent = this.animal >= 0 ? `${info.name} · Tier` : "Tiergehege";
     const animal = this.animal >= 0 ? zoo?.animals.find((entry) => entry.id === this.animal) : undefined;
     if (animal) {
-      this.body.innerHTML = `<button type="button" class="zoo-link" data-act="list">← ${esc(info.name)}</button>${this.animalCard(animal)}`;
+      setHtml(this.body, `<button type="button" class="zoo-link" data-act="list">← ${esc(info.name)}</button>${this.animalCard(animal)}`);
       return;
     }
     this.animal = -1;
@@ -242,7 +248,7 @@ export class ZooView {
       ].join("");
       return `<button type="button" class="zoo-row" data-act="animal" data-id="${entry.id}"><span class="zoo-ico">${SPECIES_ICON[entry.species] ?? "🐾"}</span><span class="zoo-row-main"><b>${esc(entry.name)} <small>${entry.sex === "w" ? "♀" : "♂"} ${esc(sp?.name ?? "")}</small></b><span class="zoo-mini"><i style="--v:${entry.health}%" title="Gesundheit"></i><i style="--v:${entry.happy}%" title="Glück" class="happy"></i><i style="--v:${entry.trust}%" title="Vertrauen" class="trust"></i></span></span>${tags}</button>`;
     });
-    this.body.innerHTML = `
+    setHtml(this.body, `
       <h2 class="zoo-title">${esc(info.name)}</h2>
       <p class="zoo-blurb">${esc(info.blurb)}</p>
       <div class="zoo-chips">
@@ -260,7 +266,7 @@ export class ZooView {
         <button type="button" data-act="keeper" aria-pressed="${habitat.keeper}" class="${habitat.keeper ? "on" : ""}">Pfleger ${habitat.keeper ? "an" : "aus"} · ${KEEPER_FEE} €/2 s</button>
       </div>
       <h3 class="zoo-h3">Bewohner</h3>
-      ${rows.length ? `<div class="zoo-list">${rows.join("")}</div>` : `<p class="zoo-empty">Noch leer. Nimm Tiere auf – Rettungstiere sind günstig, brauchen aber Pflege.</p>`}`;
+      ${rows.length ? `<div class="zoo-list">${rows.join("")}</div>` : `<p class="zoo-empty">Noch leer. Nimm Tiere auf – Rettungstiere sind günstig, brauchen aber Pflege.</p>`}`);
   }
 
   /** Animal card: status, story, genes, family tree, care, rename. */
@@ -455,15 +461,15 @@ export class ZooView {
     }).join("");
     const price = priceOf(chosen, this.shopOrigin);
     const blocked = chosen.space > free ? "Kein Platz mehr im Gehege." : city.funds < price ? "Dafür reicht das Geld nicht." : "";
-    this.shop.innerHTML = `
+    setHtml(this.shop, `
       <div class="shop-card">
         <header><div><small>Tiere aufnehmen</small><h2>${esc(HABITAT_INFO[habitat.type].name)} · Platz ${free} frei</h2></div><button type="button" class="shop-x" data-act="shop-close" aria-label="Schließen">×</button></header>
         <div class="shop-grid">${fits.map((entry) => card(entry, true)).join("")}</div>
         <details class="shop-more"><summary>Andere Arten (brauchen ein anderes Gehege)</summary><div class="shop-grid">${others.map((entry) => card(entry, false)).join("")}</div></details>
         <h3>Herkunft von ${esc(chosen.name)}</h3>
         <div class="shop-origins">${origins}</div>
-        <footer><p>${blocked || `${esc(chosen.name)} aus „${esc(ORIGIN_INFO[this.shopOrigin].name)}“. Bekommt einen Namen und eine eigene Geschichte.`}</p><button type="button" class="zoo-primary" data-act="buy" id="shop-buy" ${blocked ? "disabled" : ""}>Aufnehmen · ${euro.format(price)} €</button></footer>
-      </div>`;
+        <div class="shop-foot"><p>${blocked || `${esc(chosen.name)} aus „${esc(ORIGIN_INFO[this.shopOrigin].name)}“. Bekommt einen Namen und eine eigene Geschichte.`}</p><button type="button" class="zoo-primary" data-act="buy" id="shop-buy" ${blocked ? "disabled" : ""}>Aufnehmen · ${euro.format(price)} €</button></div>
+      </div>`);
   }
 
   private buy(): void {
@@ -560,13 +566,13 @@ export class ZooView {
     const food = habitat.items.filter((item) => item.kind === "food");
     const water = habitat.items.filter((item) => item.kind === "water");
     const pct = (list: { fill?: number }[]) => (list.length ? Math.round(list.reduce((sum, item) => sum + (item.fill ?? 0), 0) / list.length) : 0);
-    this.topInfo.innerHTML = `
+    setHtml(this.topInfo, `
       <span class="zi-chip ${pct(food) < 25 ? "bad" : ""}">🥣 ${food.length ? `${pct(food)} %` : "–"}</span>
       <span class="zi-chip ${pct(water) < 25 ? "bad" : ""}">💧 ${water.length ? `${pct(water)} %` : "–"}</span>
       <button type="button" data-act="refill" id="zi-refill">Auffüllen</button>
       <button type="button" data-act="keeper" class="${habitat.keeper ? "on" : ""}" aria-pressed="${habitat.keeper}">Pfleger ${habitat.keeper ? "an" : "aus"}</button>
-      <button type="button" class="zoo-primary" data-act="shop" id="zi-shop">Tiere aufnehmen</button>`;
-    this.tools.innerHTML = [...ITEM_KINDS.map((kind) => `<button type="button" data-act="tool" data-id="${kind}" class="${this.tool === kind ? "on" : ""}" title="${esc(ITEM_INFO[kind].blurb)}"><span>${ITEM_ICON[kind]}</span><b>${esc(ITEM_INFO[kind].name)}</b><small>${ITEM_INFO[kind].cost} €</small></button>`), `<button type="button" data-act="tool" data-id="remove" class="${this.tool === "remove" ? "on" : ""}"><span>✖</span><b>Entfernen</b><small>Einrichtung</small></button>`].join("");
+      <button type="button" class="zoo-primary" data-act="shop" id="zi-shop">Tiere aufnehmen</button>`);
+    setHtml(this.tools, [...ITEM_KINDS.map((kind) => `<button type="button" data-act="tool" data-id="${kind}" class="${this.tool === kind ? "on" : ""}" title="${esc(ITEM_INFO[kind].blurb)}"><span>${ITEM_ICON[kind]}</span><b>${esc(ITEM_INFO[kind].name)}</b><small>${ITEM_INFO[kind].cost} €</small></button>`), `<button type="button" data-act="tool" data-id="remove" class="${this.tool === "remove" ? "on" : ""}"><span>✖</span><b>Entfernen</b><small>Einrichtung</small></button>`].join(""));
     const hint = this.overlay.querySelector("#zi-hint") as HTMLElement;
     hint.textContent = this.tool === "remove"
       ? "Klicke auf einen Gegenstand, um ihn zu entfernen."
@@ -578,7 +584,7 @@ export class ZooView {
     const animal = this.animal >= 0 ? animals.find((entry) => entry.id === this.animal) : undefined;
     if (animal) {
       if (!(this.side.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT")) {
-        this.side.innerHTML = `<button type="button" class="zoo-link" data-act="deselect">× Schließen</button>${this.animalCard(animal)}`;
+        setHtml(this.side, `<button type="button" class="zoo-link" data-act="deselect">× Schließen</button>${this.animalCard(animal)}`);
       }
       this.side.hidden = false;
     } else {

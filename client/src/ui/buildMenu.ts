@@ -180,6 +180,16 @@ export const BUILD_MENU: BuildCategory[] = [
     ],
   },
   {
+    id: "tools",
+    label: "Werkzeuge",
+    icon: "tools",
+    blurb: "Abreißen und Land aufschütten.",
+    items: [
+      { tool: "bulldoze", label: "Abriss", name: "Abriss", cost: 0, blurb: "Felder abreißen (ziehen geht auch). Gebäude geben einen Teil der Kosten zurück.", needs: [] },
+      { tool: "fill", label: "Aufschütten", name: "Aufschütten", cost: COST.fill, per: "pro Feld", blurb: "Macht ein blaues Wasserfeld zu Land.", needs: ["Wasserfeld"] },
+    ],
+  },
+  {
     id: "zoo",
     label: "Zoo",
     icon: "zoo",
@@ -190,16 +200,6 @@ export const BUILD_MENU: BuildCategory[] = [
       service("zooWater", ServiceKind.ZooWater, "Wasser", ["Straße direkt daneben"], undefined, "Gehege"),
       service("zooPolar", ServiceKind.ZooPolar, "Polar", ["Straße direkt daneben"], undefined, "Gehege"),
       service("zooMeadow", ServiceKind.ZooMeadow, "Streichelzoo", ["Straße direkt daneben"], undefined, "Gehege"),
-    ],
-  },
-  {
-    id: "tools",
-    label: "Werkzeuge",
-    icon: "tools",
-    blurb: "Abreißen und Land aufschütten.",
-    items: [
-      { tool: "bulldoze", label: "Abriss", name: "Abriss", cost: 0, blurb: "Felder abreißen (ziehen geht auch). Gebäude geben einen Teil der Kosten zurück.", needs: [] },
-      { tool: "fill", label: "Aufschütten", name: "Aufschütten", cost: COST.fill, per: "pro Feld", blurb: "Macht ein blaues Wasserfeld zu Land.", needs: ["Wasserfeld"] },
     ],
   },
 ];

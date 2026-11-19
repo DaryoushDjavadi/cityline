@@ -3615,9 +3615,9 @@ body[data-look="shot"] #zoo-panel { display: none !important; }
 .shop-origin em { font-style: normal; font-size: 10.5px; color: #f0cd7d; }
 .shop-origin strong { font-size: 13.5px; white-space: nowrap; }
 .shop-origin.on { border-color: #f0cd7d; background: rgba(240, 205, 125, 0.16); }
-.shop-card footer { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.shop-card footer p { flex: 1; margin: 0; font-size: 12px; color: rgba(246, 236, 216, 0.75); }
-.shop-card footer button { min-height: 42px; padding: 8px 18px; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid; }
+.shop-card .shop-foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.shop-card .shop-foot p { flex: 1; margin: 0; font-size: 12px; color: rgba(246, 236, 216, 0.75); }
+.shop-card .shop-foot button { min-height: 42px; padding: 8px 18px; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid; }
 
 /* Interior */
 #zoo-interior { position: fixed; inset: 0; z-index: 20; background: #bfd9e6; pointer-events: auto; }
