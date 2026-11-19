@@ -40,6 +40,7 @@ import {
 } from "../../../shared/src/index.ts";
 import type { Cue } from "../audio/sfx.ts";
 import { InteriorScene, type InteriorTool } from "./zooInterior.ts";
+import { animalModel } from "../render/zooModels.ts";
 
 export interface ZooHooks {
   command: (op: ZooOp) => void;
@@ -329,7 +330,9 @@ export class ZooView {
         <h3 class="zoo-h3">Stammbaum</h3>
         <div class="zoo-tree">
           ${grand(father)}${grand(mother)}
-          <div class="zt-row">${node(father, parents[0] || undefined, "Vater")}${node(mother, parents[1] || undefined, "Mutter")}</div>
+          ${animal.family || father || mother
+            ? `<div class="zt-row">${node(father, parents[0] || undefined, "Vater")}${node(mother, parents[1] || undefined, "Mutter")}</div>`
+            : `<div class="zt-row"><span class="zt-node gone"><small>Herkunft</small><b>${ORIGIN_ICON[animal.origin]} ${esc(ORIGIN_INFO[animal.origin].name)}</b></span></div>`}
           <div class="zt-row self"><span class="zt-node me"><small>${animal.lineage ? `Linie ${esc(animal.lineage)}` : "Gründer"}</small><b>${esc(animal.name)}</b></span></div>
           ${children.length ? `<div class="zt-row kids">${children.map((child) => node(child, undefined, isAdult(child, city.tick) ? "Kind" : "Jungtier")).join("")}</div>` : ""}
         </div>
@@ -496,7 +499,10 @@ export class ZooView {
     if (!habitat || this.interior) return;
     this.overlay.hidden = false;
     document.body.dataset.zooInterior = "on";
-    const canvas = this.overlay.querySelector("#zoo-canvas") as HTMLCanvasElement;
+    // Fresh canvas each time: the previous one lost its WebGL context on close.
+    const old = this.overlay.querySelector("#zoo-canvas") as HTMLCanvasElement;
+    const canvas = old.cloneNode(false) as HTMLCanvasElement;
+    old.replaceWith(canvas);
     this.interior = new InteriorScene(canvas, {
       pickAnimal: (id) => {
         this.animal = id;
@@ -547,6 +553,7 @@ export class ZooView {
   private resize(): void {
     if (!this.interior) return;
     this.interior.resize(window.innerWidth, window.innerHeight);
+    this.updateInset();
   }
 
   private renderInterior(): void {
@@ -591,6 +598,7 @@ export class ZooView {
       this.side.hidden = true;
       if (this.animal >= 0 && !zoo.animals.some((entry) => entry.id === this.animal)) this.animal = -1;
     }
+    this.updateInset();
     // name tags
     const tags = animals.map((entry) => `<span class="zi-tag ${entry.id === this.animal ? "on" : ""}" data-tag="${entry.id}">${esc(entry.name)}${entry.health < 40 ? " 🤒" : ""}${entry.pregnantUntil ? " 🍼" : ""}</span>`).join("");
     if (this.tags.dataset.key !== tags) {
@@ -599,14 +607,30 @@ export class ZooView {
     }
   }
 
+  /** Keep the habitat centred beside the animal card / above the mobile toolbar. */
+  private updateInset(): void {
+    if (!this.interior) return;
+    const compact = window.innerWidth <= 1100 || window.innerHeight <= 520;
+    const side = this.side.hidden ? null : this.side.getBoundingClientRect();
+    const tools = this.tools.getBoundingClientRect();
+    const right = !compact && side ? side.width + 12 : 0;
+    const bottom = compact ? (side ? window.innerHeight - side.top : window.innerHeight - tools.top) * 0.85 : 0;
+    this.interior.setInset(right, bottom);
+  }
+
   /** Called every animation frame while the interior is open. */
   frame(dt: number): void {
     if (!this.interior) return;
     this.interior.frame(dt);
+    const top = (this.overlay.querySelector(".zi-top") as HTMLElement).getBoundingClientRect().bottom + 22;
     for (const tag of this.tags.children as HTMLCollectionOf<HTMLElement>) {
-      const pose = this.interior.poses.get(Number(tag.dataset.tag));
+      const id = Number(tag.dataset.tag);
+      const pose = this.interior.poses.get(id);
       if (!pose) continue;
-      const at = this.interior.project(pose.x, pose.y + 2.1 * pose.boost * 0.9, pose.z);
+      const species = this.zoo()?.animals.find((animal) => animal.id === id)?.species ?? "goat";
+      const height = animalModel(species).lod[1] * pose.boost;
+      const at = this.interior.project(pose.x, pose.y + height + 0.35, pose.z);
+      tag.hidden = at.y < top;
       tag.style.transform = `translate(${at.x.toFixed(0)}px, ${at.y.toFixed(0)}px) translate(-50%, -100%)`;
     }
   }

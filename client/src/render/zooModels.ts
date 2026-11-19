@@ -41,11 +41,13 @@ export interface AnimalModel {
   gait: "walk" | "hop" | "waddle" | "swim";
 }
 
-function stripes(len: number, y: number, h: number, w: number, z0: number, color: number, count = 6): Part[] {
+/** Thin shells hugging an ellipsoid body (radii rx/ry/rz at y), so stripes read as coat, not ribs. */
+function stripes(rz: number, y: number, ry: number, rx: number, z0: number, color: number, count = 6): Part[] {
   const parts: Part[] = [];
   for (let i = 0; i < count; i += 1) {
-    const z = z0 - len / 2 + ((i + 0.5) * len) / count;
-    parts.push(box(0, y, z, w, h, len / count / 2.4, color, { rx: 0.18 }));
+    const z = z0 - rz * 0.8 + ((i + 0.5) * rz * 1.6) / count;
+    const f = Math.sqrt(Math.max(0.05, 1 - ((z - z0) / rz) ** 2)) * 1.04;
+    parts.push({ ...ball(0, y, z, rx * f, ry * f, (rz / count) * 0.32, color), rx: 0.2 });
   }
   return parts;
 }
@@ -128,7 +130,7 @@ const MODELS: Record<string, () => AnimalModel> = {
       ...eyes(0.1, 1.58, 0.84, 0.035),
       cyl(0, 1.0, -0.66, 0.03, 0.5, 0x2a2a2a, { rx: -0.3 }),
     ],
-    pattern: [...stripes(1.1, 1.0, 0.64, 0.68, 0, 0xffffff, 7), ...legs(0.2, 0.46, 0.3, 0.085, 0xffffff).map((p) => ({ ...p, y: 0.55 }))],
+    pattern: [...stripes(0.62, 1.0, 0.3, 0.32, 0, 0xffffff, 7), ...legs(0.2, 0.46, 0.3, 0.085, 0xffffff).map((p) => ({ ...p, y: 0.55 }))],
     style: "stripes",
     accent: 0x1e1e22,
     lod: [0.66, 1.7, 1.5],
@@ -303,27 +305,35 @@ const MODELS: Record<string, () => AnimalModel> = {
   }),
   polarbear: () => ({
     body: [
-      ...legs(0.32, 0.48, 0.52, 0.16, 0xece8de),
-      ball(0, 0.9, 0, 0.5, 0.46, 0.84, 0xf0eee6),
-      ball(0, 1.02, 0.86, 0.27, 0.25, 0.32, 0xf2f0e8),
-      ball(0, 0.96, 1.15, 0.05, 0.04, 0.04, NOSE),
-      ball(-0.17, 1.24, 0.8, 0.07, 0.07, 0.04, 0xe2ded2),
-      ball(0.17, 1.24, 0.8, 0.07, 0.07, 0.04, 0xe2ded2),
-      ...eyes(0.1, 1.1, 1.06, 0.03),
+      ...legs(0.3, 0.5, 0.5, 0.2, 0xe6e2d6),
+      ball(-0.3, 0.06, 0.56, 0.18, 0.07, 0.22, 0xdcd8cc),
+      ball(0.3, 0.06, 0.56, 0.18, 0.07, 0.22, 0xdcd8cc),
+      ball(-0.3, 0.06, -0.44, 0.18, 0.07, 0.22, 0xdcd8cc),
+      ball(0.3, 0.06, -0.44, 0.18, 0.07, 0.22, 0xdcd8cc),
+      ball(0, 0.86, -0.1, 0.5, 0.48, 0.74, 0xf0eee6),
+      ball(0, 0.92, 0.45, 0.44, 0.42, 0.42, 0xf2f0e8),
+      cyl(0, 0.92, 0.82, 0.2, 0.36, 0xf2f0e8, { rx: 1.2 }),
+      ball(0, 0.94, 1.05, 0.24, 0.22, 0.27, 0xf4f2ea),
+      ball(0, 0.88, 1.3, 0.11, 0.09, 0.08, 0xe8e4d8),
+      ball(0, 0.92, 1.37, 0.05, 0.04, 0.035, NOSE),
+      ball(-0.16, 1.14, 0.98, 0.07, 0.07, 0.04, 0xe2ded2),
+      ball(0.16, 1.14, 0.98, 0.07, 0.07, 0.04, 0xe2ded2),
+      ...eyes(0.1, 1.02, 1.24, 0.03),
+      ball(0, 0.78, -0.82, 0.09, 0.08, 0.08, 0xe6e2d6),
     ],
-    pattern: [ball(0, 1.18, 0.1, 0.44, 0.22, 0.6, 0xffffff)],
+    pattern: [ball(0, 0.62, 0.1, 0.36, 0.2, 0.55, 0xffffff), ball(0, 0.86, 1.3, 0.1, 0.07, 0.06, 0xffffff)],
     style: "patches",
     accent: 0xd8cca8,
-    lod: [1.0, 1.4, 2.1],
+    lod: [1.0, 1.3, 2.3],
     speed: 0.28,
     gait: "walk",
   }),
   rabbit: () => ({
     body: [
       ball(0, 0.16, 0, 0.12, 0.12, 0.17, 0xd8c8b0),
-      ball(0, 0.27, 0.15, 0.08, 0.08, 0.08, 0xdcccb4),
-      box(-0.035, 0.42, 0.12, 0.035, 0.2, 0.06, 0xd0bea4, { rx: -0.2 }),
-      box(0.035, 0.42, 0.12, 0.035, 0.2, 0.06, 0xd0bea4, { rx: -0.2 }),
+      ball(0, 0.27, 0.15, 0.085, 0.08, 0.09, 0xdcccb4),
+      { ...ball(-0.05, 0.4, 0.11, 0.022, 0.1, 0.035, 0xd0bea4), rx: -0.25, rz: 0.25 },
+      { ...ball(0.05, 0.4, 0.11, 0.022, 0.1, 0.035, 0xd0bea4), rx: -0.25, rz: -0.25 },
       ball(0, 0.17, -0.17, 0.04, 0.04, 0.04, 0xffffff),
       ...eyes(0.05, 0.3, 0.2, 0.015),
     ],

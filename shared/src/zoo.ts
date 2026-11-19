@@ -115,7 +115,7 @@ const STORIES: Record<OriginId, string[]> = {
     "Ein Artenschutzprojekt vertraut uns {name} an. Noch ist {name} sehr scheu.",
   ],
   born: [
-    "{name} ist hier im Zoo zur Welt gekommen.",
+    "{name} ist hier im Zoo zur Welt gekommen – Nachwuchs der {family}-Familie.",
   ],
 };
 
@@ -324,14 +324,14 @@ export function cleanAnimalName(raw: unknown): string | null {
 }
 
 export function familyLabel(animal: Animal): string | null {
-  return animal.family ? `${animal.family}-Familie` : null;
+  return animal.family ? `${animal.name} aus der ${animal.family}-Familie` : null;
 }
 
 export function storyText(animal: Animal): string {
   const info = speciesInfo(animal.species);
   const list = STORIES[animal.origin] ?? STORIES.born;
   const template = list[animal.story % list.length] ?? list[0];
-  return template.replaceAll("{name}", animal.name).replaceAll("{species}", info?.name ?? "Tier");
+  return template.replaceAll("{name}", animal.name).replaceAll("{species}", info?.name ?? "Tier").replaceAll("{family}", animal.family ?? "Zoo");
 }
 
 export function isAdult(animal: Animal, tick: number): boolean {

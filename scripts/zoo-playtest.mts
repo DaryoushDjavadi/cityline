@@ -29,6 +29,15 @@ const ui = <T = any>(page: Page, name: string, ...args: unknown[]) =>
 interface Animal { id: number; name: string; species: string; cell: number; sex: string; health: number; trust: number; happy: number; origin: string; mother?: number; father?: number; family?: string; lineage?: string; gen: number; genes: Record<string, number>; born: number; pregnantUntil?: number }
 interface Zoo { habitats: { cell: number; type: string; items: { id: number; kind: string; x: number; y: number; fill?: number }[]; keeper: boolean }[]; animals: Animal[]; visitors: number; income: number; born: number }
 
+/** Hide toasts/menus for clean city screenshots. */
+async function clean(page: Page): Promise<void> {
+  await e2e(page, "dismissUi");
+  await page.evaluate(() => {
+    const toast = document.querySelector<HTMLElement>("#life-toast");
+    if (toast) toast.hidden = true;
+  });
+}
+
 const SERVICE = { savanne: 15, wald: 16, wasser: 17, polar: 18, wiese: 19 } as const;
 
 async function boot(page: Page): Promise<void> {
@@ -115,6 +124,8 @@ const errors: string[] = [];
   await page.mouse.click(screen.x, screen.y);
   await page.waitForTimeout(300);
   check(await page.locator("#zoo-panel").isVisible(), "Klick aufs Gehege öffnet das Gehege-Panel");
+  await clean(page);
+  await page.screenshot({ path: path.join(SHOTS, "zoo-02b-gehege-info.png") });
   check(await page.locator("#zoo-open-interior").isVisible(), "Panel hat den Knopf Innenansicht");
   await page.locator("#zoo-open-shop").click();
   await page.locator("#zoo-shop").waitFor({ state: "visible" });
@@ -170,13 +181,16 @@ const errors: string[] = [];
   await page.locator("#zoo-close").click();
 
   // 3. Outside view.
-  await e2e(page, "lookAt", sx + 2, sy, 58, 0.92, 2, 0.55);
+  await e2e(page, "lookAt", sx + 2, sy + 0.3, 46, 0.85, 0, 0.5);
+  await clean(page);
   await page.waitForTimeout(900);
+  await clean(page);
   const layer = await e2e<{ animals: number; far: number; jeeps: number; visitors: number; meshes: number }>(page, "zooLayer");
   check(layer.animals >= 15 && layer.jeeps >= 3 && layer.visitors >= 3, `Tiere, Jeeps und Besucher sichtbar (${JSON.stringify(layer)})`);
   await page.screenshot({ path: path.join(SHOTS, "zoo-02-gehege-aussen.png") });
-  await e2e(page, "lookAt", sx + 0.2, sy, 24, 0.82, 0, 0.75);
+  await e2e(page, "lookAt", sx, sy + 0.6, 30, 0.9, 0, 0.8);
   await page.waitForTimeout(900);
+  await clean(page);
   await page.screenshot({ path: path.join(SHOTS, "zoo-08-safari-besucher.png") });
   await e2e(page, "lookAt", sx + 2, sy, 260, 0.95, 0, 0.5);
   await page.waitForTimeout(600);
@@ -247,8 +261,14 @@ const errors: string[] = [];
     const mother = zoo.animals.find((a) => a.id === child!.mother)!;
     const father = zoo.animals.find((a) => a.id === child!.father)!;
     check(child.family === `${father.name}-&-${mother.name}`, `Familienname ${child.family}`);
+    // Focus the family: select the mother (camera follows), zoom in, close the card.
+    const mum = await ui<{ x: number; y: number }>(page, "animalScreen", mother.id);
+    await page.mouse.click(mum.x, mum.y);
+    await page.waitForTimeout(1200);
+    await page.mouse.move(500, 400);
+    for (let i = 0; i < 4; i += 1) await page.mouse.wheel(0, -120);
     await page.locator('#zi-side [data-act="deselect"]').click().catch(() => undefined);
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(900);
     await page.screenshot({ path: path.join(SHOTS, "zoo-07-jungtier-eltern.png") });
     const at = await ui<{ x: number; y: number }>(page, "animalScreen", child.id);
     await page.mouse.click(at.x, at.y);

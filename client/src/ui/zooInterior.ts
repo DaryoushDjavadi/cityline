@@ -17,7 +17,7 @@ import {
 import { animalGeometry, coatTint, itemGeometry, patternColor } from "../render/zooModels.ts";
 import { wanderPose, type Pose } from "../render/zooMotion.ts";
 
-export const SPOT = 2.6;
+export const SPOT = 2.2;
 const HALF = (ITEM_GRID * SPOT) / 2;
 const GROUND: Record<string, number> = { savanne: 0xd9bc72, wald: 0x5f8c4c, wasser: 0x86ae68, polar: 0xe8eff4, wiese: 0x8cc26a };
 const FENCE: Record<string, number> = { savanne: 0x8a6a44, wald: 0x6a4a30, wasser: 0xd8d2c6, polar: 0xbcc4cc, wiese: 0xf6f2e8 };
@@ -90,7 +90,11 @@ export class InteriorScene {
   private time = 0;
   private tick = 0;
   private azimuth = 0.35;
-  private distance = 27;
+  private distance = 21;
+  private readonly focus = new THREE.Vector3(0, 0, 0.6);
+  private inset = { right: 0, bottom: 0 };
+  private width = 1;
+  private height = 1;
   private drag: { x: number; az: number; moved: boolean } | null = null;
   readonly poses = new Map<number, Pose & { boost: number }>();
   private animalsNow: Animal[] = [];
@@ -147,15 +151,31 @@ export class InteriorScene {
     canvas.addEventListener("pointerleave", () => (this.ghost.visible = false));
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
-      this.distance = Math.max(14, Math.min(36, this.distance + event.deltaY * 0.02));
+      this.distance = Math.max(12, Math.min(34, this.distance + event.deltaY * 0.02));
     }, { passive: false });
   }
 
   resize(width: number, height: number): void {
+    this.width = width;
+    this.height = height;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / Math.max(1, height);
-    // Portrait screens: step back so the whole habitat fits.
-    this.camera.fov = this.camera.aspect < 0.8 ? 58 : 42;
+    // Portrait screens: wider lens so the whole habitat fits.
+    this.camera.fov = this.camera.aspect < 0.8 ? 64 : 42;
+    this.applyInset();
+  }
+
+  /** Keep the habitat centred in the part of the screen not covered by panels. */
+  setInset(right: number, bottom: number): void {
+    if (Math.abs(right - this.inset.right) < 2 && Math.abs(bottom - this.inset.bottom) < 2) return;
+    this.inset = { right, bottom };
+    this.applyInset();
+  }
+
+  private applyInset(): void {
+    const { right, bottom } = this.inset;
+    if (right > 0 || bottom > 0) this.camera.setViewOffset(this.width, this.height, right / 2, bottom / 2, this.width, this.height);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
   }
 
@@ -190,7 +210,8 @@ export class InteriorScene {
         const group = new THREE.Group();
         group.add(body, pattern);
         const [, h, l] = geo.model.lod;
-        const boost = Math.max(1, Math.min(2.2, 1.3 / Math.max(h, l * 0.6)));
+        // Interior close-up: small animals are drawn bigger so they read and click well.
+        const boost = Math.max(1.15, Math.min(3, 1.9 / Math.max(h, l * 0.6)));
         view = { group, body, pattern, boost, react: null };
         this.animals.set(animal.id, view);
         this.scene.add(group);
@@ -218,8 +239,9 @@ export class InteriorScene {
     for (let i = 0; i < 6; i += 1) {
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
       const pose = this.poses.get(id);
-      sprite.position.set((pose?.x ?? 0) + (Math.random() - 0.5) * 0.6, 1.2 + (pose?.y ?? 0) + Math.random() * 0.6, (pose?.z ?? 0) + (Math.random() - 0.5) * 0.6);
-      sprite.scale.setScalar(0.55 + Math.random() * 0.3);
+      const top = animalGeometry(this.animalsNow.find((a) => a.id === id)?.species ?? "goat").model.lod[1] * (pose?.boost ?? 1);
+      sprite.position.set((pose?.x ?? 0) + (Math.random() - 0.5) * 0.8, top + 0.3 + (pose?.y ?? 0) + Math.random() * 0.5, (pose?.z ?? 0) + (Math.random() - 0.5) * 0.8);
+      sprite.scale.setScalar(0.9 + Math.random() * 0.4);
       this.scene.add(sprite);
       this.bursts.push({ sprite, born: this.time + i * 0.08, vx: (Math.random() - 0.5) * 0.8, vz: (Math.random() - 0.5) * 0.8 });
     }
@@ -299,8 +321,20 @@ export class InteriorScene {
 
   frame(dt: number): void {
     this.time += dt;
-    const target = new THREE.Vector3(0, 0, 1);
-    this.camera.position.set(Math.sin(this.azimuth) * this.distance * 0.78, this.distance * 0.66, Math.cos(this.azimuth) * this.distance * 0.78);
+    // Follow the selected animal (Zoo-Tycoon style); stay there after deselecting.
+    const chosen = this.selected >= 0 ? this.poses.get(this.selected) : undefined;
+    if (chosen) {
+      const k = Math.min(1, dt * 2.5);
+      this.focus.x += (chosen.x * 0.8 - this.focus.x) * k;
+      this.focus.z += (chosen.z * 0.8 + 0.6 - this.focus.z) * k;
+    }
+    const target = this.focus;
+    // Portrait (mobile): step back and look more from above so the whole habitat fits.
+    const portrait = this.camera.aspect < 0.8;
+    const d = this.distance * (portrait ? 1.55 : 1);
+    const lift = portrait ? 0.86 : 0.66;
+    const ring = portrait ? 0.62 : 0.78;
+    this.camera.position.set(target.x + Math.sin(this.azimuth) * d * ring, d * lift, target.z + Math.cos(this.azimuth) * d * ring);
     this.camera.lookAt(target);
     const local = new Map<number, Pose>();
     const ordered = [...this.animalsNow].sort((a, b) => Number(a.mother !== undefined) - Number(b.mother !== undefined) || a.id - b.id);
@@ -335,7 +369,7 @@ export class InteriorScene {
       view.group.rotation.y = pose.heading + spin;
       view.group.rotation.z = pose.roll;
       view.group.scale.set(scale, scale * squash, scale);
-      this.poses.set(animal.id, { ...pose, y, boost: view.boost });
+      this.poses.set(animal.id, { ...pose, y, boost: scale });
     }
     for (let i = this.bursts.length - 1; i >= 0; i -= 1) {
       const burst = this.bursts[i];
