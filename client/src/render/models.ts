@@ -9,7 +9,7 @@ export interface BuiltModel {
 
 type Shape = "box" | "cyl" | "cone" | "sphere";
 
-interface Part {
+export interface Part {
   shape: Shape;
   x: number;
   y: number;
@@ -23,7 +23,7 @@ interface Part {
   rz?: number;
 }
 
-const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({
+export const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({
   shape: "box",
   x,
   y,
@@ -58,7 +58,7 @@ function partGeometry(part: Part): THREE.BufferGeometry {
   return geometry;
 }
 
-function compose(parts: Part[]): THREE.BufferGeometry {
+export function compose(parts: Part[]): THREE.BufferGeometry {
   const pieces = parts.map(partGeometry);
   let vertices = 0;
   let indices = 0;
@@ -109,6 +109,138 @@ function pitch(color: number): Part[] {
 }
 
 const WIN = 0x8ec8ea;
+
+// ---------------------------------------------------------------- zoo habitats
+// Footprint ±4.7 (cell 10). Inner safari track at ±3.9, animals wander inside ±3.2.
+
+const cyl = (x: number, y: number, z: number, r: number, h: number, color: number, rot?: Partial<Pick<Part, "rx" | "ry" | "rz">>): Part => ({ shape: "cyl", x, y, z, sx: r, sy: h, sz: r, color, ...rot });
+const ball = (x: number, y: number, z: number, r: number, color: number, sy = r): Part => ({ shape: "sphere", x, y, z, sx: r, sy, sz: r, color });
+
+/** Posts every `step` around the square edge at ±half plus `rails` horizontal rails. */
+function fence(half: number, post: Part["shape"], postR: number, height: number, postColor: number, railColor: number, rails: number[], step = 1.55): Part[] {
+  const parts: Part[] = [];
+  const n = Math.round((half * 2) / step);
+  for (let i = 0; i <= n; i += 1) {
+    const t = -half + (i * half * 2) / n;
+    for (const [x, z] of [[t, -half], [t, half], [-half, t], [half, t]] as const) {
+      if (i === 0 && (z === half || x === half)) continue;
+      if (post === "cyl") parts.push(cyl(x, height / 2, z, postR, height, postColor));
+      else parts.push(box(x, height / 2, z, postR * 2, height, postR * 2, postColor));
+    }
+  }
+  for (const y of rails) {
+    parts.push(box(0, y, -half, half * 2, 0.12, 0.1, railColor), box(0, y, half, half * 2, 0.12, 0.1, railColor));
+    parts.push(box(-half, y, 0, 0.1, 0.12, half * 2, railColor), box(half, y, 0, 0.1, 0.12, half * 2, railColor));
+  }
+  return parts;
+}
+
+/** Dirt ring for the safari jeep. */
+function track(color: number): Part[] {
+  const r = 3.9;
+  return [
+    box(0, 0.27, -r, r * 2 + 0.7, 0.04, 0.7, color),
+    box(0, 0.27, r, r * 2 + 0.7, 0.04, 0.7, color),
+    box(-r, 0.27, 0, 0.7, 0.04, r * 2 - 0.7, color),
+    box(r, 0.27, 0, 0.7, 0.04, r * 2 - 0.7, color),
+  ];
+}
+
+function acacia(x: number, z: number, s: number): Part[] {
+  return [
+    cyl(x, 1.2 * s, z, 0.14 * s, 2.4 * s, 0x6e5238, { rz: 0.12 }),
+    cyl(x + 0.25 * s, 2.5 * s, z, 1.35 * s, 0.32 * s, 0x86a24e),
+    cyl(x + 0.1 * s, 2.75 * s, z + 0.1 * s, 0.95 * s, 0.24 * s, 0x95b058),
+  ];
+}
+
+function conifer(x: number, z: number, s: number, color = 0x4f7e46): Part[] {
+  return [
+    cyl(x, 0.5 * s, z, 0.16 * s, 1 * s, 0x6a4a30),
+    { shape: "cone", x, y: 1.6 * s, z, sx: 0.95 * s, sy: 1.7 * s, sz: 0.95 * s, color },
+    { shape: "cone", x, y: 2.5 * s, z, sx: 0.7 * s, sy: 1.3 * s, sz: 0.7 * s, color: color + 0x060a06 },
+  ];
+}
+
+function habitatParts(type: "savanne" | "wald" | "wasser" | "polar" | "wiese"): Part[] {
+  if (type === "savanne") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0xd9bc72),
+      ...track(0xc29a5e),
+      box(-1.4, 0.26, 1.2, 3.2, 0.04, 2.2, 0xbfae5a),
+      box(1.6, 0.26, -1.4, 2.4, 0.04, 2.6, 0xc8b462),
+      ...acacia(-2.4, -2.3, 1),
+      ...acacia(2.7, 2.5, 0.8),
+      ball(1.9, 0.4, 0.9, 0.7, 0xa89a86, 0.45),
+      ball(2.5, 0.3, 1.3, 0.45, 0x9a8c78, 0.3),
+      box(-0.4, 0.27, -0.6, 1.6, 0.05, 1.0, 0x6aa4c4),
+      ...fence(4.6, "cyl", 0.1, 1.2, 0x8a6a44, 0xa07c50, [0.55, 1.0]),
+    ];
+  }
+  if (type === "wald") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x5f8c4c),
+      ...track(0x8a7050),
+      box(0.8, 0.26, 0.6, 3.6, 0.04, 2.8, 0x6e9a56),
+      ...conifer(-2.5, -2.4, 1.05),
+      ...conifer(2.6, -2.2, 0.9, 0x587f44),
+      ...conifer(-2.3, 2.6, 0.85, 0x4a7640),
+      ball(2.4, 0.6, 2.4, 0.9, 0x6a9a50),
+      ball(1.7, 0.45, 2.9, 0.6, 0x5a8a46),
+      cyl(-0.6, 0.38, -0.2, 0.22, 1.9, 0x7a5638, { rz: Math.PI / 2, ry: 0.5 }),
+      ...fence(4.6, "cyl", 0.17, 2.1, 0x6a4a30, 0x5a3e28, [1.0, 1.8], 0.75),
+    ];
+  }
+  if (type === "wasser") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x86ae68),
+      ...track(0xc9b48c),
+      box(0.2, 0.25, 0.1, 5.6, 0.1, 5.0, 0xe4d2a0),
+      box(0.2, 0.28, 0.1, 5.0, 0.08, 4.4, 0x4aa8cc),
+      box(0.6, 0.31, -0.3, 2.6, 0.04, 2.0, 0x6cc0dc),
+      ball(-1.8, 0.45, 1.5, 0.55, 0xb0a898, 0.35),
+      cyl(2.9, 0.75, 2.2, 0.05, 1.5, 0x6e9a40),
+      cyl(3.1, 0.65, 2.0, 0.05, 1.3, 0x7aa84a),
+      cyl(2.7, 0.7, 2.5, 0.05, 1.4, 0x6e9a40),
+      cyl(-2.8, 0.7, -2.4, 0.05, 1.4, 0x7aa84a),
+      cyl(-2.6, 0.6, -2.7, 0.05, 1.2, 0x6e9a40),
+      ...fence(4.6, "box", 0.09, 1.1, 0xd8d2c6, 0x9fd0e2, [0.35, 0.6, 0.85], 2.3),
+    ];
+  }
+  if (type === "polar") {
+    return [
+      box(0, 0.12, 0, 9.4, 0.24, 9.4, 0xe8eff4),
+      ...track(0xc8d2da),
+      box(-0.6, 0.27, 0.6, 4.4, 0.08, 3.6, 0x3d8cba),
+      box(-0.3, 0.3, 0.3, 1.3, 0.1, 1.0, 0xf6fbff),
+      box(1.9, 0.75, -1.7, 2.2, 1.2, 1.8, 0xd4e8f4, { ry: 0.3 }),
+      box(2.4, 1.5, -1.9, 1.2, 0.6, 1.0, 0xe6f2fa, { ry: 0.5 }),
+      box(-2.4, 0.55, -2.2, 1.5, 0.8, 1.2, 0xcfe4f0, { ry: -0.4 }),
+      ball(2.3, 0.4, 2.3, 0.6, 0xb8c2c8, 0.4),
+      ...fence(4.6, "box", 0.11, 1.3, 0xbcc4cc, 0x5c9ac4, [1.2]),
+      box(0, 0.45, -4.6, 9.2, 0.5, 0.14, 0xc8ced4),
+      box(0, 0.45, 4.6, 9.2, 0.5, 0.14, 0xc8ced4),
+      box(-4.6, 0.45, 0, 0.14, 0.5, 9.2, 0xc8ced4),
+      box(4.6, 0.45, 0, 0.14, 0.5, 9.2, 0xc8ced4),
+    ];
+  }
+  const flowers: Part[] = [];
+  const tones = [0xf4d04a, 0xf28aa8, 0xffffff, 0xb59ae4];
+  for (let i = 0; i < 14; i += 1) flowers.push(ball(-3.4 + ((i * 2.7) % 6.8), 0.32, -3.2 + ((i * 1.9) % 6.4), 0.12, tones[i % 4], 0.08));
+  return [
+    box(0, 0.12, 0, 9.4, 0.24, 9.4, 0x8cc26a),
+    box(0, 0.26, 3.2, 1.4, 0.04, 2.6, 0xd8c09a),
+    ...flowers,
+    box(-2.4, 1.0, -2.3, 2.6, 1.6, 2.0, 0xc84a3a),
+    box(-2.4, 1.0, -1.28, 0.9, 1.1, 0.06, 0xf4efe4),
+    box(-2.4, 2.1, -2.75, 2.9, 0.18, 1.35, 0x7a4632, { rx: 0.6 }),
+    box(-2.4, 2.1, -1.85, 2.9, 0.18, 1.35, 0x7a4632, { rx: -0.6 }),
+    cyl(2.3, 0.55, -2.4, 0.55, 0.65, 0xe2c25e, { rz: Math.PI / 2 }),
+    cyl(2.9, 0.5, -1.4, 0.5, 0.6, 0xd8b852, { rz: Math.PI / 2 }),
+    box(1.8, 0.45, 1.6, 1.6, 0.4, 0.5, 0x9a7650),
+    ...fence(4.6, "box", 0.07, 0.8, 0xf6f2e8, 0xf6f2e8, [0.35, 0.62], 0.75),
+  ];
+}
 
 const CATALOG: Record<string, { height: number; parts: Part[] }> = {
   cottage: {
@@ -313,6 +445,11 @@ const CATALOG: Record<string, { height: number; parts: Part[] }> = {
       { shape: "cyl", x: 0, y: 8.3, z: 0, sx: 0.1, sy: 1.5, sz: 0.1, color: 0xe2b15a },
     ],
   },
+  zooSavanne: { height: 3.2, parts: habitatParts("savanne") },
+  zooWald: { height: 4.6, parts: habitatParts("wald") },
+  zooWasser: { height: 1.6, parts: habitatParts("wasser") },
+  zooPolar: { height: 2.4, parts: habitatParts("polar") },
+  zooWiese: { height: 2.4, parts: habitatParts("wiese") },
   farm: { height: 7.2, parts: farmWheatParts() },
   farmWet: { height: 7.2, parts: [...farmWheatParts(), ...farmIrrigationParts()] },
   farmSilo: { height: 8.6, parts: [...farmWheatParts(), ...farmSiloParts()] },
@@ -477,6 +614,11 @@ export function modelForService(kind: number): { key: string; height: number } |
   if (kind === ServiceKind.Wheel) return { key: "wheel", height: CATALOG.wheel.height };
   if (kind === ServiceKind.CityHall) return { key: "cityhall", height: CATALOG.cityhall.height };
   if (kind === ServiceKind.Tower) return { key: "tvtower", height: CATALOG.tvtower.height };
+  if (kind === ServiceKind.ZooSavanna) return { key: "zooSavanne", height: CATALOG.zooSavanne.height };
+  if (kind === ServiceKind.ZooForest) return { key: "zooWald", height: CATALOG.zooWald.height };
+  if (kind === ServiceKind.ZooWater) return { key: "zooWasser", height: CATALOG.zooWasser.height };
+  if (kind === ServiceKind.ZooPolar) return { key: "zooPolar", height: CATALOG.zooPolar.height };
+  if (kind === ServiceKind.ZooMeadow) return { key: "zooWiese", height: CATALOG.zooWiese.height };
   return null;
 }
 
