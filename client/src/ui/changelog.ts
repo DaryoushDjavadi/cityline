@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.46",
+    at: "19. Nov 2026, 19:31 Uhr",
+    title: "Schlankes Baumenü, näher ranzoomen",
+    items: [
+      "Baumenü viel flacher: Icon-Leiste und eine Reihe kleiner Kacheln, Beschreibung im Tooltip. Beim Platzieren klappt die Auswahl weg, nur ein kleiner Chip mit Gebäude und Preis bleibt.",
+      "Obere Leiste schlanker und eleganter, auf dem Handy überlagert sich nichts mehr.",
+      "Viel näher zoomen, bis auf Straßenhöhe; nah dran kippt die Kamera in die Seitenansicht.",
+      "Nacht und Meer auf Handys und der Grafikstufe Schonend nicht mehr zu dunkel. Bei Regen verschwinden Sterne und Mond.",
+      "Neuigkeiten zeigen jetzt Datum und Uhrzeit.",
+    ],
+  },
+  {
     version: "0.45",
     at: "19. Nov 2026, 16:27 Uhr",
     title: "Neues Baumenü, hellere Nacht, Auftragstafel",
