@@ -1100,21 +1100,31 @@ export class Game {
   private onKey(event: KeyboardEvent, down: boolean): void {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-    const tools: Record<string, ToolId> = {
-      Digit1: "road",
-      Digit2: "bridge",
-      Digit3: "cottage",
-      Digit4: "shop",
-      Digit5: "workshop",
-      Digit6: "line",
-      Digit7: "bulldoze",
-      Digit8: "school",
-      Digit9: "university",
-      Digit0: "inspect",
-    };
-    if (down && tools[event.code]) {
-      this.setTool(tools[event.code]);
-      return;
+    if (down && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Age-of-Empires-style: 1–8 opens a build category, R T Z U I O picks from its palette.
+      const digit = /^Digit([0-9])$/.exec(event.code)?.[1];
+      if (digit === "0") {
+        this.setTool("inspect");
+        return;
+      }
+      if (digit && Number(digit) >= 1 && Number(digit) <= 8) {
+        this.hud.selectBuildCategory(Number(digit) - 1);
+        return;
+      }
+      const picked = event.key.length === 1 ? this.hud.paletteTool(event.key) : null;
+      if (picked) {
+        event.preventDefault();
+        this.setTool(picked);
+        return;
+      }
+      if (event.key === "l" || event.key === "L") {
+        this.setTool("line");
+        return;
+      }
+      if (event.key === "p" || event.key === "P") {
+        this.setTool("pipe");
+        return;
+      }
     }
     if (down && event.code === "Escape") {
       if (this.hud.closeOverlays()) return;
