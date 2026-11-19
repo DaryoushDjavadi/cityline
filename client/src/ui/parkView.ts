@@ -584,6 +584,7 @@ export class ParkView {
   private toggleStats(open: boolean): void {
     this.statsOpen = open;
     this.stats.hidden = !open;
+    this.overlay.classList.toggle("stats-on", open);
     (this.overlay.querySelector(".pk-statbtn") as HTMLElement).setAttribute("aria-expanded", String(open));
     const zoo = this.zoo();
     if (open && zoo) this.renderStats(zoo);
