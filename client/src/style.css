@@ -3224,3 +3224,109 @@ body[data-look="shot"] #orders { display: none !important; }
   color: #6a4208; font: 900 14px/1 system-ui, sans-serif;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
 }
+
+/* ---------------------------------------------------------------- Baumenü v3: kompakt
+   One slim category bar (icons; label only on the active tab), one row of small tiles
+   with horizontal scrolling, description only in the tooltip. While placing, the palette
+   folds away and a small chip shows the selected tool (hover or a tab click unfolds it). */
+#rail .build-chip { display: none; }
+@media (min-width: 1101px) and (min-height: 521px) {
+  #rail,
+  #rail[data-palette] {
+    width: max-content;
+    min-width: 0;
+    max-width: min(820px, calc(100vw - 520px));
+    padding: 5px;
+    gap: 5px;
+    border-radius: 14px;
+    bottom: 10px;
+  }
+  #rail button { min-height: 0; border-radius: 9px; }
+  #rail .build-bar { gap: 5px; align-items: center; }
+  #rail .rail-quick {
+    grid-template-columns: repeat(6, 28px);
+    grid-auto-rows: 30px;
+    gap: 3px;
+    padding: 0 5px 0 0;
+  }
+  #rail .quick-tool { height: 30px; }
+  #rail .quick-tool .tool-icon { width: 16px; height: 16px; }
+  #rail .build-tabs { gap: 3px; flex: 0 1 auto; }
+  #rail .build-tab {
+    flex: 0 0 auto;
+    flex-direction: row;
+    min-width: 34px;
+    min-height: 0;
+    height: 30px;
+    gap: 5px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+  #rail .build-tab .tab-glyph { width: auto; height: auto; background: none; border-radius: 0; }
+  #rail .build-tab .tab-icon { width: 17px; height: 17px; }
+  #rail .build-tab .tab-label { display: none; }
+  #rail .build-tab.active .tab-label { display: inline; }
+  #rail .tab-key { display: none; }
+  #rail .build-palette { gap: 0; }
+  #rail .build-grids { display: grid; }
+  #rail .build-grid,
+  #rail .build-grid[data-category] {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(96px, max-content);
+    justify-content: start;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+  }
+  #rail .build-item {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 6px;
+    row-gap: 0;
+    align-items: center;
+    justify-items: start;
+    min-height: 0;
+    height: 40px;
+    padding: 4px 6px;
+    text-align: left;
+  }
+  #rail .build-item .build-item-icon { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 8px; }
+  #rail .build-item .tool-icon { width: 16px; height: 16px; }
+  #rail .build-item .build-item-label { font-size: 11px; align-self: end; }
+  #rail .build-item .build-item-cost { font-size: 9.5px; align-self: start; }
+  #rail .build-item-key { display: none; }
+  #rail .build-item[data-group]::after { top: 4px; right: 4px; width: 5px; height: 5px; }
+  #rail .build-detail { display: none; }
+  /* Placing: palette folds away unless the pointer is over the menu. */
+  #rail[data-placing="on"]:not(:hover) .build-palette { display: none; }
+  #rail[data-placing="on"] .build-chip:not([hidden]) {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 8px 0 4px;
+    border-color: #e2b15a;
+    background: rgba(226, 177, 90, 0.16);
+    color: #fff8ea;
+    font-size: 11.5px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  #rail .build-chip .build-item-icon { width: 22px; height: 22px; border-radius: 7px; }
+  #rail .build-chip .tool-icon { width: 14px; height: 14px; }
+  #rail .build-chip .chip-cost { font-style: normal; font-size: 10px; color: #e2b15a; }
+  #rail .build-chip kbd { font-size: 9px; }
+  #rail[data-placing="on"]:not(:hover) .build-tab.active .tab-label { display: none; }
+  /* Status line: one short line, and only when it has news while the menu is open. */
+  footer { padding: 4px 12px; border-radius: 12px; }
+  footer #hint { display: none; }
+  #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+  body[data-menu="open"] footer { bottom: calc(var(--rail-h, 48px) + 18px); }
+  body[data-menu="open"]:not([data-flash="on"]) footer,
+  body:not([data-tool="inspect"]):not([data-flash="on"]) footer { display: none; }
+}

@@ -2006,7 +2006,7 @@ export class Game {
 
   private flash(text: string): void {
     this.statusUntil = performance.now() + 2600;
-    this.hud.setStatus(text);
+    this.hud.flashStatus(text);
   }
 
   private emitCursor(event: PointerEvent): void {

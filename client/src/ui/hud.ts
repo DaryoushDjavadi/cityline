@@ -190,6 +190,8 @@ export interface Hud {
   showQuestIntro: () => void;
   setStatus: (text: string) => void;
   setHint: (text: string) => void;
+  /** Important feedback (rejections, refunds): shows the slim status line for a moment even while building. */
+  flashStatus: (text: string) => void;
   setMode: (text: string) => void;
   setPlayers: (text: string) => void;
   setJoined: (joined: boolean) => void;
@@ -271,6 +273,7 @@ export function createHud(events: HudControls): Hud {
   const traffic = required("#traffic");
   const status = required("#status");
   const hint = required("#hint");
+  let flashTimer = 0;
   const mode = required("#mode");
   const players = required("#players");
   const leave = requiredButton("#leave");
@@ -843,6 +846,12 @@ export function createHud(events: HudControls): Hud {
       fundsPulseTimer = window.setTimeout(() => funds.classList.remove("pulse-good", "pulse-bad"), 700);
     },
     setStatus(text) { status.textContent = text; },
+    flashStatus(text) {
+      status.textContent = text;
+      document.body.dataset.flash = "on";
+      window.clearTimeout(flashTimer);
+      flashTimer = window.setTimeout(() => delete document.body.dataset.flash, 2600);
+    },
     setHint(text) { hint.textContent = text; },
     setMode(text) { mode.textContent = text; },
     setPlayers(text) { players.textContent = text; },

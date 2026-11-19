@@ -229,6 +229,8 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
   let active = loadTab();
   let open = true;
   let current: ToolId = "inspect";
+  /** While a tool is being placed the palette folds away (hover or a tab click brings it back). */
+  let placing = false;
   const locked = new Map<ToolId, string>();
   const itemByTool = new Map<ToolId, { item: BuildItem; category: BuildCategory; button: HTMLButtonElement }>();
   const tabs = new Map<BuildCategoryId, HTMLButtonElement>();
@@ -245,6 +247,19 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
   detailHead.className = "build-detail-head";
   detailHead.append(detailName, detailCost);
   detailHost.replaceChildren(detailHead, detailText, detailNeeds);
+
+  // Slim "selected tool" chip in the bar while placing (Cities: Skylines style).
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "build-chip";
+  chip.hidden = true;
+  chip.title = "Palette aufklappen";
+  chip.addEventListener("click", () => {
+    placing = false;
+    open = true;
+    paintTabs();
+  });
+  tabsHost.before(chip);
 
   // Floating tooltip (desktop hover / keyboard focus).
   const tip = document.createElement("div");
@@ -300,6 +315,17 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
     tip.hidden = true;
   };
 
+  const paintChip = () => {
+    const entry = itemByTool.get(current);
+    chip.hidden = !placing || !entry;
+    if (!entry) return;
+    chip.innerHTML = `<i class="build-item-icon">${toolSvg(current, "tool-icon")}</i><span class="chip-name"></span><em class="chip-cost"></em><kbd>Esc</kbd>`;
+    chip.dataset.tool = current;
+    chip.querySelector(".chip-name")!.textContent = entry.item.label;
+    chip.querySelector(".chip-cost")!.textContent = shortCost(entry.item.cost);
+    chip.setAttribute("aria-label", `${entry.item.name} ausgewählt, ${costText(entry.item)}. Klicken klappt die Palette auf, Esc beendet.`);
+  };
+
   const paintTabs = () => {
     for (const [id, tab] of tabs) {
       const on = id === active && open;
@@ -311,11 +337,17 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
     for (const [id, panel] of panels) panel.hidden = id !== active;
     gridHost.dataset.category = active;
     rail.dataset.palette = open ? "open" : "closed";
+    rail.dataset.placing = placing ? "on" : "off";
+    paintChip();
     paintDetail(current);
   };
 
   const select = (id: BuildCategoryId, toggle = false) => {
-    if (toggle && id === active) open = !open;
+    // While placing, the first click on a category only unfolds the palette again.
+    if (placing) {
+      placing = false;
+      open = true;
+    } else if (toggle && id === active) open = !open;
     else open = true;
     active = id;
     try {
@@ -430,8 +462,14 @@ export function mountBuildMenu(tabsHost: HTMLElement, gridHost: HTMLElement, det
 
   return {
     showTool(tool) {
+      const changed = tool !== current;
       current = tool;
       const entry = itemByTool.get(tool);
+      const nextPlacing = tool !== "inspect" && Boolean(entry);
+      if (changed || nextPlacing !== placing) {
+        placing = nextPlacing;
+        paintTabs();
+      }
       if (entry && entry.category.id !== active) select(entry.category.id);
       else paintDetail(tool);
     },
