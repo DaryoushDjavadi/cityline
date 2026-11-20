@@ -305,6 +305,8 @@ export class ZooView {
     (this.panel.querySelector("#zoo-kicker") as HTMLElement).textContent = this.building ? `${info.name} · Bau-Modus` : this.animal >= 0 ? `${info.name} · Tier` : "Tiergehege";
     if (this.building) {
       setHtml(this.body, this.buildPanel(habitat));
+      // Mobile palette scrolls sideways: keep the chosen item in view.
+      this.body.querySelector<HTMLElement>(".zb-item.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
       return;
     }
     const animal = this.animal >= 0 ? zoo?.animals.find((entry) => entry.id === this.animal) : undefined;
@@ -358,11 +360,12 @@ export class ZooView {
       const poor = funds < info.cost;
       return `<button type="button" class="zb-item${this.tool === kind ? " on" : ""}${poor || full ? " poor" : ""}" data-act="tool" data-id="${kind}" title="${esc(info.blurb)}" aria-pressed="${this.tool === kind}"><span>${ITEM_ICON[kind]}</span><b>${esc(info.name)}</b><small>${info.cost} €</small></button>`;
     }).join("");
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
     const turnable = this.tool !== null && this.tool !== "remove" && TURNABLE_ITEMS.includes(this.tool);
     const hint = this.tool === "remove"
       ? "Tippe auf einen Gegenstand im Gehege, um ihn zu entfernen."
       : this.tool
-        ? `${ITEM_INFO[this.tool].name}: auf ein freies Feld im Gehege setzen${turnable ? " · R oder ⟳ dreht" : ""}. Esc beendet.`
+        ? `${ITEM_INFO[this.tool].name}: auf ein freies Feld im Gehege setzen${turnable ? (coarse ? " · ⟳ dreht" : " · R oder ⟳ dreht") : ""}.${coarse ? "" : " Esc beendet."}`
         : "Wähle einen Gegenstand und setze ihn direkt ins Gehege.";
     return `
       <p class="zb-hint" id="zb-hint">${hint}</p>

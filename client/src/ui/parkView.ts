@@ -136,17 +136,18 @@ export class ParkView {
       const scene = this.scene;
       if (!scene) return;
       const at = habitatWorld(cell);
-      const close = window.innerWidth < 700 ? 30 : 25;
+      const close = window.innerWidth < 700 ? 27 : 22;
       scene.flyTo(at.x, at.z, Math.min(scene.distance, this.hooks.build() ? close - 3 : close));
     },
     focusAnimal: (id) => {
       const scene = this.scene;
       const pose = scene?.zoo.poses.get(id);
       if (!scene || !pose) return;
-      scene.flyTo(pose.x, pose.z, Math.min(scene.distance, window.innerWidth < 700 ? 22 : 18));
+      scene.flyTo(pose.x, pose.z, Math.min(scene.distance, window.innerWidth < 700 ? 20 : 16));
     },
     setBuild: (state) => {
-      this.scene?.setBuildGrid(state ? state.cell : null);
+      const zoo = this.zoo();
+      this.scene?.setBuildGrid(state ? state.cell : null, state && zoo ? habitatAt(zoo, state.cell)?.type : undefined);
       this.overlay.classList.toggle("zoo-build", !!state);
       if (!state) this.spot = null;
       this.buildPreview();
@@ -379,9 +380,9 @@ export class ParkView {
     this.dim.hidden = !build || !scene;
     if (!build || !scene) return;
     const at = habitatWorld(build.cell);
-    const r = (HABITAT_TILES * 2) / 2 + 0.15;
+    const r = (HABITAT_TILES * 2) / 2 + 0.1;
     const points: { x: number; y: number }[] = [];
-    for (const y of [0, 1.7]) for (const [dx, dz] of [[-r, -r], [r, -r], [r, r], [-r, r]]) {
+    for (const y of [0, 0.9]) for (const [dx, dz] of [[-r, -r], [r, -r], [r, r], [-r, r]]) {
       const p = scene.project(at.x + dx, y, at.z + dz);
       if (p.behind) {
         this.dim.hidden = true;
@@ -844,7 +845,7 @@ export class ParkView {
     let text = "Gehege anklicken für Tiere und Bau-Modus. Ziehen verschiebt, Mausrad zoomt, rechte Taste dreht.";
     if (coarse) text = "Gehege antippen für Tiere und Bau-Modus. Ziehen verschiebt, zwei Finger zoomen.";
     const build = this.hooks.build();
-    if (build) text = build.tool === "remove" ? "Entfernen: Gegenstand im Gehege antippen." : build.tool ? `${ITEM_INFO[build.tool].name}: freies Feld im Gehege ${coarse ? "antippen" : "anklicken"}${coarse ? "" : " · R dreht"} · Esc beendet.` : "Bau-Modus: Gegenstand im Panel wählen.";
+    if (build) text = build.tool === "remove" ? "Entfernen: Gegenstand im Gehege antippen." : build.tool ? `${ITEM_INFO[build.tool].name}: freies Feld im Gehege ${coarse ? "antippen" : "anklicken"}${coarse ? "." : " · R dreht · Esc beendet."}` : "Bau-Modus: Gegenstand im Panel wählen.";
     else if (tool === "clear") text = "Abriss: tippen oder eine Fläche ziehen. Der Eingang bleibt stehen.";
     else if (tool === "path") text = `Weg: ziehen legt eine Strecke (${PARK_INFO.path.cost} € pro Feld). Besucher laufen nur auf Wegen.`;
     else if (tool === "entrance") text = "Eingang: ein Feld am Rand des Parks wählen.";

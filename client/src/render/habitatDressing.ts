@@ -172,7 +172,8 @@ export class HabitatDressing {
       const type = habitat.type as DecorType;
       place.makeTranslation(habitat.x, 0.02, habitat.z).multiply(scale);
       // ground quad (atlas slot of the type, a hair inside so slots never bleed)
-      const g = (DECOR_HALF + 0.5) * DRESS_SCALE;
+      // The painted floor covers the whole 5 × 5 tile footprint.
+      const g = (HABITAT_TILES * PARK_TILE) / 2;
       const slot = TYPES.indexOf(type);
       const u0 = (slot + 0.01) / TYPES.length;
       const u1 = (slot + 0.99) / TYPES.length;

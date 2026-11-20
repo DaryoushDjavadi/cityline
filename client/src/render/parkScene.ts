@@ -559,8 +559,13 @@ export class ParkScene {
   // ------------------------------------------------------------ habitat build mode
 
   /** Show the furniture grid over a habitat (anchor tile), or hide it. */
-  setBuildGrid(anchor: number | null): void {
+  setBuildGrid(anchor: number | null, type = "savanne"): void {
     this.buildGrid.visible = anchor !== null;
+    // Dark lines on light floors (sand, snow, meadow), light lines on forest and shore.
+    const light = type === "wald" || type === "wasser";
+    const material = this.buildGrid.material as THREE.LineBasicMaterial;
+    material.color.setHex(light ? 0xfff6d8 : 0x4a3418);
+    material.opacity = light ? 0.6 : 0.42;
     if (anchor === null) {
       this.itemGhost.visible = false;
       this.spotMark.visible = false;
