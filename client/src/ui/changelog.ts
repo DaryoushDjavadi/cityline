@@ -8,7 +8,7 @@ export interface PatchNote {
 export const CHANGELOG: PatchNote[] = [
   {
     version: "0.51",
-    at: "20. Nov 2026, 01:49 Uhr",
+    at: "20. Nov 2026, 01:58 Uhr",
     title: "Gehege-Bau-Modus direkt im Tierpark",
     items: [
       "Die eigene Gehege-Innenansicht ist weg: Alles passiert jetzt im Tierpark selbst. Ein Klick aufs Gehege lässt die Kamera sanft heranfahren und öffnet das Gehege-Panel; ein Klick auf ein Tier öffnet seine Karte.",
