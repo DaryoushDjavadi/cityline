@@ -3654,6 +3654,11 @@ body[data-look="shot"] #zoo-panel { display: none !important; }
 #pk-dim { position: absolute; inset: 0; pointer-events: none; background: rgba(18, 14, 30, 0.36); transition: opacity 0.25s; }
 #pk-dim[hidden] { display: none; }
 body[data-zoo-build="on"] #park-view .pk-build { visibility: hidden; }
+/* Desktop: with the habitat panel open, bars and hints centre in the free part of the park. */
+@media (min-width: 1101px) and (min-height: 521px) {
+  body[data-park="on"][data-zoo="on"] #park-view .pk-build,
+  body[data-park="on"][data-zoo="on"] #park-view .pk-hint { left: calc((100% - 388px) / 2); max-width: calc(100% - 412px); }
+}
 @media (max-width: 1100px), (max-height: 520px) {
   #zoo-panel {
     top: auto; right: max(8px, env(safe-area-inset-right)); left: max(8px, env(safe-area-inset-left));

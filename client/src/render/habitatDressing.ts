@@ -199,7 +199,9 @@ export class HabitatDressing {
             tint.multiply(tmpC);
           }
           if (cacheKey.startsWith("sway")) {
-            if (grass >= grassCap) continue;
+            // The park shows the habitat smaller than the old interior: half the tufts read the
+            // same and keep the comic/pixel outlines from turning into scribbles.
+            if (grass >= grassCap || i % 2 === 1) continue;
             this.grass.setMatrixAt(grass, world);
             this.grass.setColorAt(grass, tint);
             grass += 1;

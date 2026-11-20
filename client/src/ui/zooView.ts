@@ -31,6 +31,7 @@ import {
   familyLabel,
   habitatAt,
   isAdult,
+  itemAt,
   priceOf,
   spaceUsed,
   speciesInfo,
@@ -412,7 +413,7 @@ export class ZooView {
     const habitat = this.habitat();
     if (!habitat || !this.building) return;
     if (this.tool === "remove") {
-      const item = habitat.items.find((entry) => x >= entry.x && y >= entry.y && x < entry.x + (entry.kind === "pool" ? 2 : 1) && y < entry.y + (entry.kind === "pool" ? 2 : 1));
+      const item = itemAt(habitat, x, y);
       if (!item) return;
       this.hooks.command({ op: "take", cell: habitat.cell, item: item.id });
       this.hooks.sound("demolish");
