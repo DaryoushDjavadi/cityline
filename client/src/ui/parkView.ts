@@ -16,10 +16,16 @@ import {
   MAX_ITEMS,
   PARK_INFO,
   PARK_SIZE,
+  STANDS,
+  STATION_COST,
   TILE,
   ZOO_EVERY,
   animalsIn,
+  blockGrid,
+  coasterAtTile,
   dragLine,
+  rideRefs,
+  stationProblem,
   habitatAt,
   habitatAtTile,
   habitatFits,
@@ -45,6 +51,7 @@ import type { Cue } from "../audio/sfx.ts";
 import { ParkScene, habitatWorld, tileWorld } from "../render/parkScene.ts";
 import { gfxProfile, loadGfxPreset } from "../render/quality.ts";
 import { SPECIES_ICON, type BuildState, type ZooPark } from "./zooView.ts";
+import { RidePanel } from "./ridePanel.ts";
 
 export interface ParkHooks {
   command: (op: ZooOp) => void;
@@ -70,29 +77,35 @@ export interface ParkHooks {
   flash: (text: string) => void;
 }
 
-export type ParkTool = ParkBuild | "clear" | null;
+export type ParkTool = ParkBuild | "clear" | "coaster" | null;
 
 const ICON: Record<string, string> = {
   savanne: "🦒", wald: "🌲", wasser: "💧", polar: "❄️", wiese: "🐐",
   path: "🟫", entrance: "🚪", food: "🍟", drink: "🥤", souvenir: "🧸", toilet: "🚻", bench: "🪑", bin: "🗑️", tree: "🌳", flowers: "🌷",
-  clear: "🧹", select: "👆",
+  clear: "🧹", select: "👆", coaster: "🎢",
 };
 
-const TABS: { id: string; label: string; icon: string; items: ParkBuild[] }[] = [
+const RIDE_ICON: Record<string, string> = { thrilled: "🤩", happy: "😀", queasy: "🤢", pricey: "💸 Zu teuer!" };
+
+const TABS: { id: string; label: string; icon: string; items: (ParkBuild | "coaster")[] }[] = [
   { id: "habitat", label: "Gehege", icon: "🦒", items: [...HABITAT_TYPES] },
   { id: "paths", label: "Wege", icon: "🟫", items: ["path", "entrance"] },
   { id: "stands", label: "Stände", icon: "🍟", items: ["food", "drink", "souvenir", "toilet"] },
   { id: "decor", label: "Deko", icon: "🌳", items: ["bench", "bin", "tree", "flowers"] },
+  { id: "rides", label: "Achterbahn", icon: "🎢", items: ["coaster"] },
 ];
+const COASTER_BLURB = "Station (3 Felder) direkt an einen Weg setzen, dann die Strecke Stück für Stück bauen.";
 
 const euro = new Intl.NumberFormat("de-DE");
 const PER_DAY = DAY_TICKS / ZOO_EVERY;
-const isHabitat = (kind: ParkBuild | "clear" | null): kind is HabitatType => !!kind && (HABITAT_TYPES as string[]).includes(kind);
+const isHabitat = (kind: ParkTool): kind is HabitatType => !!kind && (HABITAT_TYPES as string[]).includes(kind);
 
-function nameOf(kind: ParkBuild): string {
+function nameOf(kind: ParkBuild | "coaster"): string {
+  if (kind === "coaster") return "Achterbahn";
   return isHabitat(kind) ? HABITAT_INFO[kind].short : PARK_INFO[kind as ParkObject].name;
 }
-function costOf(kind: ParkBuild): number {
+function costOf(kind: ParkBuild | "coaster"): number {
+  if (kind === "coaster") return STATION_COST;
   return isHabitat(kind) ? HABITAT_COST[kind] : PARK_INFO[kind as ParkObject].cost;
 }
 function setHtml(el: HTMLElement, html: string): void {
@@ -122,7 +135,7 @@ export class ParkView {
   private pinch: { dist: number; x: number; y: number } | null = null;
   private readonly keys = new Set<string>();
   private readonly bubbles = new Map<number, { el: HTMLElement; text: string }>();
-  private readonly counters = { buys: 0, looks: 0, coins: 0, money: 0, sits: 0 };
+  private readonly counters = { buys: 0, looks: 0, coins: 0, money: 0, sits: 0, rides: 0, refused: 0 };
   private coins = 0;
   private toastTimer = 0;
   private statsOpen = false;
@@ -130,6 +143,16 @@ export class ParkView {
   private readonly dim: HTMLElement;
   /** Hovered grid spot in build mode. */
   private spot: { x: number; y: number } | null = null;
+  /** Roller coaster and stand panel (ratings, state, prices, track editor). */
+  readonly ridePanel: RidePanel;
+  /** Preferred station direction (R turns); the ghost picks the first that fits. */
+  private stationDir = 0;
+  /** Station just placed: open its editor when it shows up in the state. */
+  private pendingStation = -1;
+  private previewKey = "";
+  private readonly rideHud: HTMLElement;
+  /** Short reactions over visitors (ride moods, "too expensive"). */
+  private readonly notes = new Map<number, { el: HTMLElement; until: number }>();
   /** For the habitat panel: camera, build mode, selection, reactions. */
   readonly bridge: ZooPark = {
     focusHabitat: (cell) => {
@@ -182,7 +205,8 @@ export class ParkView {
       <aside class="pk-stats" id="pk-stats" hidden></aside>
       <p class="pk-hint" id="pk-hint"></p>
       <nav class="pk-build" id="pk-build" aria-label="Im Tierpark bauen"></nav>
-      <p class="zi-toast pk-toast" id="pk-toast" role="status" hidden></p>`;
+      <p class="zi-toast pk-toast" id="pk-toast" role="status" hidden></p>
+      <div id="ride-hud" hidden><b id="rh-name">Achterbahn</b><span id="rh-speed">0 km/h</span><button type="button" data-act="ride-exit">Aussteigen</button></div>`;
     this.overlay.addEventListener("click", (event) => this.onAction(event));
     this.fx = this.overlay.querySelector("#park-fx") as HTMLElement;
     this.chips = this.overlay.querySelector("#pk-chips") as HTMLElement;
@@ -191,7 +215,23 @@ export class ParkView {
     this.hint = this.overlay.querySelector("#pk-hint") as HTMLElement;
     this.toast = this.overlay.querySelector("#pk-toast") as HTMLElement;
     this.dim = this.overlay.querySelector("#pk-dim") as HTMLElement;
-    document.body.append(this.gate, this.overlay);
+    this.rideHud = this.overlay.querySelector("#ride-hud") as HTMLElement;
+    this.ridePanel = new RidePanel({
+      command: (op) => this.hooks.command(op),
+      sound: (cue) => this.hooks.sound(cue),
+      ride: (id) => this.startRide(id),
+      layout: (open) => {
+        if (open) {
+          this.hooks.closeHabitat();
+          if (this.tool) this.setTool(null);
+        }
+        this.previewKey = "";
+        this.editorPreview();
+        this.renderHint();
+        requestAnimationFrame(() => this.updateInset());
+      },
+    });
+    document.body.append(this.gate, this.overlay, this.ridePanel.el);
     window.addEventListener("resize", () => this.resize());
     window.addEventListener("keydown", (event) => {
       if (!this.scene) return;
@@ -199,14 +239,22 @@ export class ParkView {
       // The city is hidden while the park is open: its shortcuts must not act behind the park.
       event.stopImmediatePropagation();
       if (event.key === "Escape") {
-        // One step per press: tool → statistics → habitat panel → back to the city.
+        // One step per press: ride → editor → tool → statistics → panels → back to the city.
         event.preventDefault();
-        if (this.tool) this.setTool(null);
+        if (this.scene.ridingId >= 0) this.stopRide();
+        else if (this.ridePanel.editing) this.ridePanel.setEditing(false);
+        else if (this.tool) this.setTool(null);
+        else if (this.ridePanel.open) this.ridePanel.hide();
         else if (this.statsOpen) this.toggleStats(false);
         else if (document.body.dataset.zoo === "on") this.hooks.closeHabitat();
         else this.close();
         return;
       }
+      if (event.code === "KeyR" && this.tool === "coaster") {
+        this.stationDir = (this.stationDir + 1) % 4;
+        this.preview();
+      }
+      if (this.scene.ridingId >= 0) return;
       if (event.code === "KeyQ") this.scene.rotate(0.2);
       if (event.code === "KeyE") this.scene.rotate(-0.2);
       this.keys.add(event.code);
@@ -296,11 +344,14 @@ export class ParkView {
 
   close(): void {
     if (!this.scene) return;
+    this.stopRide();
+    this.ridePanel.hide();
     this.scene.dispose();
     this.scene = null;
     this.overlay.hidden = true;
     this.fx.replaceChildren();
     this.bubbles.clear();
+    this.notes.clear();
     this.coins = 0;
     this.drag = null;
     this.pan = null;
@@ -324,6 +375,16 @@ export class ParkView {
       return;
     }
     this.scene.sync(zoo, city.tick);
+    if (this.pendingStation >= 0) {
+      const made = zoo.coasters?.find((coaster) => coaster.station === this.pendingStation && coaster.pieces.length === 0);
+      if (made) {
+        this.pendingStation = -1;
+        this.setTool(null);
+        this.ridePanel.showCoaster(city, made.id, true);
+      }
+    }
+    this.ridePanel.update(city);
+    this.editorPreview();
     this.renderTop(zoo);
     if (this.statsOpen) this.renderStats(zoo);
     this.renderHint();
@@ -340,8 +401,9 @@ export class ParkView {
     const top = (this.overlay.querySelector(".pk-top") as HTMLElement).getBoundingClientRect();
     const bar = this.build.getBoundingClientRect();
     const compact = window.innerWidth <= 1100 || window.innerHeight <= 520;
+    if (this.scene.ridingId >= 0) return;
     const zooPanel = document.body.dataset.zoo === "on" ? document.querySelector<HTMLElement>("#zoo-panel") : null;
-    const panel = zooPanel && !zooPanel.hidden ? zooPanel.getBoundingClientRect() : null;
+    const panel = zooPanel && !zooPanel.hidden ? zooPanel.getBoundingClientRect() : this.ridePanel.open ? this.ridePanel.el.getBoundingClientRect() : null;
     let side = this.statsOpen && !compact ? this.stats.getBoundingClientRect().width + 12 : 0;
     let bottom = Math.max(0, window.innerHeight - bar.top);
     if (panel && !compact) side = Math.max(side, window.innerWidth - panel.left);
@@ -366,7 +428,13 @@ export class ParkView {
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) scene.pan(-speed * 8, 0);
     const events = scene.frame(dt, this.want(zoo?.visitors ?? 0));
     for (const event of events) this.onCrowd(event, zoo);
+    if (scene.ridingId >= 0) {
+      const speed = this.rideHud.querySelector("#rh-speed") as HTMLElement;
+      const text = `${scene.speedKmh} km/h`;
+      if (speed.textContent !== text) speed.textContent = text;
+    }
     this.placeBubbles();
+    this.placeNotes();
     this.placeDim();
     this.hooks.frame();
   }
@@ -455,6 +523,19 @@ export class ParkView {
 
   private onCrowd(event: CrowdEvent, zoo: ZooState | null): void {
     const scene = this.scene!;
+    this.ridePanel.onCrowd(event);
+    if (event.type === "buy" && event.refused) {
+      this.counters.refused += 1;
+      this.note(event.walker, "💸 Zu teuer!", "pricey");
+      return;
+    }
+    if (event.type === "ride") {
+      this.counters.rides += 1;
+      if (event.mood === "pricey") this.counters.refused += 1;
+      this.note(event.walker, RIDE_ICON[event.mood], event.mood);
+      if (event.price > 0) this.coin(event.tile, event.price);
+      return;
+    }
     if (event.type === "buy") {
       this.counters.buys += 1;
       this.counters.money += event.price;
@@ -482,6 +563,58 @@ export class ParkView {
       this.bubbles.set(event.walker, { el: this.bubble(text, event.love), text });
     } else if (event.type === "sit") {
       this.counters.sits += 1;
+    }
+  }
+
+  private coin(tile: number, price: number): void {
+    const scene = this.scene!;
+    this.counters.money += price;
+    if (this.coins >= 14) return;
+    const at = tileWorld(tile);
+    const p = scene.project(at.x, 2.6, at.z);
+    if (p.behind || p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight) return;
+    const coin = document.createElement("span");
+    coin.className = "pk-coin";
+    coin.textContent = `+${price} €`;
+    coin.style.left = `${p.x.toFixed(0)}px`;
+    coin.style.top = `${p.y.toFixed(0)}px`;
+    this.fx.append(coin);
+    this.coins += 1;
+    this.counters.coins += 1;
+    window.setTimeout(() => {
+      coin.remove();
+      this.coins -= 1;
+    }, 1500);
+  }
+
+  /** A short thought over a visitor (ride mood, "too expensive") for a few seconds. */
+  private note(walker: number, text: string, kind: string): void {
+    if (this.notes.size >= 24) return;
+    this.notes.get(walker)?.el.remove();
+    const el = document.createElement("span");
+    el.className = `pk-think pk-note ${kind}`;
+    el.textContent = text;
+    this.fx.append(el);
+    this.notes.set(walker, { el, until: performance.now() + 2600 });
+    this.bubbles.get(walker)?.el.remove();
+    this.bubbles.delete(walker);
+  }
+
+  private placeNotes(): void {
+    const scene = this.scene!;
+    const now = performance.now();
+    const walkers = new Map(scene.crowd.walkers.map((walker) => [walker.id, walker]));
+    for (const [id, note] of this.notes) {
+      const walker = walkers.get(id);
+      if (!walker || walker.state === "gone" || now > note.until) {
+        note.el.remove();
+        this.notes.delete(id);
+        continue;
+      }
+      const at = scene.walkerWorld(walker);
+      const p = scene.project(at.x, 2.25, at.z);
+      note.el.hidden = p.behind || scene.ridingId >= 0;
+      note.el.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px) translate(-50%, -100%)`;
     }
   }
 
@@ -526,7 +659,7 @@ export class ParkView {
         this.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         return;
       }
-      const buildDrag = event.button === 0 && this.tool && this.tool !== "entrance" && !isHabitat(this.tool);
+      const buildDrag = event.button === 0 && this.tool && this.tool !== "entrance" && this.tool !== "coaster" && !isHabitat(this.tool);
       if (buildDrag) {
         const tile = this.scene!.pick(event.clientX, event.clientY).tile;
         if (tile >= 0) this.drag = { start: tile, tile };
@@ -612,6 +745,14 @@ export class ParkView {
     if (!zoo?.park) return;
     if (this.hooks.build() && this.buildClick(clientX, clientY)) return;
     const tile = scene.pick(clientX, clientY).tile;
+    if (this.tool === "coaster") {
+      if (tile < 0) return;
+      const dir = this.stationFit(tile);
+      this.hooks.command({ op: "cstation", tile, dir: dir.dir });
+      this.pendingStation = tile;
+      this.hooks.sound("place");
+      return;
+    }
     if (isHabitat(this.tool)) {
       if (tile < 0) return;
       this.hooks.command({ op: "pbuild", kind: this.tool, cells: [this.anchorFor(tile)] });
@@ -628,30 +769,47 @@ export class ParkView {
     if (!this.hooks.build()) {
       const id = scene.pickAnimal(clientX, clientY);
       if (id >= 0) {
+        this.ridePanel.hide();
         this.hooks.sound("click");
         this.hooks.animal(id);
         return;
       }
     }
     if (tile < 0) return;
+    // In the track editor a click on the park just keeps editing (pieces come from the panel).
+    if (this.ridePanel.editing) return;
+    const coaster = coasterAtTile(zoo.coasters, tile);
+    if (coaster) {
+      this.hooks.sound("click");
+      this.ridePanel.showCoaster(this.city!, coaster.id);
+      return;
+    }
     const habitat = habitatAtTile(zoo.habitats, tile);
     if (habitat) {
+      this.ridePanel.hide();
       this.hooks.sound("click");
       this.hooks.habitat(habitat.cell);
       return;
     }
-    const code = occupancy(zoo.park, zoo.habitats)[tile];
+    const code = occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters))[tile];
+    const stand = STANDS.find((entry) => PARK_INFO[entry].code === code);
+    if (stand) {
+      this.hooks.sound("click");
+      this.ridePanel.showStand(this.city!, tile);
+      return;
+    }
+    this.ridePanel.hide();
     const kind = (Object.keys(PARK_INFO) as ParkObject[]).find((entry) => PARK_INFO[entry].code === code && entry !== "path");
     if (kind) {
       const info = PARK_INFO[kind];
-      const reachable = summarize(zoo.park, zoo.habitats).spots[kind]?.some((spot) => spot.tile === tile) ?? kind === "entrance";
+      const reachable = summarize(zoo.park, zoo.habitats, rideRefs(zoo.coasters)).spots[kind]?.some((spot) => spot.tile === tile) ?? kind === "entrance";
       this.notice(`${ICON[kind]} ${info.name}${info.price ? ` · ${info.price} € pro Kauf` : ""}${!reachable && kind !== "entrance" && kind !== "tree" && kind !== "flowers" ? " · Kein Weg daneben, Besucher kommen nicht hin." : ""}`);
     }
   }
 
   private commitDrag(start: number, end: number): void {
     const tool = this.tool;
-    if (!tool) return;
+    if (!tool || tool === "coaster") return;
     const cells = this.dragCells(start, end);
     if (cells.length === 0) return;
     if (tool === "clear") {
@@ -691,7 +849,59 @@ export class ParkView {
 
   private grid(): Uint8Array | null {
     const zoo = this.zoo();
-    return zoo?.park ? occupancy(zoo.park, zoo.habitats) : null;
+    return zoo?.park ? occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters)) : null;
+  }
+
+  /** Station direction for a hovered tile: the preferred one if it fits, else the first that does. */
+  private stationFit(tile: number): { dir: number; problem: string | null } {
+    const zoo = this.zoo();
+    if (!zoo?.park) return { dir: this.stationDir, problem: "park_none" };
+    const grid = blockGrid(zoo.park, zoo.habitats, zoo.coasters ?? []);
+    let first: string | null = null;
+    for (let k = 0; k < 4; k += 1) {
+      const dir = (this.stationDir + k) % 4;
+      const problem = stationProblem(grid, tile, dir);
+      if (!problem) return { dir, problem: null };
+      first ??= problem;
+    }
+    return { dir: this.stationDir, problem: first };
+  }
+
+  /** Track editor: preview of the next piece at the open end (only rebuilt when something changed). */
+  private editorPreview(): void {
+    const scene = this.scene;
+    if (!scene) return;
+    const id = this.ridePanel.editing ? this.ridePanel.coaster : -1;
+    const coaster = id >= 0 ? this.zoo()?.coasters?.find((entry) => entry.id === id) ?? null : null;
+    const piece = this.ridePanel.piece;
+    const ok = coaster ? this.ridePanel.pieceProblem(coaster, piece) === "" : false;
+    const key = coaster ? `${coaster.id}:${coaster.pieces.join("")}:${piece}:${ok}` : "";
+    if (key === this.previewKey) return;
+    this.previewKey = key;
+    scene.coasters.setPreview(coaster, coaster ? piece : null, ok);
+  }
+
+  startRide(id: number): boolean {
+    const scene = this.scene;
+    if (!scene || !scene.startRide(id)) {
+      this.notice("Der Zug fährt gerade nicht – erst Testfahrt oder öffnen.");
+      return false;
+    }
+    const coaster = this.zoo()?.coasters?.find((entry) => entry.id === id);
+    (this.rideHud.querySelector("#rh-name") as HTMLElement).textContent = `🎢 ${coaster?.name ?? "Achterbahn"}`;
+    this.rideHud.hidden = false;
+    document.body.dataset.ride = "on";
+    this.hooks.closeHabitat();
+    return true;
+  }
+
+  stopRide(): void {
+    if (!this.scene || this.scene.ridingId < 0) return;
+    this.scene.stopRide();
+    this.rideHud.hidden = true;
+    document.body.dataset.ride = "off";
+    this.hooks.sound("click");
+    requestAnimationFrame(() => this.updateInset());
   }
 
   private preview(): void {
@@ -699,8 +909,16 @@ export class ParkView {
     if (!scene) return;
     const grid = this.grid();
     const tool = this.tool;
+    if (tool !== "coaster") scene.coasters.setStationGhost(-1, 0, false);
     if (!grid || !tool) {
       scene.setGhost([], null);
+      return;
+    }
+    if (tool === "coaster") {
+      scene.setGhost([], null);
+      if (this.hover < 0) return scene.coasters.setStationGhost(-1, 0, false);
+      const fit = this.stationFit(this.hover);
+      scene.coasters.setStationGhost(this.hover, fit.dir, !fit.problem && (this.city?.funds ?? 0) >= STATION_COST);
       return;
     }
     if (isHabitat(tool)) {
@@ -746,11 +964,15 @@ export class ParkView {
       this.hooks.sound("click");
     } else if (act === "select") this.setTool(null);
     else if (act === "clear") this.setTool(this.tool === "clear" ? null : "clear");
+    else if (act === "ride-exit") this.stopRide();
   }
 
   setTool(tool: ParkTool): void {
     this.tool = tool;
-    if (tool) this.hooks.closeHabitat();
+    if (tool) {
+      this.hooks.closeHabitat();
+      this.ridePanel.hide();
+    }
     this.drag = null;
     this.renderBuild();
     this.renderHint();
@@ -778,7 +1000,8 @@ export class ParkView {
     ].join("");
     const items = tab.items.map((kind) => {
       const cost = costOf(kind);
-      return `<button type="button" class="pk-item${this.tool === kind ? " on" : ""}${funds < cost ? " poor" : ""}" data-act="tool" data-tool="${kind}" title="${isHabitat(kind) ? HABITAT_INFO[kind].blurb : PARK_INFO[kind as ParkObject].blurb}"><span>${ICON[kind]}</span><b>${nameOf(kind)}</b><small>${euro.format(cost)} €${kind === "path" ? " / Feld" : ""}</small></button>`;
+      const blurb = kind === "coaster" ? COASTER_BLURB : isHabitat(kind) ? HABITAT_INFO[kind].blurb : PARK_INFO[kind as ParkObject].blurb;
+      return `<button type="button" class="pk-item${this.tool === kind ? " on" : ""}${funds < cost ? " poor" : ""}" data-act="tool" data-tool="${kind}" title="${blurb}"><span>${ICON[kind]}</span><b>${nameOf(kind)}</b><small>${euro.format(cost)} €${kind === "path" ? " / Feld" : ""}</small></button>`;
     }).join("");
     setHtml(this.build, `<div class="pk-items">${items}</div><div class="pk-tabs">${tabs}</div>`);
     requestAnimationFrame(() => this.updateInset());
@@ -800,8 +1023,8 @@ export class ParkView {
 
   private renderStats(zoo: ZooState): void {
     if (!zoo.park) return;
-    const s = summarize(zoo.park, zoo.habitats);
-    const tickets = Math.round(Math.max(0, zoo.income - zoo.sales) * PER_DAY);
+    const s = summarize(zoo.park, zoo.habitats, rideRefs(zoo.coasters));
+    const tickets = Math.round(Math.max(0, zoo.income - zoo.sales - (zoo.rideSales ?? 0)) * PER_DAY);
     const sales = Math.round(zoo.sales * PER_DAY);
     const cost = Math.round(zoo.cost * PER_DAY);
     const animals = zoo.animals.filter((a) => a.cell >= 0);
@@ -826,8 +1049,9 @@ export class ParkView {
         ${row("👥 Besucher jetzt", `${zoo.visitors}`)}
         ${row("🎟️ Eintritt", `${euro.format(tickets)} € / Tag`)}
         ${row("🍟 Stände", `${euro.format(sales)} € / Tag`)}
+        ${zoo.coasters?.length ? row("🎢 Achterbahnen", `${euro.format(Math.round((zoo.rideSales ?? 0) * PER_DAY))} € / Tag`) : ""}
         ${row("🧾 Kosten (Futter, Pfleger, Personal)", `−${euro.format(cost)} € / Tag`)}
-        ${row("💶 Gewinn", `${euro.format(tickets + sales - cost)} € / Tag`, tickets + sales - cost >= 0 ? "good" : "bad")}
+        ${row("💶 Gewinn", `${euro.format(Math.round(zoo.income * PER_DAY) - cost)} € / Tag`, Math.round(zoo.income * PER_DAY) - cost >= 0 ? "good" : "bad")}
         ${row("🦒 Gehege mit Weg", `${s.habitats.length} / ${zoo.habitats.length}`)}
         ${row("🐾 Tiere · Arten", `${animals.length} · ${species}`)}
         ${row("🍟🥤🧸 Stände", `${s.spots.food.length} · ${s.spots.drink.length} · ${s.spots.souvenir.length}`)}
@@ -845,7 +1069,10 @@ export class ParkView {
     let text = "Gehege anklicken für Tiere und Bau-Modus. Ziehen verschiebt, Mausrad zoomt, rechte Taste dreht.";
     if (coarse) text = "Gehege antippen für Tiere und Bau-Modus. Ziehen verschiebt, zwei Finger zoomen.";
     const build = this.hooks.build();
-    if (build) text = build.tool === "remove" ? "Entfernen: Gegenstand im Gehege antippen." : build.tool ? `${ITEM_INFO[build.tool].name}: freies Feld im Gehege ${coarse ? "antippen" : "anklicken"}${coarse ? "." : " · R dreht · Esc beendet."}` : "Bau-Modus: Gegenstand im Panel wählen.";
+    const editing = this.ridePanel.editing;
+    if (editing) text = coarse ? "Strecke: Teile im Panel antippen. Grün = passt, rot = blockiert." : "Strecke: Teil im Panel wählen (Vorschau grün/rot) · Rückgängig nimmt das letzte · Esc beendet.";
+    else if (tool === "coaster") text = `Achterbahn: Station (3 Felder) direkt an einen Weg setzen${coarse ? "" : " · R dreht"}. ${euro.format(STATION_COST)} €.`;
+    else if (build) text = build.tool === "remove" ? "Entfernen: Gegenstand im Gehege antippen." : build.tool ? `${ITEM_INFO[build.tool].name}: freies Feld im Gehege ${coarse ? "antippen" : "anklicken"}${coarse ? "." : " · R dreht · Esc beendet."}` : "Bau-Modus: Gegenstand im Panel wählen.";
     else if (tool === "clear") text = "Abriss: tippen oder eine Fläche ziehen. Der Eingang bleibt stehen.";
     else if (tool === "path") text = `Weg: ziehen legt eine Strecke (${PARK_INFO.path.cost} € pro Feld). Besucher laufen nur auf Wegen.`;
     else if (tool === "entrance") text = "Eingang: ein Feld am Rand des Parks wählen.";
@@ -855,7 +1082,7 @@ export class ParkView {
       this.hint.textContent = text;
       // The look-around hint fades after a few seconds; tool hints stay while the tool is active.
       this.hint.classList.remove("idle");
-      if (!tool && !build) {
+      if (!tool && !build && !editing) {
         void this.hint.offsetWidth;
         this.hint.classList.add("idle");
       }

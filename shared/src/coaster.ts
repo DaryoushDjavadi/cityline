@@ -286,20 +286,41 @@ export function closeRoute(coaster: Pick<Coaster, "station" | "dir" | "pieces">,
   const startKey = key(layout.cursor);
   cost.set(startKey, 0);
   cursors.set(startKey, layout.cursor);
-  // Small Dijkstra (open list scan; the state space is tiny and most states are unreachable).
-  const open = new Set([startKey]);
-  let expanded = 0;
-  while (open.size > 0 && expanded < 20000) {
-    let best = -1;
-    let bestCost = Infinity;
-    for (const k of open) {
-      const c = cost.get(k)!;
-      if (c < bestCost) {
-        bestCost = c;
-        best = k;
+  // Small Dijkstra with a binary heap of [cost, key].
+  const heap: [number, number][] = [[0, startKey]];
+  const push = (item: [number, number]) => {
+    heap.push(item);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (heap[parent][0] <= heap[i][0]) break;
+      [heap[parent], heap[i]] = [heap[i], heap[parent]];
+      i = parent;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
       }
     }
-    open.delete(best);
+    return top;
+  };
+  let expanded = 0;
+  while (heap.length > 0 && expanded < 40000) {
+    const [bestCost, best] = pop();
+    if (bestCost > (cost.get(best) ?? Infinity)) continue;
     expanded += 1;
     if (best === goal) break;
     const at = cursors.get(best)!;
@@ -309,12 +330,11 @@ export function closeRoute(coaster: Pick<Coaster, "station" | "dir" | "pieces">,
       if (step.tiles.some((t) => !inPark(t.x, t.y) || used.has(parkIndex(t.x, t.y)) || tileBlocked(grid, parkIndex(t.x, t.y), t.low))) continue;
       const k = key(step.next);
       const next = bestCost + weights[piece]!;
-      if (next >= (cost.get(k) ?? Infinity)) continue;
-      if (next > max) continue;
+      if (next >= (cost.get(k) ?? Infinity) || next > max) continue;
       cost.set(k, next);
       cursors.set(k, step.next);
       prev.set(k, { from: best, piece, cursor: step.next });
-      open.add(k);
+      push([next, k]);
     }
   }
   if (!prev.has(goal)) return null;

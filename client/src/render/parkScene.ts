@@ -18,6 +18,7 @@ import {
   occupancy,
   parkIndex,
   parkXY,
+  rideRefs,
   walkable,
   type CrowdEvent,
   type ItemKind,
@@ -31,6 +32,7 @@ import { HabitatDressing, SPOT_SIZE, itemScale, spotFromOffset, spotOffset } fro
 import { StyleFx } from "./styleFx.ts";
 import { boothGeometry, borderGeometry, outerTreeGeometry, parkObjectGeometry } from "./parkModels.ts";
 import { rng, setWindTime, swayMaterial, tuftGeometry } from "./zooDecor.ts";
+import { CoasterLayer } from "./coasterLayer.ts";
 
 export const PARK_HALF = (PARK_SIZE * PARK_TILE) / 2;
 const GLYPH: Record<Reaction, { text: string; color: string }> = {
@@ -199,6 +201,12 @@ export class ParkScene {
   /** Translucent preview of the stand/decor model under the cursor. */
   private readonly ghostModel = new THREE.Mesh(undefined, new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.62, roughness: 0.8, depthWrite: false }));
   readonly zoo: ZooLayer;
+  readonly coasters: CoasterLayer;
+  /** First-person ride ("Mitfahren"): coaster id, or null for the normal park camera. */
+  private riding: { id: number; started: number } | null = null;
+  private rideKmh = 0;
+  private readonly rideLook = new THREE.Matrix4();
+  private readonly rideQuat = new THREE.Quaternion();
   private layoutKey = "";
   private grid: Uint8Array = new Uint8Array(PARK_TILES);
   private time = 0;
@@ -326,6 +334,7 @@ export class ParkScene {
     this.scene.add(this.ghost, this.ghostBox, this.ghostModel);
 
     this.zoo = new ZooLayer(this.scene, 1);
+    this.coasters = new CoasterLayer(this.scene, this.material, low);
 
     // Build-mode helpers (hidden until a habitat is in build mode).
     const lines: number[] = [];
@@ -379,13 +388,17 @@ export class ParkScene {
   sync(zoo: ZooState, tick: number): void {
     const park = zoo.park;
     if (!park) return;
-    const key = `${park.tiles}|${park.entrance}|${zoo.habitats.map((h) => `${h.cell}:${h.type}`).join(",")}`;
+    const rides = rideRefs(zoo.coasters);
+    const rideKey = rides.map((r) => `${r.id}:${r.track.map((t) => t.tile).join(".")}:${r.state}:${r.price}:${r.excitement}`).join(",");
+    const key = `${park.tiles}|${park.entrance}|${zoo.habitats.map((h) => `${h.cell}:${h.type}`).join(",")}|${rideKey}`;
     if (key !== this.layoutKey) {
       this.layoutKey = key;
-      this.grid = occupancy(park, zoo.habitats);
+      this.grid = occupancy(park, zoo.habitats, rides);
       this.buildLayout(zoo);
-      this.crowd.setLayout(park, zoo.habitats);
+      this.crowd.setLayout(park, zoo.habitats, rides, zoo.prices);
     }
+    this.crowd.setPrices(zoo.prices);
+    this.coasters.setCoasters(zoo.coasters ?? [], this.grid);
     const placed = zoo.habitats.map((habitat) => ({ habitat, ...habitatWorld(habitat.cell) }));
     this.dressing.setHabitats(placed.map(({ habitat, x, z }) => ({ cell: habitat.cell, type: habitat.type, x, z })));
     this.dressing.setItems(placed);
@@ -843,8 +856,10 @@ export class ParkScene {
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     }
+    this.coasters.update(Math.min(dt, 0.1));
     this.fly(dt);
-    this.placeCamera();
+    if (this.riding) this.rideCamera(dt);
+    else this.placeCamera();
     this.zoo.setCamera(this.camera.position);
     this.zoo.update(this.time);
     this.updateBursts(Math.min(dt, 0.1));
@@ -855,13 +870,69 @@ export class ParkScene {
       this.ring.position.set(pose.x, 0.08, pose.z);
       this.ring.scale.setScalar(r * (1 + Math.sin(this.time * 4) * 0.05));
     }
-    if (!this.fx.render(this.scene, this.camera, { focus: this.target, sun: this.sun, hazeRange: [0.9, 3.2], hazeAmount: 0.45 })) this.renderer.render(this.scene, this.camera);
+    const focus = this.riding ? this.camera.position.clone().add(new THREE.Vector3(0, 0, -8).applyQuaternion(this.camera.quaternion)) : this.target;
+    if (!this.fx.render(this.scene, this.camera, { focus, sun: this.sun, hazeRange: [0.9, 3.2], hazeAmount: 0.45 })) this.renderer.render(this.scene, this.camera);
     return events;
   }
 
+  // ------------------------------------------------------------ ride camera
+
+  /** Sit in the front car of a running coaster. False when its train is not running. */
+  startRide(id: number): boolean {
+    if (!this.coasters.running(id)) return false;
+    this.flight = null;
+    this.riding = { id, started: this.time };
+    this.coasters.riding = id;
+    this.camera.near = 0.06;
+    this.camera.fov = this.camera.aspect < 0.8 ? 80 : 68;
+    this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix();
+    const pose = this.coasters.pose(id);
+    if (pose) {
+      this.camera.position.copy(pose.position);
+      this.rideLook.lookAt(pose.position, pose.position.clone().add(pose.forward), pose.up);
+      this.camera.quaternion.setFromRotationMatrix(this.rideLook);
+    }
+    return true;
+  }
+
+  stopRide(): void {
+    if (!this.riding) return;
+    this.riding = null;
+    this.coasters.riding = -1;
+    this.camera.near = 0.5;
+    this.camera.up.set(0, 1, 0);
+    this.resize(this.width, this.height);
+  }
+
+  get ridingId(): number {
+    return this.riding?.id ?? -1;
+  }
+
+  get speedKmh(): number {
+    return this.rideKmh;
+  }
+
+  private rideCamera(dt: number): void {
+    const pose = this.coasters.pose(this.riding!.id);
+    if (!pose) {
+      this.stopRide();
+      this.placeCamera();
+      return;
+    }
+    this.rideKmh = pose.kmh;
+    this.camera.position.copy(pose.position);
+    // Look along the track (a little ahead), roll with it; smooth so joints don't jerk.
+    this.rideLook.lookAt(pose.position, pose.position.clone().add(pose.forward), pose.up);
+    this.rideQuat.setFromRotationMatrix(this.rideLook);
+    this.camera.quaternion.slerp(this.rideQuat, 1 - Math.exp(-dt * 12));
+    this.camera.updateMatrixWorld();
+  }
+
   /** Counts for tests and the perf check. */
-  stats(): { walkers: number; drawCalls: number; triangles: number; grass: number; paths: number; habitatGrass: number; habitatMeshes: number } {
+  stats(): { walkers: number; drawCalls: number; triangles: number; grass: number; paths: number; habitatGrass: number; habitatMeshes: number; coasters: ReturnType<CoasterLayer["stats"]> } {
     return {
+      coasters: this.coasters.stats(),
       habitatGrass: this.dressing.stats().grass,
       habitatMeshes: this.dressing.meshes(),
       walkers: this.crowd.walkers.filter((walker) => walker.state !== "gone").length,
@@ -878,6 +949,7 @@ export class ParkScene {
     // (Geometries are cached and partly shared with the city, so they are not disposed here.)
     this.fx.dispose();
     this.dressing.dispose();
+    this.coasters.dispose();
     for (const texture of this.glyphs.values()) texture.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

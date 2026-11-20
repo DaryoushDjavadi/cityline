@@ -3799,3 +3799,105 @@ body[data-park="on"] #zoo-panel { z-index: 20; top: 72px; }
   body[data-park="on"] #zoo-panel { top: auto; bottom: 8px; z-index: 20; }
   body[data-park="on"][data-zoo="on"] .pk-build, body[data-park="on"][data-zoo="on"] .pk-hint { visibility: hidden; }
 }
+
+/* ------------------------------------------------------------ Tierpark: Achterbahn & Preise */
+#ride-panel {
+  position: fixed; z-index: 20; right: 14px; top: 72px; width: 360px; max-height: calc(100vh - 150px); display: flex; flex-direction: column;
+  padding: 12px 8px 10px 14px; border-radius: 18px; color: #f6ecd8; pointer-events: auto;
+  background: linear-gradient(180deg, rgba(58, 40, 24, 0.96), rgba(42, 30, 18, 0.96)); border: 1px solid rgba(232, 190, 120, 0.45);
+  box-shadow: 0 18px 44px rgba(12, 8, 4, 0.42), inset 0 1px 0 rgba(255, 220, 160, 0.12);
+}
+#ride-panel[hidden] { display: none; }
+body[data-look="shot"] #ride-panel { display: none !important; }
+#ride-panel .panel-head { display: flex; align-items: center; margin: 0 4px 2px 0; }
+#ride-panel .panel-head p { flex: 1; margin: 0; color: #f0cd7d; }
+#rp-body { overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; scrollbar-width: thin; }
+#rp-body .zoo-title { margin-bottom: 8px; }
+.rp-states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 0 0 4px; }
+.rp-states button {
+  min-height: 34px; padding: 4px 6px; border-radius: 10px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 700;
+  border: 1px solid rgba(232, 205, 150, 0.28); background: rgba(255, 240, 210, 0.07); color: #f6ecd8; white-space: nowrap;
+}
+.rp-states button.on[data-state="closed"] { background: rgba(220, 90, 70, 0.3); border-color: rgba(240, 120, 100, 0.7); }
+.rp-states button.on[data-state="test"] { background: rgba(240, 190, 80, 0.3); border-color: rgba(246, 210, 120, 0.75); }
+.rp-states button.on[data-state="open"] { background: rgba(120, 200, 110, 0.3); border-color: rgba(160, 225, 140, 0.75); }
+.rp-states button:disabled { opacity: 0.45; cursor: not-allowed; }
+.rp-bar { grid-template-columns: 74px 1fr 30px 66px; }
+.rp-bar small { font-size: 10.5px; color: rgba(246, 236, 216, 0.6); }
+.rp-bar.exc i b { background: linear-gradient(90deg, #e8a83a, #ffd96a); }
+.rp-bar.int i b { background: linear-gradient(90deg, #d85a4a, #ff8a5a); }
+.rp-bar.nau i b { background: linear-gradient(90deg, #6aa84a, #b6d85a); }
+.rp-facts { margin: 6px 0 2px; font-size: 12px; color: rgba(246, 236, 216, 0.78); }
+.rp-norate { margin: 2px 0 4px; }
+.rp-price { display: grid; grid-template-columns: 44px 1fr 44px; gap: 8px; align-items: center; }
+.rp-price button {
+  height: 40px; border-radius: 12px; font: inherit; font-size: 22px; font-weight: 800; cursor: pointer; color: #3a2410;
+  border: 1px solid #f6d690; background: linear-gradient(180deg, #f2c66a, #d99a3c);
+}
+.rp-price button:disabled { filter: grayscale(0.8) brightness(0.7); cursor: not-allowed; }
+.rp-price div { display: flex; flex-direction: column; align-items: center; padding: 3px 0; border-radius: 12px; background: rgba(255, 240, 210, 0.07); }
+.rp-price b { font-size: 20px; color: #fff4dc; }
+.rp-price small { font-size: 11px; color: rgba(246, 236, 216, 0.65); }
+.rp-range { width: 100%; margin: 8px 0 2px; accent-color: #e8a83a; }
+.rp-mood { display: flex; gap: 7px; align-items: center; margin: 4px 0 8px; padding: 6px 9px; border-radius: 10px; font-size: 12.5px; line-height: 1.35; background: rgba(255, 240, 210, 0.07); }
+.rp-mood span { font-size: 19px; }
+.rp-mood.cheap { background: rgba(120, 200, 110, 0.16); }
+.rp-mood.fair { background: rgba(120, 200, 110, 0.1); }
+.rp-mood.pricey { background: rgba(240, 180, 80, 0.16); }
+.rp-mood.rip { background: rgba(230, 90, 70, 0.22); color: #ffd2c8; }
+.rp-feedback { margin: 0 0 8px; font-size: 12px; color: rgba(246, 236, 216, 0.75); }
+.rp-warn { margin: 0 0 8px; padding: 6px 9px; border-radius: 10px; font-size: 12.5px; background: rgba(230, 90, 70, 0.2); }
+.rp-pieces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 6px; }
+.rp-piece {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; border-radius: 11px; cursor: pointer; font: inherit; color: #f6ecd8;
+  border: 1px solid rgba(232, 205, 150, 0.2); background: rgba(255, 240, 210, 0.06);
+}
+.rp-piece span { font-size: 20px; line-height: 1.1; }
+.rp-piece b { font-size: 12px; white-space: nowrap; }
+.rp-piece small { font-size: 10.5px; color: rgba(246, 236, 216, 0.62); white-space: nowrap; }
+.rp-piece.on { border-color: #f0cd7d; background: rgba(240, 205, 125, 0.22); }
+.rp-piece.bad { opacity: 0.5; }
+.rp-piece.bad small { color: #ffb0a0; }
+.rp-piece:hover { background: rgba(255, 240, 210, 0.13); }
+.rp-edit button { white-space: nowrap; }
+.rp-status { margin: 2px 0 10px; padding: 6px 9px; border-radius: 10px; font-size: 12px; line-height: 1.4; background: rgba(255, 240, 210, 0.07); }
+.rp-status.ok { background: rgba(120, 200, 110, 0.18); color: #d6f2c8; }
+.rp-status em { color: #ffc0a8; font-style: normal; }
+.rp-danger { background: rgba(230, 90, 70, 0.3) !important; border-color: rgba(240, 120, 100, 0.8) !important; }
+.pk-note { font-size: 14px; }
+.pk-note.pricey { background: #ffe0d8; color: #8a2a1a; font-weight: 700; font-size: 12.5px; }
+.pk-note.queasy { background: #e4f6d4; }
+.pk-note.thrilled { background: #fff2c4; }
+/* First-person ride: only the HUD stays. */
+#ride-hud {
+  position: absolute; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
+  padding: 7px 8px 7px 16px; border-radius: 16px; color: #f6ecd8; background: rgba(30, 22, 14, 0.72); border: 1px solid rgba(232, 190, 120, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); backdrop-filter: blur(4px);
+}
+#ride-hud[hidden] { display: none; }
+#ride-hud b { font-size: 14px; white-space: nowrap; }
+#rh-speed { min-width: 76px; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; color: #ffe27a; text-align: right; }
+#ride-hud button {
+  min-height: 36px; padding: 4px 14px; border-radius: 11px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; color: #3a2410;
+  border: 1px solid #f6d690; background: linear-gradient(180deg, #f2c66a, #d99a3c);
+}
+body[data-ride="on"] #park-view .pk-top, body[data-ride="on"] #park-view .pk-build, body[data-ride="on"] #park-view .pk-hint,
+body[data-ride="on"] #park-view .pk-stats, body[data-ride="on"] #park-fx, body[data-ride="on"] #ride-panel, body[data-ride="on"] #zoo-panel { display: none !important; }
+@media (min-width: 1101px) and (min-height: 521px) {
+  body[data-park="on"][data-ride-panel="on"] #park-view .pk-build,
+  body[data-park="on"][data-ride-panel="on"] #park-view .pk-hint { left: calc((100% - 388px) / 2); max-width: calc(100% - 412px); }
+}
+@media (max-width: 1100px), (max-height: 520px) {
+  #ride-panel {
+    top: auto; right: max(8px, env(safe-area-inset-right)); left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto; max-width: 420px; margin-left: auto; max-height: min(58dvh, 520px); padding: 8px 6px 8px 10px;
+  }
+  #ride-panel.editing { max-height: min(50dvh, 460px); }
+  #ride-panel .zoo-title { font-size: 16px; margin-bottom: 6px; }
+  .rp-pieces { display: flex; overflow-x: auto; scrollbar-width: none; }
+  .rp-piece { flex: none; min-width: 78px; }
+  body[data-park="on"][data-ride-panel="on"] .pk-build, body[data-park="on"][data-ride-panel="on"] .pk-hint { visibility: hidden; }
+  #ride-hud { left: 8px; right: 8px; transform: none; justify-content: space-between; gap: 8px; padding-left: 12px; }
+  #ride-hud b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+  #rh-speed { font-size: 16px; min-width: 64px; }
+}
