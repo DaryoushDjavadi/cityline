@@ -20,7 +20,8 @@
     "perf-probe": "tsx scripts/perf-probe.ts",
     "audio-tests": "tsx scripts/audio-tests.ts",
     "life-playtest": "tsx scripts/life-playtest.mts",
-    "zoo-tests": "tsx scripts/zoo-tests.ts"
+    "zoo-tests": "tsx scripts/zoo-tests.ts",
+    "style-playtest": "tsx scripts/style-shots.mts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

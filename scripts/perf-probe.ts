@@ -16,6 +16,8 @@ async function main(): Promise<void> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   await page.addInitScript({ content: "window.__name = (fn) => fn;" });
   await page.addInitScript(() => localStorage.setItem("cityline-name", "Perf"));
+  // Graphics style (Standard / Pixel-Art / Comic) to measure; main without styles ignores it.
+  if (process.env.PERF_STYLE) await page.addInitScript((style) => localStorage.setItem("cityline-style", style), process.env.PERF_STYLE);
   await page.goto(`${BASE}/?preview=look&run=1&gfx=${GFX}&hour=9`, { waitUntil: "networkidle" });
   await page.waitForFunction(() => Boolean((window as unknown as { __cityline?: { ready?: boolean } }).__cityline?.ready), { timeout: 60_000 });
   await page.waitForTimeout(3000);

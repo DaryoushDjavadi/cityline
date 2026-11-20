@@ -273,6 +273,7 @@ const COMIC_FRAG = /* glsl */ `
   uniform float uInk;
   uniform float uHatch;
   uniform float uLineScale;
+  uniform float uCrease;
 
 
   void main() {
@@ -322,7 +323,7 @@ const COMIC_FRAG = /* glsl */ `
       }
       // Silhouettes get the full line; it fades out into the haze so the horizon stays clean.
       ink = smoothstep(0.018, 0.05, maxDiff) * (1.0 - smoothstep(uHazeRange.x, uHazeRange.y, nearest));
-      if (!sky) {
+      if (!sky && uCrease > 0.0) {
         vec2 o = px * max(1.0, uLineScale);
         vec3 pr = viewAt(vUv + vec2(o.x, 0.0));
         vec3 pu = viewAt(vUv + vec2(0.0, o.y));
@@ -397,7 +398,7 @@ export class StyleFx {
       toneMapped: false,
     });
     this.comicMat = new THREE.ShaderMaterial({
-      uniforms: { ...base(), uInk: { value: 1 }, uHatch: { value: 1 }, uLineScale: { value: 1 } },
+      uniforms: { ...base(), uInk: { value: 1 }, uHatch: { value: 1 }, uLineScale: { value: 1 }, uCrease: { value: 1 } },
       vertexShader: VERT,
       fragmentShader: COMIC_FRAG,
       depthTest: false,
@@ -530,7 +531,9 @@ export class StyleFx {
     } else {
       const lineScale = Math.max(1, renderer.getPixelRatio() * 0.9);
       uniforms.uLineScale.value = lineScale;
+      // Low quality (weak GPUs): no hatching and no crease lines, silhouettes stay.
       uniforms.uHatch.value = this.low ? 0 : 1;
+      uniforms.uCrease.value = this.low ? 0 : 1;
       uniforms.uInk.value = 1;
       this.quad.material = this.comicMat;
       renderer.setRenderTarget(previous);

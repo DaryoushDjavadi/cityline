@@ -74,6 +74,40 @@ async function tierpark(page: Page): Promise<void> {
   await e2e(page, "advanceZoo", 40);
 }
 
+async function settings(page: Page): Promise<void> {
+  // Settings selector.
+  await e2e(page, "setStyle", "pixel");
+  await e2e(page, "dismissUi");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  const select = page.locator("#gfx-style");
+  // dismissUi hides the panel inline for clean shots; show it again like a player would see it.
+  await page.evaluate(() => document.querySelector<HTMLElement>("#demand")?.style.removeProperty("display"));
+  await page.waitForTimeout(400);
+  if (await select.isVisible()) {
+    await select.selectOption("comic");
+    await page.waitForTimeout(300);
+    check((await e2e<string>(page, "style")) === "comic", "Auswahl in den Einstellungen wechselt den Stil");
+    await select.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, "einstellungen-stil.png") });
+  } else check(false, `Stil-Auswahl in den Einstellungen sichtbar (${await page.evaluate(() => {
+    const out: string[] = [];
+    let el: HTMLElement | null = document.querySelector("#gfx-style");
+    while (el && el !== document.body) {
+      const cs = getComputedStyle(el);
+      out.push(`${el.tagName}#${el.id}.${el.className} d=${cs.display} v=${cs.visibility} h=${el.getBoundingClientRect().height}`);
+      el = el.parentElement;
+    }
+    return out.join(" < ");
+  })})`);
+  const stored = await page.evaluate(() => localStorage.getItem("cityline-style"));
+  check(stored === "comic", `Stil in localStorage gespeichert (${stored})`);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(800);
+  check((await e2e<string>(page, "style")) === "comic", "Stil bleibt nach dem Neuladen");
+  check((await page.locator("#gfx-style").inputValue()) === "comic", "Auswahl zeigt den gespeicherten Stil");
+  if (process.env.SETTINGS) process.exit(failures.length ? 1 : 0);
+}
 const CITY = { x: Number(process.env.CX ?? 20), y: Number(process.env.CY ?? 20), d: Number(process.env.CD ?? 62) };
 async function cityView(page: Page): Promise<void> {
   await e2e(page, "lookSea", process.env.VIEW ?? "harbor");
@@ -97,6 +131,7 @@ const styles = ["standard", "pixel", "comic"] as const;
   const site = await e2e<{ x: number; y: number }>(page, "findArea", 3, 2).catch(() => null);
   await clean(page);
   await page.waitForTimeout(1200);
+  if (process.env.SETTINGS) await settings(page);
   const perf: Record<string, { ms: number; calls: number }> = {};
   for (const style of styles) {
     if (ONLY && !ONLY.includes(style)) continue;
@@ -157,27 +192,7 @@ const styles = ["standard", "pixel", "comic"] as const;
   await page.locator("#zoo-interior .zi-back").click();
   await page.locator("#zoo-close").click().catch(() => undefined);
   await pk(page, "leave");
-  // Settings selector.
-  await e2e(page, "setStyle", "pixel");
-  await e2e(page, "dismissUi");
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(400);
-  const select = page.locator("#gfx-style");
-  if (!(await select.isVisible())) await page.evaluate(() => document.querySelector<HTMLButtonElement>("#toggle-demand")?.click());
-  await page.waitForTimeout(400);
-  if (await select.isVisible()) {
-    await select.selectOption("comic");
-    await page.waitForTimeout(300);
-    check((await e2e<string>(page, "style")) === "comic", "Auswahl in den Einstellungen wechselt den Stil");
-    await select.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(SHOTS, "einstellungen-stil.png") });
-  } else check(false, `Stil-Auswahl in den Einstellungen sichtbar (${await page.evaluate(() => JSON.stringify(document.body.dataset))})`);
-  const stored = await page.evaluate(() => localStorage.getItem("cityline-style"));
-  check(stored === "comic", `Stil in localStorage gespeichert (${stored})`);
-  await page.reload({ waitUntil: "networkidle" });
-  await page.waitForTimeout(800);
-  check((await e2e<string>(page, "style")) === "comic", "Stil bleibt nach dem Neuladen");
-  check((await page.locator("#gfx-style").inputValue()) === "comic", "Auswahl zeigt den gespeicherten Stil");
+  await settings(page);
   await page.evaluate(() => localStorage.setItem("cityline-style", "standard"));
   await page.close();
 }
@@ -193,6 +208,7 @@ const styles = ["standard", "pixel", "comic"] as const;
   await clean(page);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(SHOTS, "mobile-pixel.png") });
+  await page.evaluate(() => document.querySelector<HTMLElement>("#demand")?.style.removeProperty("display"));
   await page.locator("#toggle-demand").tap();
   await page.waitForTimeout(400);
   await page.locator("#gfx-style").scrollIntoViewIfNeeded();
