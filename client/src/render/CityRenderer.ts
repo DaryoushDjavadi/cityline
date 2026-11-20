@@ -38,6 +38,7 @@ import {
   type Climate,
 } from "../../../shared/src/index.ts";
 import { beachVisitors, streetCars, streetPedestrians, tradeTourists, type BeachVisitor, type StreetCar, type StreetPedestrian, type TradeTourist } from "../../../shared/src/people.ts";
+import { StyleFx } from "./styleFx.ts";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -139,6 +140,8 @@ export class CityRenderer {
   private readonly atmosphere: Atmosphere;
   private quality: GfxProfile;
   private composer: EffectComposer | null = null;
+  /** Graphics style (Standard / Pixel-Art / Comic). */
+  private fx!: StyleFx;
   private bloom: UnrealBloomPass | null = null;
   private renderPass: RenderPass | null = null;
   private readonly windowNight = { value: 0 };
@@ -260,6 +263,8 @@ export class CityRenderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
+    this.fx = new StyleFx(this.renderer);
+    this.fx.low = this.quality.level === "low";
     this.renderer.shadowMap.enabled = this.quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
@@ -562,6 +567,7 @@ export class CityRenderer {
   setQuality(preset: GfxPreset): void {
     this.quality = gfxProfile(preset, window.devicePixelRatio || 1);
     this.renderer.setPixelRatio(this.quality.pixelRatio);
+    if (this.fx) this.fx.low = this.quality.level === "low";
     this.renderer.shadowMap.enabled = this.quality.shadows;
     this.configureSunShadow();
     this.applyShadowFlags();
@@ -929,7 +935,9 @@ export class CityRenderer {
     const near = camera.position.distanceTo(this.focus);
     if (near < 130) this.treeFade.value.set(near * 0.42, near * 0.68);
     else this.treeFade.value.set(0, 0);
-    if (this.composer && this.renderPass) {
+    if (this.fx.render(this.scene, camera, { focus: this.focus, sun: this.sun, haze: this.atmosphere.skyMaterial.uniforms.uHorizon.value as THREE.Color, hazeRange: [1.8, 7], hazeAmount: 0.42 * (1 - 0.7 * (this.atmosphere.skyMaterial.uniforms.uNight.value as number)) })) {
+      // stylised frame done
+    } else if (this.composer && this.renderPass) {
       this.renderPass.camera = camera;
       this.composer.render();
     } else this.renderer.render(this.scene, camera);

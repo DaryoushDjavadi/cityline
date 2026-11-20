@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.50",
+    at: "20. Nov 2026, 01:12 Uhr",
+    title: "Grafikstile: Pixel-Art und Comic",
+    items: [
+      "Neu in Nachfrage & Einstellungen: „Stil“. Standard ist der bisherige Look, dazu kommen Pixel-Art und Comic. Die Wahl wird gespeichert und gilt in der Stadt, im Tierpark und in der Gehege-Innenansicht.",
+      "Pixel-Art: Die Low-Poly-Modelle bleiben 3D, werden aber als klare Pixelgrafik gezeichnet – große, scharfe Pixel ohne Unschärfe, eine handverlesene warme Palette (Orange, tiefes Petrol, violette Schatten), feine dunkle Pixel-Konturen, Dunst in der Ferne in der Farbe des Himmels und warmes Sonnenlicht an Kanten. Sanftes Dithering nur in Himmel und Dunst. Die Kamera rastet beim Schieben auf das Pixelraster ein, damit nichts flimmert.",
+      "Comic: Cel-Shading mit harten Lichtstufen, dicke schwarze Tusche-Konturen (an Silhouetten kräftiger), etwas mehr Farbe und leichte Schraffur in den Schatten.",
+      "Tag, Dämmerung und Nacht funktionieren in allen Stilen. Die Bedienoberfläche bleibt immer gestochen scharf.",
+      "Auf „Niedrig“ werden die Pixel etwas größer und Comic lässt Schraffur und feine Linien weg, damit schwache Handys flüssig bleiben.",
+    ],
+  },
+  {
     version: "0.49",
     at: "20. Nov 2026, 00:25 Uhr",
     title: "Fix: Gehege-Innenansicht lässt sich wieder verlassen",

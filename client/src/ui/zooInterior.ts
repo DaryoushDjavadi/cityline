@@ -3,6 +3,7 @@
  * Items sit on an 8×8 grid; animals wander; clicks pick animals, items or grid spots.
  */
 import * as THREE from "three";
+import { StyleFx } from "../render/styleFx.ts";
 import {
   ITEM_GRID,
   growthScale,
@@ -73,6 +74,8 @@ function glyphTexture(kind: CareAct): THREE.CanvasTexture {
 
 export class InteriorScene {
   readonly renderer: THREE.WebGLRenderer;
+  private readonly fx: StyleFx;
+  private readonly sun: THREE.DirectionalLight;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(42, 1, 0.5, 200);
   private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.02 });
@@ -111,6 +114,7 @@ export class InteriorScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
+    this.fx = new StyleFx(this.renderer);
     this.low = gfxProfile(loadGfxPreset(), window.devicePixelRatio || 1).level === "low";
     if (!this.low) {
       this.renderer.shadowMap.enabled = true;
@@ -121,6 +125,7 @@ export class InteriorScene {
     this.scene.fog = new THREE.Fog(0xd8e6e2, 42, 95);
     const hemi = new THREE.HemisphereLight(0xfff1da, 0x6e6044, 1.45);
     const sun = new THREE.DirectionalLight(0xffe2b4, 2.5);
+    this.sun = sun;
     sun.position.set(11, 19, 8);
     if (!this.low) {
       sun.castShadow = true;
@@ -416,7 +421,7 @@ export class InteriorScene {
         this.bursts.splice(i, 1);
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    if (!this.fx.render(this.scene, this.camera, { focus: this.focus, sun: this.sun, hazeRange: [1.2, 3.5], hazeAmount: 0.3 })) this.renderer.render(this.scene, this.camera);
   }
 
   /** Screen position (CSS px) of a world point, for name tags and tests. */
@@ -495,6 +500,7 @@ export class InteriorScene {
   }
 
   dispose(): void {
+    this.fx.dispose();
     this.dressing?.dispose();
     for (const entry of this.items.values()) entry.mesh.geometry.dispose();
     for (const texture of this.textures.values()) texture.dispose();
