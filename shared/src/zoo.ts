@@ -25,9 +25,35 @@ import {
   summarize,
   tileAt,
   writeTiles,
+  STANDS,
+  PRICE_MAX,
+  type ParkEconomy,
   type ParkObject,
   type ParkState,
+  type RideState,
 } from "./park.ts";
+import {
+  DEFAULT_RIDE_PRICE,
+  MAX_COASTERS,
+  MAX_PIECES,
+  PIECE_INFO,
+  PIECE_KINDS,
+  RIDE_STATES,
+  STATION_COST,
+  blockGrid,
+  cleanCoasters,
+  cleanPrice,
+  closeRoute,
+  coasterAtTile,
+  coasterCost,
+  coasterLayout,
+  rateCoaster,
+  rideRefs,
+  sceneryNear,
+  stationProblem,
+  type Coaster,
+  type PieceKind,
+} from "./coaster.ts";
 
 // Plain numbers on purpose: types.ts → progressState.ts → zoo.ts is an import cycle, so no runtime
 // values from types.ts/grid.ts here. They must match ServiceKind.Zoo* and CELL_SIZE.
@@ -309,6 +335,13 @@ export interface ZooState {
   satisfaction: number;
   /** Stand sales per zoo step (2 s), part of income. */
   sales: number;
+  /** Roller coasters in the park (missing in old saves). */
+  coasters?: Coaster[];
+  coasterSeq?: number;
+  /** Custom stand prices by park tile (missing = default price). */
+  prices?: Record<number, number>;
+  /** Ride tickets per zoo step, part of income. */
+  rideSales?: number;
 }
 
 export function freshZoo(): ZooState {
@@ -486,7 +519,7 @@ const SLOTS: { anchor: number; path: number[] }[] = (() => {
 /** Put a habitat into the first free slot and lay the path to it. Returns the anchor or −1. */
 function autoSlot(zoo: ZooState): number {
   const park = zoo.park!;
-  const grid = occupancy(park, zoo.habitats);
+  const grid = occupancy(park, zoo.habitats, rideRefs(zoo.coasters));
   for (const slot of SLOTS) {
     if (!habitatTiles(slot.anchor).every((tile) => grid[tile] === TILE.grass)) continue;
     const changes = new Map<number, number>();
@@ -530,7 +563,7 @@ function migrateHabitats(city: CityState, zoo: ZooState, legacy: number[], gate:
         [parkIndex(21, PARK_SIZE - 1), TILE.bench],
         [parkIndex(19, PARK_SIZE - 1), TILE.bin],
       ]);
-      const grid = occupancy(zoo.park, zoo.habitats);
+      const grid = occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters));
       for (const [tile] of gift) if (grid[tile] !== TILE.grass) gift.delete(tile);
       writeTiles(zoo.park, gift);
     }
@@ -617,8 +650,44 @@ export function stepZoo(city: CityState): void {
   }
   if (city.tick % BREED_EVERY === 0) stepBreeding(city, zoo);
   // Visitors only see habitats a path leads to, and only come while the Tierpark stands.
-  const summary = zoo.park && zoo.gate >= 0 ? summarize(zoo.park, zoo.habitats) : null;
-  const shown = new Set(summary?.habitats.map((spot) => spot.tile) ?? []);
+  const pop = populationHint(city);
+  const report = parkReport(zoo);
+  if (report && report.count > 0) {
+    // Open roller coasters draw extra visitors (more for exciting ones).
+    const thrill = report.summary.rides.filter((ride) => ride.state === "open").reduce((sum, ride) => sum + ride.excitement, 0);
+    const appeal = zooAppeal(zoo, report.shown) * report.economy.factor * (1 + Math.min(0.35, thrill * 0.035));
+    zoo.visitors = Math.round(Math.min(appeal * 7, 25 + pop * 0.5));
+    const now = parkReport(zoo)!.economy;
+    zoo.satisfaction = now.satisfaction;
+    zoo.sales = now.sales;
+    zoo.rideSales = now.rideSales;
+    cost += now.upkeep;
+    for (const stat of now.rides) {
+      const coaster = zoo.coasters?.find((entry) => entry.id === stat.id);
+      if (!coaster) continue;
+      coaster.riders = Math.round((coaster.riders + stat.riders) * 100) / 100;
+      coaster.revenue = Math.round((coaster.revenue + stat.revenue) * 100) / 100;
+    }
+  } else {
+    zoo.visitors = 0;
+    zoo.sales = 0;
+    zoo.rideSales = 0;
+    zoo.satisfaction = report ? 50 : 0;
+    if (report) cost += report.economy.upkeep;
+  }
+  zoo.income = Math.round((zoo.visitors * TICKET + zoo.sales + (zoo.rideSales ?? 0)) * 10) / 10;
+  zoo.cost = Math.round(cost * 10) / 10;
+  zoo.earned = Math.round(zoo.earned + zoo.income);
+}
+
+/**
+ * The park's economy right now (satisfaction, stand and ride sales per stand/ride) – the zoo step
+ * uses it, and the views show the same numbers. Null without a Tierpark.
+ */
+export function parkReport(zoo: ZooState): { economy: ParkEconomy; summary: ReturnType<typeof summarize>; shown: Set<number>; count: number } | null {
+  if (!zoo.park || zoo.gate < 0) return null;
+  const summary = summarize(zoo.park, zoo.habitats, rideRefs(zoo.coasters));
+  const shown = new Set(summary.habitats.map((spot) => spot.tile));
   let mood = 0;
   let count = 0;
   for (const animal of zoo.animals) {
@@ -626,24 +695,8 @@ export function stepZoo(city: CityState): void {
     mood += animal.happy;
     count += 1;
   }
-  const pop = populationHint(city);
-  if (summary && count > 0) {
-    const before = parkEconomy(summary, zoo.visitors, mood / count, speciesCount(zoo, shown));
-    const appeal = zooAppeal(zoo, shown) * before.factor;
-    zoo.visitors = Math.round(Math.min(appeal * 7, 25 + pop * 0.5));
-    const now = parkEconomy(summary, zoo.visitors, mood / count, speciesCount(zoo, shown));
-    zoo.satisfaction = now.satisfaction;
-    zoo.sales = now.sales;
-    cost += now.upkeep;
-  } else {
-    zoo.visitors = 0;
-    zoo.sales = 0;
-    zoo.satisfaction = summary ? 50 : 0;
-    if (summary) cost += parkEconomy(summary, 0, 50, 0).upkeep;
-  }
-  zoo.income = Math.round((zoo.visitors * TICKET + zoo.sales) * 10) / 10;
-  zoo.cost = Math.round(cost * 10) / 10;
-  zoo.earned = Math.round(zoo.earned + zoo.income);
+  const economy = count > 0 ? parkEconomy(summary, zoo.visitors, mood / count, speciesCount(zoo, shown), zoo.prices) : parkEconomy(summary, 0, 50, 0, zoo.prices);
+  return { economy, summary, shown, count };
 }
 
 function populationHint(city: CityState): number {
@@ -793,7 +846,17 @@ export type ZooOp =
   /** Tierpark: build paths, stands, decor, a habitat (cells[0] = top-left tile) or move the entrance. */
   | { op: "pbuild"; kind: ParkBuild; cells: number[] }
   /** Tierpark: remove whatever stands on these tiles (not the entrance). */
-  | { op: "pclear"; cells: number[] };
+  | { op: "pclear"; cells: number[] }
+  /** Roller coaster: new station (3 tiles from `tile` in `dir`), pieces, undo, auto-close, delete. */
+  | { op: "cstation"; tile: number; dir: number }
+  | { op: "cpiece"; coaster: number; piece: PieceKind }
+  | { op: "cundo"; coaster: number }
+  | { op: "cclose"; coaster: number }
+  | { op: "cdelete"; coaster: number }
+  | { op: "cstate"; coaster: number; state: RideState }
+  | { op: "cprice"; coaster: number; price: number }
+  /** Price of the stand on a park tile. */
+  | { op: "sprice"; tile: number; price: number };
 
 export type ParkBuild = ParkObject | HabitatType;
 export const MAX_PARK_CELLS = 400;
@@ -826,6 +889,7 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
   if (!zoo) return fail("zoo_off");
   syncPark(city, zoo);
   if (op.op === "pbuild" || op.op === "pclear") return applyPark(city, zoo, op);
+  if (op.op === "cstation" || op.op === "cpiece" || op.op === "cundo" || op.op === "cclose" || op.op === "cdelete" || op.op === "cstate" || op.op === "cprice" || op.op === "sprice") return applyRide(city, zoo, op);
   if (op.op === "care" || op.op === "rename" || op.op === "release") {
     const animal = zoo.animals.find((entry) => entry.id === op.animal);
     if (!animal) return fail("zoo_gone");
@@ -919,19 +983,24 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
 function applyPark(city: CityState, zoo: ZooState, op: Extract<ZooOp, { op: "pbuild" | "pclear" }>): ApplyResult {
   const park = zoo.park;
   if (!park || zoo.gate < 0) return fail("park_none");
-  const grid = occupancy(park, zoo.habitats);
+  const grid = occupancy(park, zoo.habitats, rideRefs(zoo.coasters));
   if (op.op === "pclear") {
     const changes = new Map<number, number>();
     const gone = new Set<number>();
+    const rides = new Set<number>();
     for (const tile of op.cells) {
       if (tile < 0 || tile >= PARK_TILES) continue;
-      if (grid[tile] === TILE.habitat) {
+      if (grid[tile] === TILE.coaster) {
+        const coaster = coasterAtTile(zoo.coasters, tile);
+        if (coaster) rides.add(coaster.id);
+      } else if (grid[tile] === TILE.habitat) {
         const habitat = habitatAtTile(zoo.habitats, tile);
         if (habitat) gone.add(habitat.cell);
       } else if (grid[tile] !== TILE.grass && grid[tile] !== TILE.entrance) changes.set(tile, TILE.grass);
     }
-    if (changes.size === 0 && gone.size === 0) return fail("park_nothing");
+    if (changes.size === 0 && gone.size === 0 && rides.size === 0) return fail("park_nothing");
     writeTiles(park, changes);
+    for (const id of rides) removeCoaster(city, zoo, id);
     if (gone.size > 0) {
       zoo.habitats = zoo.habitats.filter((habitat) => !gone.has(habitat.cell));
       syncPark(city, zoo);
@@ -971,7 +1040,100 @@ function applyPark(city: CityState, zoo: ZooState, op: Extract<ZooOp, { op: "pbu
 
 /** Park layout of habitats (for views): which tile code is where. */
 export function parkGrid(zoo: ZooState): Uint8Array | null {
-  return zoo.park ? occupancy(zoo.park, zoo.habitats) : null;
+  return zoo.park ? occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters)) : null;
+}
+
+/** Half the build cost comes back when a coaster is torn down. */
+function removeCoaster(city: CityState, zoo: ZooState, id: number): void {
+  const coaster = zoo.coasters?.find((entry) => entry.id === id);
+  if (!coaster) return;
+  city.funds += Math.round(coasterCost(coaster) / 2);
+  zoo.coasters = zoo.coasters!.filter((entry) => entry.id !== id);
+}
+
+/** A changed track needs a new test run. */
+function retrack(coaster: Coaster): void {
+  coaster.state = "closed";
+  delete coaster.stats;
+}
+
+type RideOp = Extract<ZooOp, { op: "cstation" | "cpiece" | "cundo" | "cclose" | "cdelete" | "cstate" | "cprice" | "sprice" }>;
+
+function applyRide(city: CityState, zoo: ZooState, op: RideOp): ApplyResult {
+  const park = zoo.park;
+  if (!park || zoo.gate < 0) return fail("park_none");
+  const coasters = (zoo.coasters ??= []);
+  if (op.op === "sprice") {
+    const code = tileAt(park, op.tile);
+    const kind = STANDS.find((entry) => PARK_INFO[entry].code === code);
+    if (!kind) return fail("park_no_stand");
+    const prices = (zoo.prices ??= {});
+    if (op.price === PARK_INFO[kind].price) delete prices[op.tile];
+    else prices[op.tile] = op.price;
+    return done();
+  }
+  if (op.op === "cstation") {
+    if (coasters.length >= MAX_COASTERS) return fail("coaster_max");
+    const problem = stationProblem(blockGrid(park, zoo.habitats, coasters), op.tile, op.dir);
+    if (problem) return fail(problem);
+    if (city.funds < STATION_COST) return fail("funds");
+    city.funds -= STATION_COST;
+    zoo.coasterSeq = Math.max(zoo.coasterSeq ?? 1, ...coasters.map((entry) => entry.id + 1));
+    const names = new Set(coasters.map((entry) => entry.name));
+    let k = 1;
+    while (names.has(`Achterbahn ${k}`)) k += 1;
+    coasters.push({ id: zoo.coasterSeq++, name: `Achterbahn ${k}`, station: op.tile, dir: op.dir, pieces: [], state: "closed", price: DEFAULT_RIDE_PRICE, riders: 0, revenue: 0 });
+    return done(STATION_COST);
+  }
+  const coaster = coasters.find((entry) => entry.id === op.coaster);
+  if (!coaster) return fail("coaster_gone");
+  if (op.op === "cdelete") {
+    removeCoaster(city, zoo, coaster.id);
+    return done();
+  }
+  if (op.op === "cprice") {
+    coaster.price = op.price;
+    return done();
+  }
+  if (op.op === "cstate") {
+    if (op.state === "closed") {
+      coaster.state = "closed";
+      return done();
+    }
+    if (!coasterLayout(coaster).closed) return fail("coaster_open");
+    if (op.state === "open" && !coaster.stats) return fail("coaster_untested");
+    if (op.state === "test" || !coaster.stats) {
+      const stats = rateCoaster(coaster, sceneryNear(occupancy(park, zoo.habitats, rideRefs(coasters)), coaster));
+      if (!stats) return fail("coaster_stall");
+      coaster.stats = stats;
+    }
+    coaster.state = op.state;
+    return done();
+  }
+  const grid = blockGrid(park, zoo.habitats, coasters, coaster.id);
+  if (op.op === "cundo") {
+    const last = coaster.pieces.pop();
+    if (!last) return fail("coaster_nothing");
+    city.funds += PIECE_INFO[last].cost;
+    retrack(coaster);
+    return done();
+  }
+  let add: PieceKind[];
+  if (op.op === "cclose") {
+    const route = closeRoute(coaster, grid);
+    if (!route) return fail("coaster_noroute");
+    if (route.length === 0) return fail("coaster_closed");
+    add = route;
+  } else add = [op.piece];
+  if (coaster.pieces.length + add.length > MAX_PIECES) return fail("coaster_long");
+  const layout = coasterLayout({ ...coaster, pieces: [...coaster.pieces, ...add] }, grid);
+  if (layout.valid < coaster.pieces.length + add.length) return fail(layout.error ?? "coaster_blocked");
+  const cost = add.reduce((sum, piece) => sum + PIECE_INFO[piece].cost, 0);
+  if (city.funds < cost) return fail("funds");
+  city.funds -= cost;
+  coaster.pieces.push(...add);
+  retrack(coaster);
+  return done(cost);
 }
 
 export { tileAt as parkTileAt };
@@ -1047,6 +1209,20 @@ export function parseZooOp(raw: unknown): ZooOp | null {
       if (!PARK_OBJECTS.includes(kind as ParkObject) && !HABITAT_TYPES.includes(kind as HabitatType)) return null;
       return { op: "pbuild", kind, cells };
     }
+    case "cstation":
+      return int(r.tile, 0, PARK_TILES - 1) && int(r.dir, 0, 3) ? { op: "cstation", tile: r.tile as number, dir: r.dir as number } : null;
+    case "cpiece":
+      return int(r.coaster, 0, 0x7fffffff) && PIECE_KINDS.includes(r.piece as PieceKind) ? { op: "cpiece", coaster: r.coaster as number, piece: r.piece as PieceKind } : null;
+    case "cundo":
+    case "cclose":
+    case "cdelete":
+      return int(r.coaster, 0, 0x7fffffff) ? { op: r.op, coaster: r.coaster as number } : null;
+    case "cstate":
+      return int(r.coaster, 0, 0x7fffffff) && RIDE_STATES.includes(r.state as RideState) ? { op: "cstate", coaster: r.coaster as number, state: r.state as RideState } : null;
+    case "cprice":
+      return int(r.coaster, 0, 0x7fffffff) && int(r.price, 0, PRICE_MAX) ? { op: "cprice", coaster: r.coaster as number, price: r.price as number } : null;
+    case "sprice":
+      return int(r.tile, 0, PARK_TILES - 1) && int(r.price, 0, PRICE_MAX) ? { op: "sprice", tile: r.tile as number, price: r.price as number } : null;
     default:
       return null;
   }
@@ -1113,7 +1289,28 @@ export function cloneZoo(raw: unknown): ZooState | undefined {
     satisfaction: clamp(num(z.satisfaction), 0, 100),
     sales: clamp(num(z.sales), 0, 100_000),
     ...(park ? { park } : {}),
+    ...extras(z, park, habitats),
   };
+}
+
+/** Coasters and stand prices (only when there are any, so old saves round-trip unchanged). */
+function extras(z: Partial<ZooState>, park: ParkState | undefined, habitats: Habitat[]): Partial<ZooState> {
+  const out: Partial<ZooState> = {};
+  const coasters = cleanCoasters(z.coasters, park, habitats);
+  if (coasters.length > 0) out.coasters = coasters;
+  if (coasters.length > 0 || typeof z.coasterSeq === "number") out.coasterSeq = Math.max(1, num(z.coasterSeq, 1) >>> 0, ...coasters.map((coaster) => coaster.id + 1));
+  if (park && z.prices && typeof z.prices === "object") {
+    const prices: Record<number, number> = {};
+    for (const [key, value] of Object.entries(z.prices).slice(0, 400)) {
+      const tile = Number(key);
+      if (!Number.isInteger(tile) || tile < 0 || tile >= PARK_TILES) continue;
+      if (!STANDS.some((kind) => PARK_INFO[kind].code === tileAt(park, tile))) continue;
+      prices[tile] = cleanPrice(value, 0);
+    }
+    if (Object.keys(prices).length > 0) out.prices = prices;
+  }
+  if (typeof z.rideSales === "number") out.rideSales = clamp(num(z.rideSales), 0, 100_000);
+  return out;
 }
 
 function cloneAnimal(raw: Partial<Animal>): Animal[] {

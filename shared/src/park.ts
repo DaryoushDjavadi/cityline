@@ -28,6 +28,8 @@ export const TILE = {
   flowers: 10,
   /** Only in occupancy grids, never in the stored string. */
   habitat: 11,
+  /** Only in occupancy grids: roller coaster track or station (see coaster.ts). */
+  coaster: 12,
 } as const;
 
 export type ParkObject = "path" | "food" | "drink" | "souvenir" | "bench" | "bin" | "toilet" | "tree" | "flowers" | "entrance";
@@ -61,6 +63,28 @@ export interface ParkState {
 export interface ParkHabitatRef {
   cell: number;
   type: string;
+}
+
+/** A tile under a roller coaster; `high` = the track is high enough to walk under (paths stay). */
+export interface TrackTile {
+  tile: number;
+  high: boolean;
+}
+
+export type RideState = "closed" | "test" | "open";
+
+/** What the park layout, economy and crowd need to know about a roller coaster (see coaster.ts). */
+export interface RideRef {
+  id: number;
+  /** Station tiles (visitors queue on a path next to them). */
+  station: number[];
+  track: TrackTile[];
+  state: RideState;
+  price: number;
+  /** Ratings after a test run (0 before). */
+  excitement: number;
+  intensity: number;
+  nausea: number;
 }
 
 const CODE_A = 97;
@@ -124,13 +148,21 @@ export function habitatFits(anchor: number): boolean {
   return x + HABITAT_TILES <= PARK_SIZE && y + HABITAT_TILES <= PARK_SIZE;
 }
 
-/** Tile codes including habitat footprints. */
-export function occupancy(park: ParkState, habitats: ParkHabitatRef[]): Uint8Array {
+/** Tile codes including habitat footprints and roller coasters. */
+export function occupancy(park: ParkState, habitats: ParkHabitatRef[], rides: RideRef[] = []): Uint8Array {
   const grid = new Uint8Array(PARK_TILES);
   for (let i = 0; i < PARK_TILES; i += 1) grid[i] = tileAt(park, i);
   for (const habitat of habitats) {
     if (!habitatFits(habitat.cell)) continue;
     for (const tile of habitatTiles(habitat.cell)) grid[tile] = TILE.habitat;
+  }
+  for (const ride of rides) {
+    for (const { tile, high } of ride.track) {
+      if (tile < 0 || tile >= PARK_TILES || grid[tile] === TILE.habitat) continue;
+      // Paths under a high track stay walkable; everything else under a coaster is taken.
+      if (high && walkable(grid[tile])) continue;
+      grid[tile] = TILE.coaster;
+    }
   }
   return grid;
 }
@@ -195,6 +227,10 @@ export interface ParkSpot {
   access: number[];
 }
 
+export interface RideSpot extends RideRef {
+  access: number[];
+}
+
 export interface ParkSummary {
   grid: Uint8Array;
   dist: Int16Array;
@@ -205,10 +241,12 @@ export interface ParkSummary {
   /** All placed objects by kind (reachable or not). */
   counts: Record<ParkObject, number>;
   decor: number;
+  /** Roller coasters whose station has a reachable path next to it. */
+  rides: RideSpot[];
 }
 
-export function summarize(park: ParkState, habitats: ParkHabitatRef[]): ParkSummary {
-  const grid = occupancy(park, habitats);
+export function summarize(park: ParkState, habitats: ParkHabitatRef[], rides: RideRef[] = []): ParkSummary {
+  const grid = occupancy(park, habitats, rides);
   const dist = reach(park, grid);
   const spots = Object.fromEntries(PARK_OBJECTS.map((kind) => [kind, [] as ParkSpot[]])) as Record<ParkObject, ParkSpot[]>;
   const counts = Object.fromEntries(PARK_OBJECTS.map((kind) => [kind, 0])) as Record<ParkObject, number>;
@@ -234,7 +272,12 @@ export function summarize(park: ParkState, habitats: ParkHabitatRef[]): ParkSumm
     if (access.length > 0) list.push({ tile: habitat.cell, kind: "habitat", access });
   }
   const decor = counts.tree + counts.flowers;
-  return { grid, dist, paths, habitats: list, spots, counts, decor };
+  const rideSpots: RideSpot[] = [];
+  for (const ride of rides) {
+    const access = accessTiles(ride.station, dist);
+    if (access.length > 0) rideSpots.push({ ...ride, access });
+  }
+  return { grid, dist, paths, habitats: list, spots, counts, decor, rides: rideSpots };
 }
 
 /** Shortest walk between two walkable tiles (inclusive), or null. */
@@ -286,21 +329,81 @@ export function dragLine(from: number, to: number): number[] {
 
 // ---------------------------------------------------------------- satisfaction & money
 
+export const PRICE_MAX = 30;
+/** Riders per zoo step one coaster train can carry. */
+export const RIDE_CAP = 8;
+/** Running cost of a coaster per zoo step while it is not closed. */
+export const RIDE_UPKEEP = 1.2;
+
+/** Fair ticket price of a ride for its excitement (RCT-style: better rides may cost more). */
+export function rideFair(excitement: number): number {
+  return Math.max(1, Math.round(1 + excitement * 0.9));
+}
+
+/** Price of a stand on a tile (custom or the default from PARK_INFO). */
+export function standPrice(prices: Record<number, number> | undefined, tile: number, kind: StandKind): number {
+  const custom = prices?.[tile];
+  return typeof custom === "number" ? custom : PARK_INFO[kind].price;
+}
+
+/**
+ * Demand multiplier for a price against the fair price: cheap → a few more buyers, fair → 1,
+ * overpriced → quickly fewer (2× fair ≈ nobody). Revenue (price × demand) peaks near the fair price.
+ */
+export function priceFactor(price: number, fair: number): number {
+  if (fair <= 0) return 1;
+  const r = price / fair;
+  if (r <= 1) return 1 + (1 - r) * 0.35;
+  return Math.max(0, 1 - (r - 1) * 1.1);
+}
+
+export type PriceMood = "cheap" | "fair" | "pricey" | "rip";
+export function priceMood(price: number, fair: number): PriceMood {
+  const r = fair > 0 ? price / fair : 1;
+  return r <= 0.85 ? "cheap" : r <= 1.15 ? "fair" : r <= 1.45 ? "pricey" : "rip";
+}
+
+export interface StandStat {
+  tile: number;
+  kind: StandKind;
+  price: number;
+  fair: number;
+  /** Buyers per zoo step. */
+  customers: number;
+  /** € per zoo step. */
+  sales: number;
+  mood: PriceMood;
+}
+
+export interface RideStat {
+  id: number;
+  price: number;
+  fair: number;
+  /** Riders per zoo step. */
+  riders: number;
+  revenue: number;
+  mood: PriceMood;
+}
+
 export interface ParkEconomy {
   satisfaction: number;
   /** Visitor appeal multiplier from amenities (0.5…1.4). */
   factor: number;
   /** Stand sales per zoo step (2 s) in €. */
   sales: number;
-  /** Stand upkeep per zoo step. */
+  /** Stand and ride upkeep per zoo step. */
   upkeep: number;
+  /** Ride tickets per zoo step in €. */
+  rideSales: number;
+  stands: StandStat[];
+  rides: RideStat[];
 }
 
 /**
- * Satisfaction 0–100 from animals' mood, variety, stands, benches, bins, toilets and decor.
- * `visitors` is the current crowd; `animalMood` the average happiness of shown animals (0–100).
+ * Satisfaction 0–100 from animals' mood, variety, stands, benches, bins, toilets, decor, rides
+ * and prices. `visitors` is the current crowd; `animalMood` the average happiness of shown animals.
  */
-export function parkEconomy(summary: ParkSummary, visitors: number, animalMood: number, species: number): ParkEconomy {
+export function parkEconomy(summary: ParkSummary, visitors: number, animalMood: number, species: number, prices?: Record<number, number>): ParkEconomy {
   const n = (kind: ParkObject) => summary.spots[kind].length;
   let score = 42 + (animalMood - 50) * 0.3 + Math.min(15, species * 3);
   score += n("food") > 0 ? 8 : visitors > 10 ? -6 : 0;
@@ -311,20 +414,62 @@ export function parkEconomy(summary: ParkSummary, visitors: number, animalMood: 
   score += Math.min(8, n("bench") * 2);
   score += n("bin") > 0 ? Math.min(6, n("bin") * 2) : visitors > 30 ? -6 : 0;
   score += Math.min(9, summary.decor * 0.35);
+  // Open rides make a day out; overpriced stands and rides annoy, bargains please a little.
+  const open = summary.rides.filter((ride) => ride.state === "open" && ride.excitement > 0);
+  score += Math.min(10, open.reduce((sum, ride) => sum + ride.excitement, 0));
+  let penalty = 0;
+  let bonus = 0;
+  const judge = (price: number, fair: number) => {
+    const r = fair > 0 ? price / fair : 1;
+    if (r > 1.25) penalty += (r - 1.25) * 8;
+    else if (r < 0.85) bonus += 1;
+  };
+  for (const kind of STANDS) for (const spot of summary.spots[kind]) judge(standPrice(prices, spot.tile, kind), PARK_INFO[kind].price);
+  for (const ride of open) judge(ride.price, rideFair(ride.excitement));
+  score += Math.min(4, bonus) - Math.min(14, penalty);
   const satisfaction = Math.round(Math.max(0, Math.min(100, score)));
   const factor = 0.5 + satisfaction / 100 * 0.9;
+  const mood = 0.6 + satisfaction / 100 * 0.6;
   let sales = 0;
   let upkeep = 0;
+  const stands: StandStat[] = [];
   const rate: Record<StandKind, number> = { food: 0.06, drink: 0.07, souvenir: 0.02 };
   for (const kind of STANDS) {
-    const stands = n(kind);
+    const list = summary.spots[kind];
     upkeep += summary.counts[kind] * PARK_INFO[kind].upkeep;
-    if (stands === 0) continue;
-    const customers = Math.min(visitors * rate[kind] * (0.6 + satisfaction / 100 * 0.6), stands * 4);
-    sales += customers * PARK_INFO[kind].price;
+    if (list.length === 0) continue;
+    const share = (visitors * rate[kind] * mood) / list.length;
+    for (const spot of list) {
+      const price = standPrice(prices, spot.tile, kind);
+      const fair = PARK_INFO[kind].price;
+      const customers = Math.round(Math.min(4, share * priceFactor(price, fair)) * 100) / 100;
+      const stat = { tile: spot.tile, kind, price, fair, customers, sales: Math.round(customers * price * 100) / 100, mood: priceMood(price, fair) };
+      stands.push(stat);
+      sales += stat.sales;
+    }
   }
   upkeep += summary.counts.toilet * PARK_INFO.toilet.upkeep;
-  return { satisfaction, factor, sales: Math.round(sales * 10) / 10, upkeep: Math.round(upkeep * 10) / 10 };
+  let rideSales = 0;
+  const rides: RideStat[] = [];
+  for (const ride of summary.rides) {
+    if (ride.state !== "closed") upkeep += RIDE_UPKEEP;
+    if (ride.state !== "open" || ride.excitement <= 0) continue;
+    const fair = rideFair(ride.excitement);
+    const want = visitors * (0.03 + ride.excitement * 0.012) * mood * priceFactor(ride.price, fair);
+    const riders = Math.round(Math.min(RIDE_CAP, want) * 100) / 100;
+    const revenue = Math.round(riders * ride.price * 100) / 100;
+    rides.push({ id: ride.id, price: ride.price, fair, riders, revenue, mood: priceMood(ride.price, fair) });
+    rideSales += revenue;
+  }
+  return {
+    satisfaction,
+    factor,
+    sales: Math.round(sales * 10) / 10,
+    upkeep: Math.round(upkeep * 10) / 10,
+    rideSales: Math.round(rideSales * 10) / 10,
+    stands,
+    rides,
+  };
 }
 
 // ---------------------------------------------------------------- visitors (client visuals + tests)
@@ -332,7 +477,9 @@ export function parkEconomy(summary: ParkSummary, visitors: number, animalMood: 
 export type WalkerState = "walk" | "look" | "buy" | "sit" | "gone";
 
 interface Goal {
-  kind: "habitat" | StandKind | "bench" | "toilet" | "bin" | "exit";
+  kind: "habitat" | StandKind | "bench" | "toilet" | "bin" | "exit" | "ride";
+  /** Coaster id for "ride". */
+  ride?: number;
   /** Habitat anchor or object tile. */
   target: number;
   /** Path tile to stand on. */
@@ -362,8 +509,12 @@ export interface Walker {
   looking: number;
 }
 
+/** How a rider felt: thrilled, happy, queasy – or the ticket was too expensive (no ride). */
+export type RideMood = "thrilled" | "happy" | "queasy" | "pricey";
+
 export type CrowdEvent =
-  | { type: "buy"; kind: StandKind; tile: number; price: number; walker: number }
+  | { type: "buy"; kind: StandKind; tile: number; price: number; walker: number; refused?: boolean }
+  | { type: "ride"; ride: number; tile: number; price: number; walker: number; mood: RideMood }
   | { type: "look"; habitat: number; walker: number; love: boolean }
   | { type: "sit"; tile: number; walker: number };
 
@@ -385,6 +536,7 @@ function rng(seed: number): () => number {
 export class ParkCrowd {
   readonly walkers: Walker[] = [];
   private summary: ParkSummary | null = null;
+  private prices: Record<number, number> | undefined;
   private entrance = 0;
   private random: () => number;
   private seq = 1;
@@ -394,8 +546,9 @@ export class ParkCrowd {
     this.random = rng(seed);
   }
 
-  setLayout(park: ParkState, habitats: ParkHabitatRef[]): void {
-    this.summary = summarize(park, habitats);
+  setLayout(park: ParkState, habitats: ParkHabitatRef[], rides: RideRef[] = [], prices?: Record<number, number>): void {
+    this.prices = prices;
+    this.summary = summarize(park, habitats, rides);
     this.entrance = park.entrance;
     // Re-route anyone whose way got cut; drop people standing on a removed path.
     for (const walker of this.walkers) {
@@ -404,10 +557,16 @@ export class ParkCrowd {
         walker.state = "gone";
         continue;
       }
-      walker.goals = walker.goals.filter((goal) => walkable(this.summary!.grid[goal.at]) && this.summary!.dist[goal.at] >= 0);
+      const open = new Set(this.summary.rides.filter((ride) => ride.state === "open").map((ride) => ride.id));
+      walker.goals = walker.goals.filter((goal) => walkable(this.summary!.grid[goal.at]) && this.summary!.dist[goal.at] >= 0 && (goal.kind !== "ride" || open.has(goal.ride!)));
       if (walker.goals.length === 0 || walker.goals[walker.goals.length - 1].kind !== "exit") walker.goals.push({ kind: "exit", target: this.entrance, at: this.entrance });
       if (walker.state === "walk") this.routeTo(walker, here);
     }
+  }
+
+  /** Stand prices can change without a layout change. */
+  setPrices(prices: Record<number, number> | undefined): void {
+    this.prices = prices;
   }
 
   private pick<T>(list: T[]): T {
@@ -433,6 +592,13 @@ export class ParkCrowd {
       if (position < 0 || position >= goals.length) goals.push(goal);
       else goals.splice(position, 0, goal);
     };
+    // Open roller coasters pull people in: the more exciting, the more want to ride.
+    for (const ride of s.rides) {
+      if (ride.state !== "open" || ride.excitement <= 0 || ride.access.length === 0) continue;
+      if (this.random() >= Math.min(0.85, 0.25 + ride.excitement * 0.06)) continue;
+      const goal: Goal = { kind: "ride", ride: ride.id, target: ride.station[0], at: this.pick(ride.access) };
+      goals.splice(Math.min(goals.length, 1 + Math.floor(this.random() * 2)), 0, goal);
+    }
     add("drink", 0.5, 1);
     add("food", 0.55, 2);
     add("bin", 0.5, 3);
@@ -565,7 +731,28 @@ export class ParkCrowd {
     } else if (goal.kind === "food" || goal.kind === "drink" || goal.kind === "souvenir") {
       walker.state = "buy";
       walker.wait = 1.2 + this.random();
-      events.push({ type: "buy", kind: goal.kind, tile: goal.target, price: PARK_INFO[goal.kind].price, walker: walker.id });
+      const price = standPrice(this.prices, goal.target, goal.kind);
+      // Too expensive: they look at the board and walk on.
+      const refused = this.random() > Math.min(1, priceFactor(price, PARK_INFO[goal.kind].price));
+      if (refused) walker.wait = 0.9;
+      events.push({ type: "buy", kind: goal.kind, tile: goal.target, price, walker: walker.id, ...(refused ? { refused } : {}) });
+    } else if (goal.kind === "ride") {
+      const ride = this.summary?.rides.find((entry) => entry.id === goal.ride);
+      walker.state = "buy";
+      if (!ride) {
+        walker.wait = 0.5;
+        return;
+      }
+      const fair = rideFair(ride.excitement);
+      const roll = this.random();
+      let mood: RideMood;
+      if (this.random() > Math.min(1, priceFactor(ride.price, fair))) mood = "pricey";
+      else if (roll < ride.nausea / 14) mood = "queasy";
+      else if (ride.excitement >= 5.5 && roll > 0.3) mood = "thrilled";
+      else mood = "happy";
+      // Queue, ride and climb out (or just read the price board and walk on).
+      walker.wait = mood === "pricey" ? 1 : 3 + this.random() * 2.5;
+      events.push({ type: "ride", ride: ride.id, tile: goal.target, price: mood === "pricey" ? 0 : ride.price, walker: walker.id, mood });
     } else if (goal.kind === "bench") {
       walker.state = "sit";
       walker.wait = 4 + this.random() * 4;
