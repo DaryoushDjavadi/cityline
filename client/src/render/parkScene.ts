@@ -630,7 +630,7 @@ export class ParkScene {
   }
 
   /** Nearest animal to a screen point (within ~30 px of its body), or −1. */
-  pickAnimal(clientX: number, clientY: number, among?: Set<number>): number {
+  pickAnimal(clientX: number, clientY: number, among?: Set<number>, maxReach = Infinity): number {
     const rect = this.canvas.getBoundingClientRect();
     const sx = clientX - rect.left;
     const sy = clientY - rect.top;
@@ -642,7 +642,7 @@ export class ParkScene {
       if (p.behind) continue;
       // Allow a bigger radius for big animals seen close up.
       const top = this.project(pose.x, pose.y + pose.height, pose.z);
-      const reach = Math.max(26, Math.abs(top.y - p.y) * 1.6);
+      const reach = Math.min(maxReach, Math.max(26, Math.abs(top.y - p.y) * 1.6));
       const d = Math.hypot(p.x - sx, p.y - sy);
       if (d < reach && d < bestD) {
         best = id;

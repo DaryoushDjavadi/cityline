@@ -748,8 +748,8 @@ export class ParkView {
     if (this.tool === "coaster") {
       if (tile < 0) return;
       const dir = this.stationFit(tile);
-      this.hooks.command({ op: "cstation", tile, dir: dir.dir });
       this.pendingStation = tile;
+      this.hooks.command({ op: "cstation", tile, dir: dir.dir });
       this.hooks.sound("place");
       return;
     }
@@ -767,7 +767,10 @@ export class ParkView {
     }
     // Select: animals open their card, habitats their panel, stands tell what they earn.
     if (!this.hooks.build()) {
-      const id = scene.pickAnimal(clientX, clientY);
+      // On a stand or a coaster the building wins unless the animal is right under the pointer.
+      const code = tile >= 0 ? occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters))[tile] : -1;
+      const busy = code === TILE.coaster || STANDS.some((entry) => PARK_INFO[entry].code === code);
+      const id = scene.pickAnimal(clientX, clientY, undefined, busy ? 10 : Infinity);
       if (id >= 0) {
         this.ridePanel.hide();
         this.hooks.sound("click");
@@ -852,19 +855,41 @@ export class ParkView {
     return zoo?.park ? occupancy(zoo.park, zoo.habitats, rideRefs(zoo.coasters)) : null;
   }
 
-  /** Station direction for a hovered tile: the preferred one if it fits, else the first that does. */
+  /**
+   * Station direction for a hovered tile: among the directions that fit, the one running along
+   * the path (most station tiles next to it), the preferred one (R) first on a tie.
+   */
   private stationFit(tile: number): { dir: number; problem: string | null } {
     const zoo = this.zoo();
     if (!zoo?.park) return { dir: this.stationDir, problem: "park_none" };
     const grid = blockGrid(zoo.park, zoo.habitats, zoo.coasters ?? []);
     let first: string | null = null;
+    let best = -1;
+    let bestScore = -1;
     for (let k = 0; k < 4; k += 1) {
       const dir = (this.stationDir + k) % 4;
       const problem = stationProblem(grid, tile, dir);
-      if (!problem) return { dir, problem: null };
-      first ??= problem;
+      if (problem) {
+        first ??= problem;
+        continue;
+      }
+      const { x, y } = parkXY(tile);
+      let score = 0;
+      for (let i = 0; i < 3; i += 1) {
+        const tx = x + [0, 1, 0, -1][dir] * i;
+        const ty = y + [-1, 0, 1, 0][dir] * i;
+        if ([[0, 1], [0, -1], [1, 0], [-1, 0]].some(([dx, dy]) => {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          return nx >= 0 && ny >= 0 && nx < PARK_SIZE && ny < PARK_SIZE && (grid[parkIndex(nx, ny)] === TILE.path || grid[parkIndex(nx, ny)] === TILE.entrance);
+        })) score += 1;
+      }
+      if (score > bestScore) {
+        best = dir;
+        bestScore = score;
+      }
     }
-    return { dir: this.stationDir, problem: first };
+    return best >= 0 ? { dir: best, problem: null } : { dir: this.stationDir, problem: first };
   }
 
   /** Track editor: preview of the next piece at the open end (only rebuilt when something changed). */
@@ -1108,7 +1133,10 @@ export class ParkView {
         return this.isOpen;
       },
       leave: () => this.close(),
-      openHabitat: (anchor: number) => this.hooks.habitat(anchor),
+      openHabitat: (anchor: number) => {
+        this.ridePanel.hide();
+        this.hooks.habitat(anchor);
+      },
       setTool: (tool: ParkTool) => this.setTool(tool),
       setTab: (tab: string) => {
         this.tab = tab;
@@ -1147,6 +1175,19 @@ export class ParkView {
       flying: () => this.scene?.flying ?? false,
       camera: () => (this.scene ? { x: this.scene.target.x, z: this.scene.target.z, distance: this.scene.distance } : null),
       dimOn: () => !this.dim.hidden,
+      ride: () => ({ open: this.ridePanel.open, coaster: this.ridePanel.coaster, stand: this.ridePanel.stand, editing: this.ridePanel.editing, piece: this.ridePanel.piece }),
+      riding: () => this.scene?.ridingId ?? -1,
+      rideKmh: () => this.scene?.speedKmh ?? 0,
+      startRide: (id: number) => this.startRide(id),
+      stopRide: () => this.stopRide(),
+      trainPiece: (id: number) => this.scene?.coasters.trainPiece(id) ?? null,
+      trainS: (id: number) => this.scene?.coasters.trainS(id) ?? -1,
+      showCoaster: (id: number, edit = false) => this.city && this.ridePanel.showCoaster(this.city, id, edit),
+      showStand: (tile: number) => this.city && this.ridePanel.showStand(this.city, tile),
+      hidePanel: () => this.ridePanel.hide(),
+      cameraFov: () => this.scene?.camera.fov ?? 0,
+      tileUnder: (x: number, y: number) => this.scene?.pick(x, y).tile ?? -1,
+      crowdRides: () => ((this.scene?.crowd as unknown as { summary?: { rides: { id: number; state: string; excitement: number; access: number[] }[] } })?.summary?.rides ?? []).map((r) => ({ id: r.id, state: r.state, e: r.excitement, access: r.access.length })),
       stats: () => (this.scene ? { ...this.scene.stats(), ...this.counters, bubbles: this.bubbles.size, zoo: this.scene.zoo.stats() } : null),
       walkers: () => this.scene?.crowd.walkers.filter((w) => w.state !== "gone").map((w) => ({ id: w.id, x: w.x, y: w.y, state: w.state })) ?? [],
     };

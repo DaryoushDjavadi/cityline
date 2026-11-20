@@ -548,8 +548,11 @@ export class ParkCrowd {
 
   setLayout(park: ParkState, habitats: ParkHabitatRef[], rides: RideRef[] = [], prices?: Record<number, number>): void {
     this.prices = prices;
+    const before = new Set(this.summary?.rides.filter((ride) => ride.state === "open").map((ride) => ride.id) ?? []);
     this.summary = summarize(park, habitats, rides);
     this.entrance = park.entrance;
+    // A ride that just opened tempts some of the people already in the park.
+    const fresh = this.summary.rides.filter((ride) => ride.state === "open" && ride.excitement > 0 && ride.access.length > 0 && !before.has(ride.id));
     // Re-route anyone whose way got cut; drop people standing on a removed path.
     for (const walker of this.walkers) {
       const here = parkIndex(Math.floor(walker.x), Math.floor(walker.y));
@@ -560,6 +563,10 @@ export class ParkCrowd {
       const open = new Set(this.summary.rides.filter((ride) => ride.state === "open").map((ride) => ride.id));
       walker.goals = walker.goals.filter((goal) => walkable(this.summary!.grid[goal.at]) && this.summary!.dist[goal.at] >= 0 && (goal.kind !== "ride" || open.has(goal.ride!)));
       if (walker.goals.length === 0 || walker.goals[walker.goals.length - 1].kind !== "exit") walker.goals.push({ kind: "exit", target: this.entrance, at: this.entrance });
+      for (const ride of fresh) {
+        if (this.random() >= Math.min(0.6, 0.15 + ride.excitement * 0.05)) continue;
+        walker.goals.splice(Math.min(walker.goals.length - 1, 1), 0, { kind: "ride", ride: ride.id, target: ride.station[0], at: this.pick(ride.access) });
+      }
       if (walker.state === "walk") this.routeTo(walker, here);
     }
   }

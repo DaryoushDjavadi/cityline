@@ -494,6 +494,14 @@ export class CoasterLayer {
     };
   }
 
+  /** Piece index under the front car (−1 = station), and the track height there. */
+  trainPiece(id: number): { piece: number; y: number } {
+    const train = this.trains.get(id);
+    if (!train || train.path.points.length === 0) return { piece: -2, y: 0 };
+    const at = pointAt(train.path, train.s);
+    return { piece: train.path.points[at.i].piece, y: at.y };
+  }
+
   /** Arc position of a train (tests: the train moves). */
   trainS(id: number): number {
     return this.trains.get(id)?.s ?? -1;
