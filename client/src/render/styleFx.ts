@@ -62,15 +62,23 @@ const PALETTE = [
   // teals and water
   0x12333f, 0x1d4e5c, 0x2a6f7a, 0x3e8f93, 0x64b2ad, 0x9ad3c8,
   // sky
-  0x4a7fb5, 0x6fa3d0, 0x9cc6e4, 0xc8e2ef, 0xe6f1f0,
+  0x4a7fb5, 0x6fa3d0, 0x9cc6e4, 0xc8e2ef, 0xe6f1f0, 0xa3bccf, 0xbad0de, 0xd5e4f0,
   // greens
   0x1f3b2c, 0x2f5a36, 0x457a3c, 0x66994a, 0x8db85a, 0xb5d16b, 0xd8e69a,
   // earth and warm
   0x3a2420, 0x5a3426, 0x7e4a30, 0x9c6440, 0xb8683f, 0xd98b4a, 0xf0a85a, 0xf7c873, 0xfbe3a6,
+  // sand and dry grass
+  0xc9a46a, 0xdcbd85, 0xead3a2, 0xa88a5c,
   // reds / dusk pinks
   0x6e2a34, 0x9c3a40, 0xc8524c, 0xe57a5e, 0xf2a68a, 0xb06a8a, 0xd898a8,
   // stone / neutrals
   0x34323c, 0x4c4a55, 0x67646c, 0x858088, 0xa59e9c, 0xc5bcb0, 0xe2d9c6, 0xfff4dc,
+  // warm greys (walls, roads, concrete)
+  0x26242a, 0x3a3836, 0x4f4b47, 0x66605a, 0x807870, 0x9a9188, 0xb8afa4,
+  // sea blues
+  0x24577e, 0x2f6f99, 0x3f87b0, 0x58a0c4, 0x7db9d6,
+  // building accents (brick, roof red, slate, mustard)
+  0x4a2220, 0x5e2a24, 0x7a2e26, 0xa8402f, 0x4a5a78, 0x6d7fa0, 0xc89a3a,
 ];
 
 function oklab(hex: number): THREE.Vector3 {
@@ -99,6 +107,7 @@ const COMMON = /* glsl */ `
   uniform float uHazeAmt;
   uniform vec3 uSunView;
   uniform vec3 uSunColor;
+  uniform vec3 uUpView;
   varying vec2 vUv;
 
   vec3 RRTAndODTFit(vec3 v) {
@@ -136,6 +145,11 @@ const COMMON = /* glsl */ `
     return normalize(cross(dx, dy));
   }
   float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+  /** 1 / view distance: linear across the screen for any flat face, 0 for the sky. */
+  float invDist(vec2 uv) {
+    float d = rawDepth(uv);
+    return d >= 0.99999 ? 0.0 : 1.0 / max(-viewPos(uv, d).z, 1e-3);
+  }
 `;
 
 const VERT = /* glsl */ `
@@ -175,7 +189,7 @@ const PIXEL_FRAG = /* glsl */ `
     vec3 pick = srgb;
     for (int i = 0; i < ${PALETTE.length}; i++) {
       vec3 d = lab - uPalLab[i];
-      float e = d.x * d.x * 1.6 + d.y * d.y + d.z * d.z;
+      float e = d.x * d.x * 1.15 + (d.y * d.y + d.z * d.z) * 1.35;
       if (e < best) { best = e; pick = uPal[i]; }
     }
     return pick;
@@ -193,25 +207,31 @@ const PIXEL_FRAG = /* glsl */ `
     if (!sky) {
       n = normalAt(vUv, p, px);
       // Warm rim / sun light on edges that face the sun (Firewatch glow).
-      float rim = pow(1.0 - clamp(abs(n.z), 0.0, 1.0), 2.2) * clamp(dot(n, uSunView) * 0.8 + 0.35, 0.0, 1.0);
+      // Only on upright faces (walls, trunks, animals), not on flat ground seen at a grazing angle.
+      float upright = 1.0 - abs(dot(n, uUpView));
+      float rim = pow(1.0 - clamp(abs(n.z), 0.0, 1.0), 2.0) * upright * upright * clamp(dot(n, uSunView) * 0.8 + 0.3, 0.0, 1.0);
       col += uSunColor * rim * 0.32;
-      // Atmospheric haze toward the sky colour.
       haze = smoothstep(uHazeRange.x, uHazeRange.y, dist) * uHazeAmt;
-      col = mix(col, uHaze, haze);
     }
     vec3 srgb = toSRGB(aces(col));
+    // Atmospheric haze toward the sky colour (after tone mapping, so it keeps its hue).
+    srgb = mix(srgb, uHaze, haze);
     // Gentle saturation and warmth.
     float g = luma(srgb);
-    srgb = clamp(mix(vec3(g), srgb, 1.12) * vec3(1.02, 1.0, 0.97), 0.0, 1.0);
+    srgb = clamp(mix(vec3(g), srgb, 1.1) * vec3(1.015, 1.0, 0.985), 0.0, 1.0);
 
     // Outlines: object edge pixels against something farther, and creases between faces.
     float edge = 0.0;
     if (!sky && uOutline > 0.0) {
       vec2 offs[4] = vec2[4](vec2(px.x, 0.0), vec2(-px.x, 0.0), vec2(0.0, px.y), vec2(0.0, -px.y));
+      // A neighbour that is much farther than this face would continue to (1/z is linear on a
+      // plane), so grazing ground and sea never count as an edge – only real silhouettes.
+      float i0 = 1.0 / max(dist, 1e-3);
       for (int i = 0; i < 4; i++) {
-        float dn = rawDepth(vUv + offs[i]);
-        float far = dn >= 0.99999 ? 1e6 : -viewPos(vUv + offs[i], dn).z;
-        if (far - dist > max(0.6, dist * 0.045)) edge = 1.0;
+        float iN = invDist(vUv + offs[i]);
+        float iO = invDist(vUv - offs[i]);
+        float predicted = 2.0 * i0 - iO;
+        if (predicted - iN > i0 * 0.03 && iN < i0) edge = 1.0;
       }
       if (edge < 1.0) {
         vec3 pr = viewAt(vUv + offs[0]);
@@ -225,7 +245,7 @@ const PIXEL_FRAG = /* glsl */ `
     }
     // Ordered dithering only in soft gradients (sky, haze).
     float soft = sky ? 1.0 : smoothstep(0.15, 0.6, haze);
-    srgb += bayer(gl_FragCoord.xy) * (1.0 / 14.0) * soft;
+    srgb += bayer(gl_FragCoord.xy) * (1.0 / 22.0) * soft;
     vec3 outCol = quantize(clamp(srgb, 0.0, 1.0));
     if (edge > 0.0) {
       // Dark outline that keeps a hint of the colour (purple-shifted, not flat black).
@@ -254,10 +274,6 @@ const COMIC_FRAG = /* glsl */ `
   uniform float uHatch;
   uniform float uLineScale;
 
-  float linDepth(vec2 uv) {
-    float d = rawDepth(uv);
-    return d >= 0.99999 ? 1e5 : -viewPos(uv, d).z;
-  }
 
   void main() {
     vec2 px = 1.0 / uRes;
@@ -273,33 +289,39 @@ const COMIC_FRAG = /* glsl */ `
       float smoothL = 0.5 + 0.5 * clamp(k, 0.0, 1.0);
       float band = k > 0.5 ? 1.0 : (k > 0.12 ? 0.8 : 0.58);
       col *= clamp(band / smoothL, 0.72, 1.3);
-      col = mix(col, uHaze, smoothstep(uHazeRange.x, uHazeRange.y, dist) * uHazeAmt);
     }
     vec3 srgb = toSRGB(aces(col));
+    if (!sky) srgb = mix(srgb, uHaze, smoothstep(uHazeRange.x, uHazeRange.y, dist) * uHazeAmt);
     // Flatten tones a little (comic colour fills) and add saturation.
     float l = luma(srgb);
     float lq = floor(l * 5.0 + 0.5) / 5.0;
     srgb *= mix(1.0, (lq + 0.02) / (l + 0.02), 0.45);
     l = luma(srgb);
     srgb = clamp(mix(vec3(l), srgb, 1.22), 0.0, 1.0);
-    if (!sky && uHatch > 0.0 && l < 0.34) {
+    if (!sky && uHatch > 0.0 && l < 0.3) {
       // Diagonal hatching in the shadows.
       float line = step(fract((gl_FragCoord.x + gl_FragCoord.y) / (5.0 * uLineScale)), 0.2);
-      srgb *= 1.0 - line * uHatch * smoothstep(0.34, 0.12, l) * 0.55;
+      srgb *= 1.0 - line * uHatch * smoothstep(0.3, 0.1, l) * 0.42;
     }
     // Ink: Sobel on depth (thick, silhouettes) and on normals (thin, creases).
     float ink = 0.0;
     if (uInk > 0.0) {
-      float r = 1.6 * uLineScale;
-      float c = sky ? 1e5 : dist;
+      float r = 2.1 * uLineScale;
+      float i0 = sky ? 0.0 : 1.0 / max(dist, 1e-3);
       float maxDiff = 0.0;
-      for (int i = 0; i < 8; i++) {
+      float nearest = sky ? 1e5 : dist;
+      for (int i = 0; i < 4; i++) {
         float a = float(i) * 0.7853982;
         vec2 o = vec2(cos(a), sin(a)) * px * r;
-        float dn = linDepth(vUv + o);
-        maxDiff = max(maxDiff, (dn - c) / max(min(c, dn), 1.0));
+        float iA = invDist(vUv + o);
+        float iB = invDist(vUv - o);
+        float iMax = max(i0, max(iA, iB));
+        nearest = min(nearest, 1.0 / max(iMax, 1e-5));
+        // Second difference of 1/z: zero on any plane (also at grazing angles), large at silhouettes.
+        maxDiff = max(maxDiff, abs(iA + iB - 2.0 * i0) / max(iMax, 1e-5));
       }
-      ink = smoothstep(0.035, 0.09, maxDiff);
+      // Silhouettes get the full line; it fades out into the haze so the horizon stays clean.
+      ink = smoothstep(0.018, 0.05, maxDiff) * (1.0 - smoothstep(uHazeRange.x, uHazeRange.y, nearest));
       if (!sky) {
         vec2 o = px * max(1.0, uLineScale);
         vec3 pr = viewAt(vUv + vec2(o.x, 0.0));
@@ -307,7 +329,7 @@ const COMIC_FRAG = /* glsl */ `
         vec3 nr = normalAt(vUv + vec2(o.x, 0.0), pr, px);
         vec3 nu = normalAt(vUv + vec2(0.0, o.y), pu, px);
         float crease = max(1.0 - dot(n, nr), 1.0 - dot(n, nu));
-        ink = max(ink, smoothstep(0.35, 0.6, crease) * 0.75);
+        ink = max(ink, smoothstep(0.45, 0.75, crease) * 0.7);
       }
       ink *= uInk;
     }
@@ -358,6 +380,7 @@ export class StyleFx {
       uHazeAmt: { value: 0.5 },
       uSunView: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(0xffc480) },
+      uUpView: { value: new THREE.Vector3(0, 1, 0) },
     });
     const lab = PALETTE.map(oklab);
     const pal = PALETTE.map((hex) => {
@@ -460,6 +483,12 @@ export class StyleFx {
       snapped = true;
     }
 
+    // Count the scene and the passes together in renderer.info (draw-call stats stay honest).
+    const autoReset = renderer.info.autoReset;
+    if (autoReset) {
+      renderer.info.reset();
+      renderer.info.autoReset = false;
+    }
     const previous = renderer.getRenderTarget();
     renderer.setRenderTarget(target);
     renderer.render(scene, camera);
@@ -473,10 +502,12 @@ export class StyleFx {
     else (uniforms.uProjInv.value as THREE.Matrix4).copy((camera as THREE.OrthographicCamera).projectionMatrixInverse);
     uniforms.uExposure.value = renderer.toneMappingExposure;
     const haze = frame.haze ?? (scene.fog as THREE.Fog | null)?.color ?? (scene.background instanceof THREE.Color ? scene.background : null);
-    if (haze) (uniforms.uHaze.value as THREE.Color).copy(haze);
+    // Shader works in display sRGB after tone mapping: hand it the colour as sRGB.
+    if (haze) (uniforms.uHaze.value as THREE.Color).copy(haze).convertLinearToSRGB();
     const range = frame.hazeRange ?? [1.1, 4.5];
     (uniforms.uHazeRange.value as THREE.Vector2).set(focusDist * range[0], focusDist * range[1]);
     uniforms.uHazeAmt.value = (frame.hazeAmount ?? 0.55) * (pixel ? 1 : 0.6);
+    (uniforms.uUpView.value as THREE.Vector3).set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
     if (frame.sun) {
       const dir = this.tmp.copy(frame.sun.position).sub(frame.sun.target.position).normalize();
       dir.transformDirection(camera.matrixWorldInverse);
@@ -509,6 +540,7 @@ export class StyleFx {
       camera.position.copy(this.saved);
       camera.updateMatrixWorld();
     }
+    renderer.info.autoReset = autoReset;
     return true;
   }
 

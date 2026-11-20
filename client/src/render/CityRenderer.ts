@@ -935,7 +935,7 @@ export class CityRenderer {
     const near = camera.position.distanceTo(this.focus);
     if (near < 130) this.treeFade.value.set(near * 0.42, near * 0.68);
     else this.treeFade.value.set(0, 0);
-    if (this.fx.render(this.scene, camera, { focus: this.focus, sun: this.sun, haze: this.atmosphere.skyMaterial.uniforms.uHorizon.value as THREE.Color, hazeRange: [1.4, 6], hazeAmount: 0.5 })) {
+    if (this.fx.render(this.scene, camera, { focus: this.focus, sun: this.sun, haze: this.atmosphere.skyMaterial.uniforms.uHorizon.value as THREE.Color, hazeRange: [1.8, 7], hazeAmount: 0.42 })) {
       // stylised frame done
     } else if (this.composer && this.renderPass) {
       this.renderPass.camera = camera;
