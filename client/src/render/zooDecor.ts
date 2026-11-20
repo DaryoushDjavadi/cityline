@@ -375,20 +375,7 @@ function waterSet(type: DecorType, pool: Pool, random: () => number, low: boolea
   out.push(basin);
   // Elliptic, radially subdivided disc (so the waves have vertices to move).
   const surface = new THREE.RingGeometry(0.001, 0.5, low ? 16 : 40, low ? 3 : 8).rotateX(-Math.PI / 2);
-  const material = new THREE.MeshStandardMaterial({ color: type === "polar" ? 0x5aa6d6 : 0x4cb8d8, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.85 });
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uWind = windTime;
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uWind;")
-      .replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-        transformed.y += sin(position.x * 18.0 + uWind * 1.6) * 0.012 + cos(position.z * 15.0 - uWind * 1.2) * 0.012;`,
-      )
-      .replace("#include <beginnormal_vertex>", `#include <beginnormal_vertex>
-        objectNormal = normalize(vec3(-cos(position.x * 18.0 + uWind * 1.6) * 0.1, 1.0, sin(position.z * 15.0 - uWind * 1.2) * 0.1));`);
-  };
-  material.customProgramCacheKey = () => "zoo-water";
+  const material = waterSurfaceMaterial(type === "polar" ? 0x5aa6d6 : 0x4cb8d8);
   const water = new THREE.Mesh(surface, material);
   water.scale.set(pool.w * 0.97, 1, pool.d * 0.97);
   water.position.set(pool.x, 0.1, pool.z);
@@ -415,6 +402,25 @@ function waterSet(type: DecorType, pool: Pool, random: () => number, low: boolea
     out.push(scatter(new THREE.CylinderGeometry(1, 1, 1, 9, 1, false, 0, Math.PI * 1.75), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 }), pads, false));
   }
   return out;
+}
+
+/** Transparent water with slow vertex waves (shared wind clock). */
+export function waterSurfaceMaterial(color: number): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.85 });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uWind = windTime;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uWind;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        transformed.y += sin(position.x * 18.0 + uWind * 1.6) * 0.012 + cos(position.z * 15.0 - uWind * 1.2) * 0.012;`,
+      )
+      .replace("#include <beginnormal_vertex>", `#include <beginnormal_vertex>
+        objectNormal = normalize(vec3(-cos(position.x * 18.0 + uWind * 1.6) * 0.1, 1.0, sin(position.z * 15.0 - uWind * 1.2) * 0.1));`);
+  };
+  material.customProgramCacheKey = () => "zoo-water";
+  return material;
 }
 
 /**

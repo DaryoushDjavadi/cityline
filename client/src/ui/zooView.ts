@@ -1,7 +1,10 @@
 /**
  * Zoo UI: habitat panel, animal card (genes, family tree, care, rename), animal shop with
- * origin choice, and the interior view. Pure view over city.progress.zoo; every change goes
- * through the "zoo" command (server-authoritative in coop).
+ * origin choice and the habitat build mode ("Bauen": furniture palette, turn, remove). Everything
+ * happens in the Tierpark scene itself (no separate interior view): the panel drives the park
+ * through a small ZooPark bridge (camera flight, grid, preview, selection, care reactions).
+ * Pure view over city.progress.zoo; every change goes through the "zoo" command
+ * (server-authoritative in coop).
  */
 import {
   clashWith,
@@ -13,6 +16,8 @@ import {
   ITEM_INFO,
   ITEM_KINDS,
   KEEPER_FEE,
+  MAX_ITEMS,
+  TURNABLE_ITEMS,
   NAME_MAX,
   ORIGIN_INFO,
   PET_COOLDOWN,
@@ -40,8 +45,6 @@ import {
   type ZooState,
 } from "../../../shared/src/index.ts";
 import type { Cue } from "../audio/sfx.ts";
-import { InteriorScene, type InteriorTool } from "./zooInterior.ts";
-import { animalModel } from "../render/zooModels.ts";
 
 export interface ZooHooks {
   command: (op: ZooOp) => void;
@@ -50,15 +53,38 @@ export interface ZooHooks {
   /** Close other panels when the zoo panel opens. */
   opened: () => void;
   closed: () => void;
-  /** Interior view open/closed (pause the city renderer). */
-  interior: (open: boolean) => void;
+}
+
+/** Build-mode tool: a furniture kind to place, "remove", or null (just look). */
+export type BuildTool = ItemKind | "remove" | null;
+export interface BuildState {
+  cell: number;
+  tool: BuildTool;
+  rot: number;
+}
+
+/** What the habitat panel needs from the Tierpark scene. */
+export interface ZooPark {
+  /** Camera flies to the habitat (or to an animal in it). */
+  focusHabitat(cell: number): void;
+  focusAnimal(id: number): void;
+  /** Build mode on (grid, dimmed park, preview) or off. */
+  setBuild(state: BuildState | null): void;
+  /** Selected animal (ring, stands still), −1 = none. */
+  select(id: number): void;
+  /** Hearts / stars at the animal. */
+  react(id: number, kind: CareAct): void;
+  /** The panel changed size (keep the habitat centred beside it). */
+  layout(): void;
+  /** Screen position of an animal (name tags), or null. */
+  animalScreen(id: number): { x: number; y: number } | null;
 }
 
 export const SPECIES_ICON: Record<string, string> = {
   lion: "🦁", elephant: "🐘", giraffe: "🦒", zebra: "🦓", kangaroo: "🦘", bear: "🐻", monkey: "🐒", redpanda: "🦊",
   wolf: "🐺", seal: "🦭", flamingo: "🦩", otter: "🦦", penguin: "🐧", polarbear: "🐻‍❄️", rabbit: "🐇", goat: "🐐", alpaca: "🦙",
 };
-const ITEM_ICON: Record<ItemKind, string> = { food: "🥣", water: "💧", toy: "⚽", shelter: "🛖", plant: "🌿", rock: "🪨" };
+export const ITEM_ICON: Record<ItemKind, string> = { food: "🥣", water: "💧", toy: "⚽", shelter: "🛖", plant: "🌿", rock: "🪨", tree: "🌳", pool: "🫧", hay: "🌾" };
 const ORIGIN_ICON: Record<OriginId, string> = { circus: "🎪", rescue: "🩹", breeder: "🏅", wild: "🌍", born: "🍼" };
 const CARE: { act: CareAct; label: string; icon: string }[] = [
   { act: "pet", label: "Streicheln", icon: "🤚" },
@@ -90,25 +116,24 @@ function geneWord(key: string, value: number): string {
 }
 const GENE_LABEL: Record<string, string> = { hue: "Fellton", size: "Größe", pattern: "Muster", robust: "Robustheit", temper: "Temperament" };
 
+
 export class ZooView {
   private readonly panel: HTMLElement;
   private readonly body: HTMLElement;
   private readonly shop: HTMLElement;
-  private readonly overlay: HTMLElement;
   private readonly tags: HTMLElement;
-  private readonly side: HTMLElement;
-  private readonly topInfo: HTMLElement;
-  private readonly tools: HTMLElement;
-  private interior: InteriorScene | null = null;
   private city: CityState | null = null;
   private cell = -1;
   private animal = -1;
   private shopSpecies: string | null = null;
   private shopOrigin: Exclude<OriginId, "born"> = "breeder";
-  private tool: InteriorTool = null;
+  private building = false;
+  private tool: BuildTool = null;
+  private rot = 0;
   private releaseArm = -1;
   private readonly seenReact = new Map<number, number>();
-  private noticeTimer = 0;
+  /** Tierpark scene bridge (null while the park is closed). */
+  private parkBridge: ZooPark | null = null;
 
   constructor(private readonly hooks: ZooHooks) {
     this.panel = document.createElement("aside");
@@ -130,37 +155,25 @@ export class ZooView {
     this.shop.setAttribute("aria-label", "Tiere aufnehmen");
     this.shop.addEventListener("click", (event) => this.onAction(event));
 
-    this.overlay = document.createElement("section");
-    this.overlay.id = "zoo-interior";
-    this.overlay.hidden = true;
-    this.overlay.innerHTML = `
-      <canvas id="zoo-canvas"></canvas>
-      <div id="zoo-tags"></div>
-      <header class="zi-top">
-        <button type="button" class="zi-back" data-act="back">← Zum Tierpark</button>
-        <div class="zi-title"><small id="zi-kicker">Innenansicht</small><b id="zi-name"></b></div>
-        <div class="zi-info" id="zi-info"></div>
-      </header>
-      <nav class="zi-tools" id="zi-tools" aria-label="Einrichtung"></nav>
-      <aside class="zi-side" id="zi-side" hidden></aside>
-      <p class="zi-hint" id="zi-hint"></p>`;
-    this.overlay.addEventListener("click", (event) => this.onAction(event));
-    this.overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.target as HTMLElement).id === "zoo-name") this.rename();
-    });
-    this.tags = this.overlay.querySelector("#zoo-tags") as HTMLElement;
-    this.side = this.overlay.querySelector("#zi-side") as HTMLElement;
-    this.topInfo = this.overlay.querySelector("#zi-info") as HTMLElement;
-    this.tools = this.overlay.querySelector("#zi-tools") as HTMLElement;
-    document.body.append(this.panel, this.overlay, this.shop);
-    window.addEventListener("resize", () => this.resize());
+    // Name tags over the animals of the open habitat (inside the park view).
+    this.tags = document.createElement("div");
+    this.tags.id = "zoo-tags";
+    document.body.append(this.panel, this.shop, this.tags);
     window.addEventListener("keydown", (event) => {
+      if ((event.target as HTMLElement)?.tagName === "INPUT") return;
+      if (this.building && (event.code === "KeyR" || event.key === "r" || event.key === "R")) {
+        this.turn();
+        event.stopImmediatePropagation();
+        event.preventDefault();
+        return;
+      }
       if (event.key !== "Escape") return;
+      // One step per press: shop → tool → build mode → animal card; the park handles the rest.
       if (!this.shop.hidden) this.closeShop();
-      else if (this.tool && this.interior) this.setTool(null);
-      else if (this.interior || !this.overlay.hidden) this.closeInterior();
+      else if (this.building && this.tool) this.setTool(null);
+      else if (this.building) this.setBuilding(false);
+      else if (!this.panel.hidden && this.animal >= 0) this.selectAnimal(-1);
       else return;
-      // Handled: the park and the city must not take another step on the same key press.
       event.stopImmediatePropagation();
       event.preventDefault();
     });
@@ -170,12 +183,23 @@ export class ZooView {
     return !this.panel.hidden;
   }
 
-  get interiorOpen(): boolean {
-    return this.interior !== null;
-  }
-
   get habitatCell(): number {
     return this.cell;
+  }
+
+  get buildMode(): BuildState | null {
+    return this.building && this.cell >= 0 ? { cell: this.cell, tool: this.tool, rot: this.rot } : null;
+  }
+
+  /** Connect the Tierpark scene (or disconnect with null when the park closes). */
+  set park(bridge: ZooPark | null) {
+    this.parkBridge = bridge;
+    // Do not replay old reactions when the park opens.
+    for (const animal of this.zoo()?.animals ?? []) this.seenReact.set(animal.id, animal.react?.tick ?? -1);
+    if (!bridge) {
+      this.tags.replaceChildren();
+      this.tags.dataset.key = "";
+    }
   }
 
   private zoo(): ZooState | null {
@@ -187,37 +211,82 @@ export class ZooView {
     return zoo && this.cell >= 0 ? habitatAt(zoo, this.cell) : null;
   }
 
+  /** Habitat clicked in the park: camera flies there, panel opens. */
   showHabitat(city: CityState, cell: number): void {
     this.city = city;
-    if (this.cell !== cell) this.animal = -1;
+    if (this.cell !== cell) {
+      if (this.building) this.setBuilding(false);
+      this.selectAnimal(-1, false);
+    }
     this.cell = cell;
     this.panel.hidden = false;
     document.body.dataset.zoo = "on";
     this.hooks.opened();
     this.render();
+    this.parkBridge?.focusHabitat(cell);
+    this.parkBridge?.layout();
+  }
+
+  /** Animal clicked in the park: its card in the panel, the camera comes closer. */
+  showAnimal(city: CityState, id: number): void {
+    const animal = city.progress?.zoo?.animals.find((entry) => entry.id === id);
+    if (!animal || animal.cell < 0) return;
+    this.city = city;
+    if (this.cell !== animal.cell && this.building) this.setBuilding(false);
+    this.cell = animal.cell;
+    this.panel.hidden = false;
+    document.body.dataset.zoo = "on";
+    this.hooks.opened();
+    this.selectAnimal(id);
+    this.parkBridge?.focusAnimal(id);
+    this.parkBridge?.layout();
   }
 
   hide(): void {
     if (this.panel.hidden) return;
+    if (this.building) this.setBuilding(false);
+    this.closeShop();
     this.panel.hidden = true;
     document.body.dataset.zoo = "off";
-    this.animal = -1;
+    this.selectAnimal(-1, false);
+    this.tags.replaceChildren();
+    this.tags.dataset.key = "";
     this.hooks.closed();
+    this.parkBridge?.layout();
   }
 
   update(city: CityState): void {
     this.city = city;
     if (this.cell >= 0 && !this.habitat() && city.progress?.zoo) {
       // habitat bulldozed
-      this.closeInterior();
       this.closeShop();
       this.hide();
       this.cell = -1;
       return;
     }
+    if (this.animal >= 0 && !city.progress?.zoo?.animals.some((entry) => entry.id === this.animal && entry.cell === this.cell)) this.selectAnimal(-1, false);
     if (!this.panel.hidden) this.render();
     if (!this.shop.hidden) this.renderShop();
-    if (this.interior) this.renderInterior();
+    this.replayReactions();
+    if (this.building) this.parkBridge?.setBuild(this.buildMode);
+  }
+
+  /** Care reactions (also from coop partners) play once at the animal in the park. */
+  private replayReactions(): void {
+    const zoo = this.zoo();
+    if (!zoo) return;
+    for (const animal of zoo.animals) {
+      const seen = this.seenReact.get(animal.id);
+      if (seen !== undefined && animal.react && animal.react.tick > seen) this.parkBridge?.react(animal.id, animal.react.kind);
+      this.seenReact.set(animal.id, animal.react?.tick ?? seen ?? -1);
+    }
+  }
+
+  private selectAnimal(id: number, render = true): void {
+    this.animal = id;
+    this.releaseArm = -1;
+    this.parkBridge?.select(id);
+    if (render && !this.panel.hidden) this.render();
   }
 
   // ------------------------------------------------------------ habitat panel
@@ -232,7 +301,12 @@ export class ZooView {
     }
     if (this.panel.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT") return;
     const info = HABITAT_INFO[habitat.type];
-    (this.panel.querySelector("#zoo-kicker") as HTMLElement).textContent = this.animal >= 0 ? `${info.name} · Tier` : "Tiergehege";
+    this.panel.classList.toggle("building", this.building);
+    (this.panel.querySelector("#zoo-kicker") as HTMLElement).textContent = this.building ? `${info.name} · Bau-Modus` : this.animal >= 0 ? `${info.name} · Tier` : "Tiergehege";
+    if (this.building) {
+      setHtml(this.body, this.buildPanel(habitat));
+      return;
+    }
     const animal = this.animal >= 0 ? zoo?.animals.find((entry) => entry.id === this.animal) : undefined;
     if (animal) {
       setHtml(this.body, `<button type="button" class="zoo-link" data-act="list">← ${esc(info.name)}</button>${this.animalCard(animal)}`);
@@ -264,7 +338,7 @@ export class ZooView {
         <span class="zoo-chip"><small>Besucher</small><b>${zoo?.visitors ?? 0} · +${euro.format(Math.round(zoo?.income ?? 0))} €</b></span>
       </div>
       <div class="zoo-actions">
-        <button type="button" class="zoo-primary" data-act="interior" id="zoo-open-interior">Innenansicht</button>
+        <button type="button" class="zoo-primary" data-act="build" id="zoo-build" aria-pressed="false">🔨 Bauen</button>
         <button type="button" data-act="shop" id="zoo-open-shop">Tiere aufnehmen</button>
       </div>
       <div class="zoo-actions small">
@@ -272,7 +346,78 @@ export class ZooView {
         <button type="button" data-act="keeper" aria-pressed="${habitat.keeper}" class="${habitat.keeper ? "on" : ""}">Pfleger ${habitat.keeper ? "an" : "aus"} · ${KEEPER_FEE} €/2 s</button>
       </div>
       <h3 class="zoo-h3">Bewohner</h3>
-      ${rows.length ? `<div class="zoo-list">${rows.join("")}</div>` : `<p class="zoo-empty">Noch leer. Nimm Tiere auf – Rettungstiere sind günstig, brauchen aber Pflege.</p>`}`);
+      ${rows.length ? `<div class="zoo-list">${rows.join("")}</div><p class="zoo-tip">Tipp: Tiere im Park direkt anklicken.</p>` : `<p class="zoo-empty">Noch leer. Nimm Tiere auf – Rettungstiere sind günstig, brauchen aber Pflege.</p>`}`);
+  }
+
+  /** Build mode: furniture palette, turn, remove, done. */
+  private buildPanel(habitat: Habitat): string {
+    const funds = this.city?.funds ?? 0;
+    const full = habitat.items.length >= MAX_ITEMS;
+    const palette = ITEM_KINDS.map((kind) => {
+      const info = ITEM_INFO[kind];
+      const poor = funds < info.cost;
+      return `<button type="button" class="zb-item${this.tool === kind ? " on" : ""}${poor || full ? " poor" : ""}" data-act="tool" data-id="${kind}" title="${esc(info.blurb)}" aria-pressed="${this.tool === kind}"><span>${ITEM_ICON[kind]}</span><b>${esc(info.name)}</b><small>${info.cost} €</small></button>`;
+    }).join("");
+    const turnable = this.tool !== null && this.tool !== "remove" && TURNABLE_ITEMS.includes(this.tool);
+    const hint = this.tool === "remove"
+      ? "Tippe auf einen Gegenstand im Gehege, um ihn zu entfernen."
+      : this.tool
+        ? `${ITEM_INFO[this.tool].name}: auf ein freies Feld im Gehege setzen${turnable ? " · R oder ⟳ dreht" : ""}. Esc beendet.`
+        : "Wähle einen Gegenstand und setze ihn direkt ins Gehege.";
+    return `
+      <p class="zb-hint" id="zb-hint">${hint}</p>
+      <div class="zb-palette" role="toolbar" aria-label="Einrichtung">${palette}</div>
+      <div class="zoo-actions zb-row">
+        <button type="button" data-act="turn" id="zb-turn" ${turnable ? "" : "disabled"} title="Drehen (R)">⟳ Drehen</button>
+        <button type="button" data-act="tool" data-id="remove" id="zb-remove" class="${this.tool === "remove" ? "on" : ""}" aria-pressed="${this.tool === "remove"}">✖ Entfernen</button>
+        <button type="button" class="zoo-primary" data-act="build-done" id="zb-done">✓ Fertig</button>
+      </div>
+      <p class="zb-count">Einrichtung ${habitat.items.length}/${MAX_ITEMS} · Kasse ${euro.format(Math.floor(funds))} €</p>`;
+  }
+
+  setBuilding(on: boolean): void {
+    if (on === this.building) return;
+    if (on && !this.habitat()) return;
+    this.building = on;
+    this.tool = null;
+    document.body.dataset.zooBuild = on ? "on" : "off";
+    if (on) {
+      this.closeShop();
+      this.selectAnimal(-1, false);
+      this.parkBridge?.focusHabitat(this.cell);
+    }
+    this.parkBridge?.setBuild(this.buildMode);
+    this.hooks.sound("toggle");
+    this.render();
+    this.parkBridge?.layout();
+  }
+
+  private setTool(tool: BuildTool): void {
+    this.tool = this.tool === tool ? null : tool;
+    this.parkBridge?.setBuild(this.buildMode);
+    this.render();
+  }
+
+  private turn(): void {
+    this.rot = (this.rot + 1) % 4;
+    this.parkBridge?.setBuild(this.buildMode);
+    this.hooks.sound("click");
+  }
+
+  /** Click on a grid spot of the habitat in build mode (from the park). */
+  buildAt(x: number, y: number): void {
+    const habitat = this.habitat();
+    if (!habitat || !this.building) return;
+    if (this.tool === "remove") {
+      const item = habitat.items.find((entry) => x >= entry.x && y >= entry.y && x < entry.x + (entry.kind === "pool" ? 2 : 1) && y < entry.y + (entry.kind === "pool" ? 2 : 1));
+      if (!item) return;
+      this.hooks.command({ op: "take", cell: habitat.cell, item: item.id });
+      this.hooks.sound("demolish");
+    } else if (this.tool) {
+      this.hooks.command({ op: "place", cell: habitat.cell, item: this.tool, x, y, ...(this.rot ? { rot: this.rot } : {}) });
+      this.hooks.sound("place");
+    }
+    this.render();
   }
 
   /** Animal card: status, story, genes, family tree, care, rename. */
@@ -354,18 +499,14 @@ export class ZooView {
     const act = target.dataset.act;
     const habitat = this.habitat();
     if (act === "animal") {
-      this.animal = Number(target.dataset.id);
-      this.releaseArm = -1;
-      if (this.interior) {
-        this.interior.selected = this.animal;
-        this.renderInterior();
-      } else this.render();
+      const id = Number(target.dataset.id);
+      this.selectAnimal(id);
+      this.parkBridge?.focusAnimal(id);
       this.hooks.sound("click");
-    } else if (act === "list") {
-      this.animal = -1;
-      this.render();
-    } else if (act === "interior") this.openInterior();
-    else if (act === "back") this.closeInterior();
+    } else if (act === "list") this.selectAnimal(-1);
+    else if (act === "build") this.setBuilding(!this.building);
+    else if (act === "build-done") this.setBuilding(false);
+    else if (act === "turn") this.turn();
     else if (act === "shop") this.openShop();
     else if (act === "shop-close") this.closeShop();
     else if (act === "refill" && habitat) {
@@ -383,11 +524,9 @@ export class ZooView {
         this.releaseArm = this.animal;
       } else {
         this.hooks.command({ op: "release", animal: this.animal });
-        this.releaseArm = -1;
-        this.animal = -1;
-        if (this.interior) this.interior.selected = -1;
+        this.selectAnimal(-1, false);
       }
-      this.refreshAll();
+      this.render();
     } else if (act === "species") {
       this.shopSpecies = target.dataset.id ?? null;
       this.renderShop();
@@ -395,29 +534,24 @@ export class ZooView {
       this.shopOrigin = target.dataset.id as Exclude<OriginId, "born">;
       this.renderShop();
     } else if (act === "buy") this.buy();
-    else if (act === "tool") this.setTool((target.dataset.id as InteriorTool) || null);
-    else if (act === "deselect") {
-      this.animal = -1;
-      if (this.interior) this.interior.selected = -1;
-      this.renderInterior();
+    else if (act === "tool") {
+      this.setTool((target.dataset.id as BuildTool) || null);
+      this.hooks.sound("click");
     }
-  }
-
-  private refreshAll(): void {
-    if (!this.panel.hidden) this.render();
-    if (this.interior) this.renderInterior();
   }
 
   private care(act: CareAct): void {
     if (this.animal < 0) return;
     this.hooks.command({ op: "care", animal: this.animal, act });
     this.hooks.sound(act === "pet" ? "goal" : act === "play" ? "event" : act === "vet" ? "toggle" : "click");
-    this.refreshAll();
+    // Solo: the state is already updated; coop: the reaction comes back with the server state.
+    this.replayReactions();
+    this.render();
   }
 
   private rename(): void {
-    const input = (this.interior ? this.side : this.body).querySelector<HTMLInputElement>("#zoo-name");
-    const error = (this.interior ? this.side : this.body).querySelector<HTMLElement>("#zoo-name-error");
+    const input = this.body.querySelector<HTMLInputElement>("#zoo-name");
+    const error = this.body.querySelector<HTMLElement>("#zoo-name-error");
     if (!input || this.animal < 0) return;
     const clean = cleanAnimalName(input.value);
     if (!clean) {
@@ -431,8 +565,10 @@ export class ZooView {
     input.blur();
     this.hooks.command({ op: "rename", animal: this.animal, name: clean });
     this.hooks.sound("click");
-    this.refreshAll();
+    this.render();
   }
+
+  // ------------------------------------------------------------ shop
 
   // ------------------------------------------------------------ shop
 
@@ -497,207 +633,55 @@ export class ZooView {
     if (fresh) {
       this.hooks.sound("cash");
       this.hooks.flash(`${SPECIES_ICON[fresh.species] ?? ""} ${fresh.name} ist eingezogen. ${storyText(fresh)}`);
-      this.animal = fresh.id;
-      if (this.interior) this.interior.selected = fresh.id;
       this.closeShop();
-      this.refreshAll();
+      this.selectAnimal(fresh.id);
+      this.parkBridge?.focusAnimal(fresh.id);
     } else this.renderShop();
   }
 
-  // ------------------------------------------------------------ interior
+  // ------------------------------------------------------------ in the park
 
-  openInterior(): void {
-    const habitat = this.habitat();
-    if (!habitat || this.interior) return;
-    // Fresh canvas each time: the previous one lost its WebGL context on close.
-    const old = this.overlay.querySelector("#zoo-canvas") as HTMLCanvasElement;
-    const canvas = old.cloneNode(false) as HTMLCanvasElement;
-    old.replaceWith(canvas);
-    let scene: InteriorScene;
-    try {
-      scene = new InteriorScene(canvas, {
-      pickAnimal: (id) => {
-        this.animal = id;
-        this.releaseArm = -1;
-        this.interior!.selected = id;
-        this.hooks.sound("click");
-        this.renderInterior();
-      },
-      pickSpot: (x, y) => {
-        if (!this.tool || this.tool === "remove") return;
-        this.hooks.command({ op: "place", cell: habitat.cell, item: this.tool, x, y });
-        this.hooks.sound("place");
-        this.renderInterior();
-      },
-      pickItem: (id) => {
-        this.hooks.command({ op: "take", cell: habitat.cell, item: id });
-        this.hooks.sound("demolish");
-        this.renderInterior();
-      },
-      });
-    } catch (error) {
-      // No WebGL context (browser limit, low memory): stay where we are instead of showing an
-      // empty overlay without a working way back.
-      console.warn("Innenansicht nicht verfügbar", error);
-      this.hooks.flash("Die Innenansicht konnte gerade nicht starten. Versuch es gleich noch einmal.");
+  /** Every park frame: name tags over the animals of the open habitat. */
+  frame(): void {
+    const park = this.parkBridge;
+    const zoo = this.zoo();
+    if (!park || !zoo || this.panel.hidden || this.cell < 0) {
+      if (this.tags.childElementCount) {
+        this.tags.replaceChildren();
+        this.tags.dataset.key = "";
+      }
       return;
     }
-    this.interior = scene;
-    this.overlay.hidden = false;
-    document.body.dataset.zooInterior = "on";
-    // Do not replay old reactions.
-    for (const animal of this.zoo()?.animals ?? []) this.seenReact.set(animal.id, animal.react?.tick ?? -1);
-    this.interior.selected = this.animal;
-    this.resize();
-    this.hooks.interior(true);
-    this.renderInterior();
-    this.hooks.sound("toggle");
-  }
-
-  closeInterior(): void {
-    if (!this.interior && this.overlay.hidden) return;
-    try {
-      this.interior?.dispose();
-    } catch (error) {
-      console.warn("Innenansicht: Aufräumen fehlgeschlagen", error);
+    const animals = this.building ? [] : animalsIn(zoo, this.cell);
+    const key = animals.map((entry) => `${entry.id}:${entry.name}:${entry.id === this.animal ? 1 : 0}:${entry.health < 40 ? 1 : 0}:${entry.pregnantUntil ? 1 : 0}`).join("|");
+    if (this.tags.dataset.key !== key) {
+      this.tags.dataset.key = key;
+      this.tags.innerHTML = animals.map((entry) => `<span class="zi-tag ${entry.id === this.animal ? "on" : ""}" data-tag="${entry.id}">${esc(entry.name)}${entry.health < 40 ? " 🤒" : ""}${entry.pregnantUntil ? " 🍼" : ""}</span>`).join("");
     }
-    this.interior = null;
-    this.tool = null;
-    this.overlay.hidden = true;
-    document.body.dataset.zooInterior = "off";
-    this.tags.replaceChildren();
-    this.hooks.interior(false);
-    if (!this.panel.hidden) this.render();
-  }
-
-  private setTool(tool: InteriorTool): void {
-    this.tool = this.tool === tool ? null : tool;
-    this.interior?.setTool(this.tool);
-    this.renderInterior();
-  }
-
-  private resize(): void {
-    if (!this.interior) return;
-    this.interior.resize(window.innerWidth, window.innerHeight);
-    this.updateInset();
-  }
-
-  private renderInterior(): void {
-    const interior = this.interior;
-    const habitat = this.habitat();
-    const zoo = this.zoo();
-    const city = this.city;
-    if (!interior || !habitat || !zoo || !city) return;
-    const animals = animalsIn(zoo, habitat.cell);
-    interior.setHabitat(city, habitat, animals);
-    for (const animal of animals) {
-      const seen = this.seenReact.get(animal.id) ?? -1;
-      if (animal.react && animal.react.tick > seen) interior.react(animal.id, animal.react.kind);
-      this.seenReact.set(animal.id, animal.react?.tick ?? seen);
-    }
-    (this.overlay.querySelector("#zi-name") as HTMLElement).textContent = HABITAT_INFO[habitat.type].name;
-    const food = habitat.items.filter((item) => item.kind === "food");
-    const water = habitat.items.filter((item) => item.kind === "water");
-    const pct = (list: { fill?: number }[]) => (list.length ? Math.round(list.reduce((sum, item) => sum + (item.fill ?? 0), 0) / list.length) : 0);
-    setHtml(this.topInfo, `
-      <span class="zi-chip ${pct(food) < 25 ? "bad" : ""}">🥣 ${food.length ? `${pct(food)} %` : "–"}</span>
-      <span class="zi-chip ${pct(water) < 25 ? "bad" : ""}">💧 ${water.length ? `${pct(water)} %` : "–"}</span>
-      <button type="button" data-act="refill" id="zi-refill">Auffüllen</button>
-      <button type="button" data-act="keeper" class="${habitat.keeper ? "on" : ""}" aria-pressed="${habitat.keeper}">Pfleger ${habitat.keeper ? "an" : "aus"}</button>
-      <button type="button" class="zoo-primary" data-act="shop" id="zi-shop">Tiere aufnehmen</button>`);
-    setHtml(this.tools, [...ITEM_KINDS.map((kind) => `<button type="button" data-act="tool" data-id="${kind}" class="${this.tool === kind ? "on" : ""}" title="${esc(ITEM_INFO[kind].blurb)}"><span>${ITEM_ICON[kind]}</span><b>${esc(ITEM_INFO[kind].name)}</b><small>${ITEM_INFO[kind].cost} €</small></button>`), `<button type="button" data-act="tool" data-id="remove" class="${this.tool === "remove" ? "on" : ""}"><span>✖</span><b>Entfernen</b><small>Einrichtung</small></button>`].join(""));
-    const hint = this.overlay.querySelector("#zi-hint") as HTMLElement;
-    hint.textContent = this.tool === "remove"
-      ? "Klicke auf einen Gegenstand, um ihn zu entfernen."
-      : this.tool
-        ? `${ITEM_INFO[this.tool].name}: Klicke auf ein freies Feld im Gehege. Esc beendet.`
-        : animals.length
-          ? "Klicke ein Tier an: streicheln, spielen, füttern, umbenennen. Ziehen dreht die Ansicht."
-          : "Noch keine Tiere. Oben rechts „Tiere aufnehmen“.";
-    const animal = this.animal >= 0 ? animals.find((entry) => entry.id === this.animal) : undefined;
-    if (animal) {
-      if (!(this.side.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === "INPUT")) {
-        setHtml(this.side, `<button type="button" class="zoo-link" data-act="deselect">× Schließen</button>${this.animalCard(animal)}`);
-      }
-      this.side.hidden = false;
-    } else {
-      this.side.hidden = true;
-      if (this.animal >= 0 && !zoo.animals.some((entry) => entry.id === this.animal)) this.animal = -1;
-    }
-    this.updateInset();
-    // name tags
-    const tags = animals.map((entry) => `<span class="zi-tag ${entry.id === this.animal ? "on" : ""}" data-tag="${entry.id}">${esc(entry.name)}${entry.health < 40 ? " 🤒" : ""}${entry.pregnantUntil ? " 🍼" : ""}</span>`).join("");
-    if (this.tags.dataset.key !== tags) {
-      this.tags.innerHTML = tags;
-      this.tags.dataset.key = tags;
-    }
-  }
-
-  /** Keep the habitat centred beside the animal card / above the mobile toolbar. */
-  private updateInset(): void {
-    if (!this.interior) return;
-    const compact = window.innerWidth <= 1100 || window.innerHeight <= 520;
-    const side = this.side.hidden ? null : this.side.getBoundingClientRect();
-    const tools = this.tools.getBoundingClientRect();
-    const right = !compact && side ? side.width + 12 : 0;
-    const bottom = compact ? (side ? window.innerHeight - side.top : window.innerHeight - tools.top) * 0.85 : 0;
-    this.interior.setInset(right, bottom);
-  }
-
-  /** Called every animation frame while the interior is open. */
-  frame(dt: number): void {
-    if (!this.interior) return;
-    this.interior.frame(dt);
-    const top = (this.overlay.querySelector(".zi-top") as HTMLElement).getBoundingClientRect().bottom + 22;
     for (const tag of this.tags.children as HTMLCollectionOf<HTMLElement>) {
-      const id = Number(tag.dataset.tag);
-      const pose = this.interior.poses.get(id);
-      if (!pose) continue;
-      const species = this.zoo()?.animals.find((animal) => animal.id === id)?.species ?? "goat";
-      const height = animalModel(species).lod[1] * pose.boost;
-      const at = this.interior.project(pose.x, pose.y + height + 0.35, pose.z);
-      tag.hidden = at.y < top;
-      tag.style.transform = `translate(${at.x.toFixed(0)}px, ${at.y.toFixed(0)}px) translate(-50%, -100%)`;
+      const at = park.animalScreen(Number(tag.dataset.tag));
+      tag.hidden = !at;
+      if (at) tag.style.transform = `translate(${at.x.toFixed(0)}px, ${(at.y - 18).toFixed(0)}px) translate(-50%, -100%)`;
     }
-  }
-
-  /** Short message inside the interior view (the city status bar is hidden there). */
-  notice(text: string): void {
-    if (!this.interior) return;
-    let toast = this.overlay.querySelector<HTMLElement>(".zi-toast");
-    if (!toast) {
-      toast = document.createElement("p");
-      toast.className = "zi-toast";
-      toast.setAttribute("role", "status");
-      this.overlay.append(toast);
-    }
-    toast.textContent = text;
-    toast.hidden = false;
-    window.clearTimeout(this.noticeTimer);
-    this.noticeTimer = window.setTimeout(() => {
-      if (toast) toast.hidden = true;
-    }, 4200);
   }
 
   // ------------------------------------------------------------ e2e helpers
 
   e2e() {
     return {
-      animalScreen: (id: number) => {
-        const pose = this.interior?.poses.get(id);
-        return pose && this.interior ? this.interior.project(pose.x, pose.y + 0.4 * pose.boost, pose.z) : null;
-      },
-      spotScreen: (x: number, y: number) => this.interior?.spotScreen(x, y) ?? null,
       selected: () => this.animal,
-      /** Select an animal in the interior like a click (camera follows). */
       select: (id: number) => {
-        if (!this.interior) return false;
-        this.animal = id;
-        this.interior.selected = id;
-        this.renderInterior();
-        return true;
+        if (this.city) this.showAnimal(this.city, id);
+        return this.animal === id;
       },
-      interiorOpen: () => this.interior !== null,
+      build: () => this.buildMode,
+      setBuilding: (on: boolean) => this.setBuilding(on),
+      setTool: (tool: BuildTool) => {
+        this.tool = null;
+        this.setTool(tool);
+      },
+      buildAt: (x: number, y: number) => this.buildAt(x, y),
+      turn: () => this.turn(),
     };
   }
 }

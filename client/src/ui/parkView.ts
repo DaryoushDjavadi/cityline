@@ -1,7 +1,10 @@
 /**
  * Tierpark UI: the gate panel in the city ("Tierpark betreten") and the park level overlay with its
  * own canvas, top bar with stats, build bar (Gehege, Wege, Stände, Deko, Abriss), ghost previews,
- * floating +€ at stands and thought bubbles over visitors. Every change is a zoo command.
+ * floating +€ at stands and thought bubbles over visitors. Clicking a habitat flies the camera
+ * there and opens its panel; clicking an animal opens its card. The habitat build mode (furniture
+ * on the habitat grid, preview, removal, dimmed surroundings) runs here too. Every change is a
+ * zoo command.
  */
 import {
   DAY_TICKS,
@@ -9,16 +12,22 @@ import {
   HABITAT_INFO,
   HABITAT_TILES,
   HABITAT_TYPES,
+  ITEM_INFO,
+  MAX_ITEMS,
   PARK_INFO,
   PARK_SIZE,
   TILE,
   ZOO_EVERY,
   animalsIn,
   dragLine,
+  habitatAt,
   habitatAtTile,
   habitatFits,
   habitatTiles,
   isEdge,
+  itemAt,
+  itemFits,
+  itemSize,
   occupancy,
   parkIndex,
   parkXY,
@@ -35,7 +44,7 @@ import {
 import type { Cue } from "../audio/sfx.ts";
 import { ParkScene, habitatWorld, tileWorld } from "../render/parkScene.ts";
 import { gfxProfile, loadGfxPreset } from "../render/quality.ts";
-import { SPECIES_ICON } from "./zooView.ts";
+import { SPECIES_ICON, type BuildState, type ZooPark } from "./zooView.ts";
 
 export interface ParkHooks {
   command: (op: ZooOp) => void;
@@ -44,10 +53,19 @@ export interface ParkHooks {
   opened: () => void;
   /** Park level open/closed (pause the city renderer, hide the city HUD). */
   mode: (open: boolean) => void;
-  /** Habitat clicked inside the park: show the habitat panel (animals, shop, interior). */
+  /** Habitat clicked inside the park: show the habitat panel (animals, shop, build mode). */
   habitat: (cell: number) => void;
+  /** Animal clicked inside the park: show its card. */
+  animal: (id: number) => void;
   /** Close the habitat panel (when building). */
   closeHabitat: () => void;
+  /** Habitat build mode of the panel (null = off). */
+  build: () => BuildState | null;
+  /** Click on a grid spot of the habitat in build mode. */
+  buildAt: (x: number, y: number) => void;
+  endBuild: () => void;
+  /** Every park frame (name tags). */
+  frame: () => void;
   /** Short message in the city status line. */
   flash: (text: string) => void;
 }
@@ -108,6 +126,37 @@ export class ParkView {
   private coins = 0;
   private toastTimer = 0;
   private statsOpen = false;
+  /** Dims everything but the habitat in build mode (CSS clip-path hole, works in every style). */
+  private readonly dim: HTMLElement;
+  /** Hovered grid spot in build mode. */
+  private spot: { x: number; y: number } | null = null;
+  /** For the habitat panel: camera, build mode, selection, reactions. */
+  readonly bridge: ZooPark = {
+    focusHabitat: (cell) => {
+      const scene = this.scene;
+      if (!scene) return;
+      const at = habitatWorld(cell);
+      const close = window.innerWidth < 700 ? 30 : 25;
+      scene.flyTo(at.x, at.z, Math.min(scene.distance, this.hooks.build() ? close - 3 : close));
+    },
+    focusAnimal: (id) => {
+      const scene = this.scene;
+      const pose = scene?.zoo.poses.get(id);
+      if (!scene || !pose) return;
+      scene.flyTo(pose.x, pose.z, Math.min(scene.distance, window.innerWidth < 700 ? 22 : 18));
+    },
+    setBuild: (state) => {
+      this.scene?.setBuildGrid(state ? state.cell : null);
+      this.overlay.classList.toggle("zoo-build", !!state);
+      if (!state) this.spot = null;
+      this.buildPreview();
+      this.renderHint();
+    },
+    select: (id) => this.scene?.select(id),
+    react: (id, kind) => this.scene?.react(id, kind),
+    layout: () => requestAnimationFrame(() => this.updateInset()),
+    animalScreen: (id) => this.scene?.animalScreen(id) ?? null,
+  };
 
   constructor(private readonly hooks: ParkHooks) {
     this.gate = document.createElement("aside");
@@ -121,6 +170,7 @@ export class ParkView {
     this.overlay.hidden = true;
     this.overlay.innerHTML = `
       <canvas id="park-canvas"></canvas>
+      <div id="pk-dim" hidden></div>
       <div id="park-fx"></div>
       <header class="pk-top">
         <button type="button" class="zi-back" data-act="back">← Zur Stadt</button>
@@ -139,10 +189,11 @@ export class ParkView {
     this.build = this.overlay.querySelector("#pk-build") as HTMLElement;
     this.hint = this.overlay.querySelector("#pk-hint") as HTMLElement;
     this.toast = this.overlay.querySelector("#pk-toast") as HTMLElement;
+    this.dim = this.overlay.querySelector("#pk-dim") as HTMLElement;
     document.body.append(this.gate, this.overlay);
     window.addEventListener("resize", () => this.resize());
     window.addEventListener("keydown", (event) => {
-      if (!this.scene || document.body.dataset.zooInterior === "on") return;
+      if (!this.scene) return;
       if ((event.target as HTMLElement)?.tagName === "INPUT") return;
       // The city is hidden while the park is open: its shortcuts must not act behind the park.
       event.stopImmediatePropagation();
@@ -287,8 +338,15 @@ export class ParkView {
     if (!this.scene) return;
     const top = (this.overlay.querySelector(".pk-top") as HTMLElement).getBoundingClientRect();
     const bar = this.build.getBoundingClientRect();
-    const side = this.statsOpen && window.innerWidth > 1100 ? this.stats.getBoundingClientRect().width + 12 : 0;
-    this.scene.setInset(side, Math.max(0, window.innerHeight - bar.top), top.bottom);
+    const compact = window.innerWidth <= 1100 || window.innerHeight <= 520;
+    const zooPanel = document.body.dataset.zoo === "on" ? document.querySelector<HTMLElement>("#zoo-panel") : null;
+    const panel = zooPanel && !zooPanel.hidden ? zooPanel.getBoundingClientRect() : null;
+    let side = this.statsOpen && !compact ? this.stats.getBoundingClientRect().width + 12 : 0;
+    let bottom = Math.max(0, window.innerHeight - bar.top);
+    if (panel && !compact) side = Math.max(side, window.innerWidth - panel.left);
+    // Mobile: the panel is a bottom sheet over the build bar.
+    if (panel && compact) bottom = Math.max(0, window.innerHeight - panel.top);
+    this.scene.setInset(side, bottom, top.bottom);
   }
 
   /** Visual crowd size: the park's visitor count, capped for the screen. */
@@ -308,6 +366,88 @@ export class ParkView {
     const events = scene.frame(dt, this.want(zoo?.visitors ?? 0));
     for (const event of events) this.onCrowd(event, zoo);
     this.placeBubbles();
+    this.placeDim();
+    this.hooks.frame();
+  }
+
+  // ------------------------------------------------------------ habitat build mode
+
+  /** Hole in the dim layer around the habitat in build mode (convex hull of its box on screen). */
+  private placeDim(): void {
+    const build = this.hooks.build();
+    const scene = this.scene;
+    this.dim.hidden = !build || !scene;
+    if (!build || !scene) return;
+    const at = habitatWorld(build.cell);
+    const r = (HABITAT_TILES * 2) / 2 + 0.15;
+    const points: { x: number; y: number }[] = [];
+    for (const y of [0, 1.7]) for (const [dx, dz] of [[-r, -r], [r, -r], [r, r], [-r, r]]) {
+      const p = scene.project(at.x + dx, y, at.z + dz);
+      if (p.behind) {
+        this.dim.hidden = true;
+        return;
+      }
+      points.push({ x: p.x, y: p.y });
+    }
+    const hull = convexHull(points);
+    const w = this.dim.clientWidth || window.innerWidth;
+    const h = this.dim.clientHeight || window.innerHeight;
+    const path = hull.map((p) => `${p.x.toFixed(1)}px ${p.y.toFixed(1)}px`).join(", ");
+    this.dim.style.clipPath = `polygon(evenodd, 0 0, ${w}px 0, ${w}px ${h}px, 0 ${h}px, 0 0, ${path}, ${hull[0].x.toFixed(1)}px ${hull[0].y.toFixed(1)}px, 0 0)`;
+  }
+
+  /** Furniture preview (green fits / red blocked) or the removal marker at the hovered spot. */
+  private buildPreview(): void {
+    const scene = this.scene;
+    if (!scene) return;
+    const build = this.hooks.build();
+    const zoo = this.zoo();
+    const habitat = build && zoo ? habitatAt(zoo, build.cell) : null;
+    if (!build || !habitat || !this.spot || !build.tool) {
+      if (build) {
+        scene.setItemGhost(build.cell, null);
+        scene.setSpotMark(build.cell, null);
+      }
+      return;
+    }
+    const { x, y } = this.spot;
+    if (build.tool === "remove") {
+      scene.setItemGhost(build.cell, null);
+      const item = itemAt(habitat, x, y);
+      scene.setSpotMark(build.cell, item ? { x: item.x, y: item.y, size: itemSize(item.kind) } : { x, y, size: 1, color: 0xfff6d8 });
+      return;
+    }
+    const size = itemSize(build.tool);
+    // Bigger items: the cursor spot is their top-left; clamp so they stay inside.
+    const gx = Math.min(x, 8 - size);
+    const gy = Math.min(y, 8 - size);
+    const ok = itemFits(habitat, build.tool, gx, gy) && habitat.items.length < MAX_ITEMS && (this.city?.funds ?? 0) >= ITEM_INFO[build.tool].cost;
+    scene.setSpotMark(build.cell, null);
+    scene.setItemGhost(build.cell, { kind: build.tool, x: gx, y: gy, size, rot: build.rot, ok });
+  }
+
+  private buildClick(clientX: number, clientY: number): boolean {
+    const build = this.hooks.build();
+    const scene = this.scene;
+    if (!build || !scene) return false;
+    const spot = scene.pickSpot(build.cell, clientX, clientY);
+    if (!spot) return false;
+    if (build.tool && build.tool !== "remove") {
+      const size = itemSize(build.tool);
+      spot.x = Math.min(spot.x, 8 - size);
+      spot.y = Math.min(spot.y, 8 - size);
+      const zoo = this.zoo();
+      const habitat = zoo ? habitatAt(zoo, build.cell) : null;
+      if (habitat && !itemFits(habitat, build.tool, spot.x, spot.y)) {
+        this.notice("Hier steht schon etwas.");
+        this.hooks.sound("reject");
+        return true;
+      }
+    }
+    this.hooks.buildAt(spot.x, spot.y);
+    this.spot = spot;
+    this.buildPreview();
+    return true;
   }
 
   // ------------------------------------------------------------ crowd effects
@@ -419,6 +559,12 @@ export class ParkView {
         }
         return;
       }
+      const build = this.hooks.build();
+      if (build) {
+        this.spot = scene.pickSpot(build.cell, event.clientX, event.clientY);
+        this.buildPreview();
+        return;
+      }
       const tile = scene.pick(event.clientX, event.clientY).tile;
       if (this.drag) {
         if (tile >= 0) this.drag.tile = tile;
@@ -449,6 +595,8 @@ export class ParkView {
     canvas.addEventListener("pointerleave", () => {
       if (this.drag || this.pointers.size) return;
       this.hover = -1;
+      this.spot = null;
+      this.buildPreview();
       this.preview();
     });
     canvas.addEventListener("wheel", (event) => {
@@ -461,19 +609,30 @@ export class ParkView {
     const scene = this.scene!;
     const zoo = this.zoo();
     if (!zoo?.park) return;
+    if (this.hooks.build() && this.buildClick(clientX, clientY)) return;
     const tile = scene.pick(clientX, clientY).tile;
-    if (tile < 0) return;
     if (isHabitat(this.tool)) {
+      if (tile < 0) return;
       this.hooks.command({ op: "pbuild", kind: this.tool, cells: [this.anchorFor(tile)] });
       this.hooks.sound("place");
       return;
     }
     if (this.tool === "entrance") {
+      if (tile < 0) return;
       this.hooks.command({ op: "pbuild", kind: "entrance", cells: [tile] });
       this.hooks.sound("place");
       return;
     }
-    // Select: habitats open their panel, stands tell what they earn.
+    // Select: animals open their card, habitats their panel, stands tell what they earn.
+    if (!this.hooks.build()) {
+      const id = scene.pickAnimal(clientX, clientY);
+      if (id >= 0) {
+        this.hooks.sound("click");
+        this.hooks.animal(id);
+        return;
+      }
+    }
+    if (tile < 0) return;
     const habitat = habitatAtTile(zoo.habitats, tile);
     if (habitat) {
       this.hooks.sound("click");
@@ -681,9 +840,12 @@ export class ParkView {
 
   private renderHint(): void {
     const tool = this.tool;
-    let text = "Gehege anklicken für Tiere und Innenansicht. Ziehen verschiebt, Mausrad zoomt, rechte Taste dreht.";
-    if (window.matchMedia("(pointer: coarse)").matches) text = "Gehege antippen für Tiere und Innenansicht. Ziehen verschiebt, zwei Finger zoomen.";
-    if (tool === "clear") text = "Abriss: tippen oder eine Fläche ziehen. Der Eingang bleibt stehen.";
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    let text = "Gehege anklicken für Tiere und Bau-Modus. Ziehen verschiebt, Mausrad zoomt, rechte Taste dreht.";
+    if (coarse) text = "Gehege antippen für Tiere und Bau-Modus. Ziehen verschiebt, zwei Finger zoomen.";
+    const build = this.hooks.build();
+    if (build) text = build.tool === "remove" ? "Entfernen: Gegenstand im Gehege antippen." : build.tool ? `${ITEM_INFO[build.tool].name}: freies Feld im Gehege ${coarse ? "antippen" : "anklicken"}${coarse ? "" : " · R dreht"} · Esc beendet.` : "Bau-Modus: Gegenstand im Panel wählen.";
+    else if (tool === "clear") text = "Abriss: tippen oder eine Fläche ziehen. Der Eingang bleibt stehen.";
     else if (tool === "path") text = `Weg: ziehen legt eine Strecke (${PARK_INFO.path.cost} € pro Feld). Besucher laufen nur auf Wegen.`;
     else if (tool === "entrance") text = "Eingang: ein Feld am Rand des Parks wählen.";
     else if (isHabitat(tool)) text = `${HABITAT_INFO[tool].name}: 5 × 5 Felder, direkt an einen Weg setzen. ${euro.format(HABITAT_COST[tool])} €.`;
@@ -692,7 +854,7 @@ export class ParkView {
       this.hint.textContent = text;
       // The look-around hint fades after a few seconds; tool hints stay while the tool is active.
       this.hint.classList.remove("idle");
-      if (!tool) {
+      if (!tool && !build) {
         void this.hint.offsetWidth;
         this.hint.classList.add("idle");
       }
@@ -748,10 +910,36 @@ export class ParkView {
         this.scene.lookAt(x, z, distance);
         if (azimuth !== undefined) this.scene.azimuth = azimuth;
       },
+      spotScreen: (x: number, y: number) => {
+        const build = this.hooks.build();
+        return build && this.scene ? this.scene.spotScreen(build.cell, x, y) : null;
+      },
+      animalScreen: (id: number) => this.scene?.animalScreen(id) ?? null,
+      bursts: () => this.scene?.burstCount() ?? 0,
+      flying: () => this.scene?.flying ?? false,
+      camera: () => (this.scene ? { x: this.scene.target.x, z: this.scene.target.z, distance: this.scene.distance } : null),
+      dimOn: () => !this.dim.hidden,
       stats: () => (this.scene ? { ...this.scene.stats(), ...this.counters, bubbles: this.bubbles.size, zoo: this.scene.zoo.stats() } : null),
       walkers: () => this.scene?.crowd.walkers.filter((w) => w.state !== "gone").map((w) => ({ id: w.id, x: w.x, y: w.y, state: w.state })) ?? [],
     };
   }
+}
+
+/** Convex hull (monotone chain) of screen points, counter-clockwise. */
+function convexHull(points: { x: number; y: number }[]): { x: number; y: number }[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: { x: number; y: number }[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: { x: number; y: number }[] = [];
+  for (const p of sorted.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
 /** Plain helper for tests: species names of a habitat. */
