@@ -7,6 +7,19 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.52",
+    at: "20. Nov 2026, 03:13 Uhr",
+    title: "Achterbahnen und einstellbare Preise",
+    items: [
+      "Neu im Tierpark-Baumenü: „🎢 Achterbahn“. Station neben einen Weg setzen (R dreht), dann Stück für Stück bauen: Gerade, Kurve links/rechts, Steigung mit Kettenlift, Abfahrt und Looping – mit grün/roter Vorschau, „Rückgängig“ und „🔁 Schließen“, das den Kurs automatisch zur Station zurückführt. Hohe Strecken dürfen über Wege führen.",
+      "Jede Bahn hat Schienen, Schwellen, Stützen und einen Zug, der mit Schwerkraft und Kettenlift fährt. Wie in RollerCoaster Tycoon gibt es Bewertungen für Aufregung, Intensität und Übelkeit – aus Höhe, Gefällen, Loopings, Kurven, Tempo und schöner Umgebung (Gehege, Bäume, Blumen).",
+      "Zustände Geschlossen, Testfahrt und Geöffnet: Die Testfahrt prüft, ob der Zug die Runde schafft, und schaltet die Bewertung frei. Geöffnet laufen Besucher zur Station, zahlen, fahren mit und zeigen ihre Laune (🤩 😀 🤢 oder „Zu teuer“). Das Panel zeigt Bewertung, Ticketpreis, Fahrgäste und Einnahmen.",
+      "„🎥 Mitfahren“: Ego-Kamera im vorderen Wagen, auch durch den Looping, mit Name, km/h und „Aussteigen“ (oder Esc).",
+      "Preise einstellen: Ein Klick auf Essensstand, Getränkestand oder Souvenirshop öffnet ein kleines Panel mit Kosten, Preis (−/+ oder Schieberegler), Verkäufen und Umsatz pro Tag und der Meinung der Besucher. Teurer heißt weniger Käufer und sinkende Zufriedenheit, günstig freut die Gäste. Achterbahn-Tickets funktionieren genauso.",
+      "Im Koop prüft der Server jedes Bauteil, jeden Zustandswechsel und jeden Preis. Alte Spielstände laden ohne Änderung. Pixel-Art, Comic und Handy werden unterstützt; eine Achterbahn kostet nur wenige zusätzliche Draw Calls.",
+    ],
+  },
+  {
     version: "0.51",
     at: "20. Nov 2026, 01:58 Uhr",
     title: "Gehege-Bau-Modus direkt im Tierpark",
