@@ -151,6 +151,18 @@ async function main(): Promise<void> {
   check(petB.trust > trustBefore && petB.react?.kind === "pet", `Ben sieht Vertrauen ${trustBefore} → ${petB.trust} und die Reaktion`);
   check(await settle(anna, ben), "Tierliste nach Kauf/Umbenennen/Streicheln identisch");
 
+  // Build mode (0.51): Ben sets a turned 2×2 pond, Anna's overlapping rock is refused by the server.
+  const pond = await send(ben, { op: "place", cell: meadow, item: "pool", x: 3, y: 1, rot: 1 });
+  check(pond.ok, `Ben setzt einen Teich im Bau-Modus (${pond.reason ?? "ok"})`);
+  const overlap = await send(anna, { op: "place", cell: meadow, item: "rock", x: 4, y: 2 });
+  check(!overlap.ok, "Server lehnt Felsen auf dem Teich ab (2 × 2 Felder)");
+  const turned = await send(anna, { op: "place", cell: meadow, item: "hay", x: 0, y: 0, rot: 3 });
+  check(turned.ok, `Anna setzt gedrehtes Heu (${turned.reason ?? "ok"})`);
+  await wait(400);
+  const itemsOf = (who: Client) => JSON.stringify(zooOf(who)!.habitats.find((h) => h.cell === meadow)!.items);
+  const annaItems = zooOf(anna)!.habitats.find((h) => h.cell === meadow)!.items;
+  check(itemsOf(anna) === itemsOf(ben) && annaItems.some((i) => i.kind === "pool" && i.rot === 1) && annaItems.some((i) => i.kind === "hay" && i.rot === 3), "Beide sehen dieselbe Einrichtung mit Drehung");
+
   // Birth on the server.
   let child: Animal | undefined;
   const until = Date.now() + 30_000;

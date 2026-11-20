@@ -205,6 +205,16 @@ function newest(city: CityState): Animal {
   ok(!run(city, { op: "place", cell, item: "rock", x: 1, y: 1 }).ok, "spot taken");
   const shelter = h().items.find((i) => i.kind === "shelter")!;
   ok(run(city, { op: "take", cell, item: shelter.id }).ok && !h().items.some((i) => i.kind === "shelter"), "take item");
+  // Build mode (0.51): turned items, new kinds, 2 × 2 pond footprint.
+  ok(run(city, { op: "place", cell, item: "hay", x: 0, y: 7, rot: 3 }).ok && h().items.find((i) => i.kind === "hay")?.rot === 3, "turned item keeps its rotation");
+  ok(run(city, { op: "place", cell, item: "tree", x: 7, y: 7 }).ok, "place tree");
+  ok(run(city, { op: "place", cell, item: "pool", x: 3, y: 2 }).ok, "place 2×2 pond");
+  ok(!run(city, { op: "place", cell, item: "rock", x: 4, y: 3 }).ok, "pond covers its 2×2 spots");
+  ok(!run(city, { op: "place", cell, item: "pool", x: 7, y: 0 }).ok, "pond must fit inside the grid");
+  ok(!run(city, { op: "place", cell, item: "pool", x: 2, y: 1 }).ok, "pond must not overlap another item");
+  ok(run(city, { op: "place", cell, item: "rock", x: 5, y: 2 }).ok, "spot next to the pond is free");
+  const pond = h().items.find((i) => i.kind === "pool")!;
+  ok(run(city, { op: "take", cell, item: pond.id }).ok && run(city, { op: "place", cell, item: "rock", x: 4, y: 3 }).ok, "removed pond frees its spots");
 }
 
 // 6. Care: pet/play/feed/vet with cooldown, play needs a toy; renaming.
@@ -383,12 +393,14 @@ function newest(city: CityState): Animal {
   evil.progress.zoo.animals.push({ id: 5, name: "<b>x</b>".repeat(9), species: "dragon", genes: { size: 99 } });
   evil.progress.zoo.animals[0].genes.size = 50;
   evil.progress.zoo.animals[0].name = "";
-  evil.progress.zoo.habitats[0].items.push({ kind: "bomb", x: 99 }, { kind: "rock", x: 99, y: -3 });
+  evil.progress.zoo.habitats[0].items.push({ kind: "bomb", x: 99 }, { kind: "rock", x: 99, y: -3 }, { id: 77, kind: "pool", x: 7, y: 7, rot: 9 });
   writeCity(mirror, packCells(city), evil);
   const clean = mirror.progress!.zoo!;
   ok(clean.animals.length === 1, "unknown species dropped");
   ok(clean.animals[0].genes.size <= 1.2 && clean.animals[0].name === "Namenlos", "genes clamped, empty name replaced");
   ok(clean.habitats[0].items.every((i) => i.x >= 0 && i.x < 8 && i.y >= 0 && i.y < 8 && i.kind !== ("bomb" as never)), "items sanitized");
+  const pool = clean.habitats[0].items.find((i) => i.kind === "pool");
+  ok(pool && pool.x === 6 && pool.y === 6 && (pool.rot ?? 0) >= 0 && (pool.rot ?? 0) <= 3, "2×2 pond clamped into the grid, rotation sanitized");
   // old save without zoo / without progress
   const old = JSON.parse(JSON.stringify(cityToSave(city, "Alt")));
   delete old.meta.progress.zoo;
@@ -413,6 +425,8 @@ function newest(city: CityState): Animal {
   ok(parse({ op: "buy", cell: 4, species: "lion", origin: "born" }) === null, "origin whitelist");
   ok(parse({ op: "place", cell: 4, item: "toy", x: 8, y: 0 }) === null, "item position range");
   ok(parse({ op: "place", cell: 4, item: "lava", x: 1, y: 1 }) === null, "item whitelist");
+  ok((parse({ op: "place", cell: 4, item: "pool", x: 1, y: 1, rot: 2 }) as { zoo: { rot?: number } } | null)?.zoo.rot === 2, "parse turned pond");
+  ok(parse({ op: "place", cell: 4, item: "hay", x: 1, y: 1, rot: 4 }) === null, "rotation range");
   ok(parse({ op: "care", animal: 3, act: "pet" })?.type === "zoo", "parse care");
   ok(parse({ op: "care", animal: 3, act: "kick" }) === null, "care whitelist");
   ok(parse({ op: "rename", animal: 3, name: "x".repeat(40) }) === null, "rename length");
