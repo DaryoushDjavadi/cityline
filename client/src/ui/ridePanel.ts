@@ -155,6 +155,7 @@ export class RidePanel {
     this.el.hidden = false;
     document.body.dataset.ridePanel = "on";
     this.render();
+    this.body.scrollTop = 0;
     this.hooks.layout(true);
   }
 
@@ -169,6 +170,7 @@ export class RidePanel {
   setEditing(on: boolean): void {
     this.editing = on;
     this.render();
+    this.body.scrollTop = 0;
     this.hooks.layout(true);
   }
 
@@ -292,7 +294,7 @@ export class RidePanel {
         <div class="rp-pieces">${pieces}</div>
         <div class="zoo-actions small rp-edit">
           <button type="button" data-act="undo" ${coaster.pieces.length ? "" : "disabled"}>↶ Rückgängig</button>
-          <button type="button" data-act="close-track" ${!layout.closed && route && route.length ? "" : "disabled"}>🔁 Schließen${route && route.length ? ` · ${route.length} Teile · ${euro.format(routeCost)} €` : ""}</button>
+          <button type="button" data-act="close-track" ${!layout.closed && route && route.length ? "" : "disabled"}>🔁 Schließen${route && route.length ? `<small>${route.length} Teile · ${euro.format(routeCost)} €</small>` : ""}</button>
           <button type="button" data-act="edit-done" class="zoo-primary">✓ Fertig</button>
         </div>
         ${status}`;

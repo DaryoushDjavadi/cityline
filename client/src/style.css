@@ -3859,7 +3859,9 @@ body[data-look="shot"] #ride-panel { display: none !important; }
 .rp-piece.bad { opacity: 0.5; }
 .rp-piece.bad small { color: #ffb0a0; }
 .rp-piece:hover { background: rgba(255, 240, 210, 0.13); }
-.rp-edit button { white-space: nowrap; }
+.rp-edit button { white-space: nowrap; flex: 0 1 auto; }
+.rp-edit [data-act="close-track"] { flex: 1 1 auto; line-height: 1.15; }
+.rp-edit [data-act="close-track"] small { display: block; font-size: 10.5px; opacity: 0.75; font-weight: 500; }
 .rp-status { margin: 2px 0 10px; padding: 6px 9px; border-radius: 10px; font-size: 12px; line-height: 1.4; background: rgba(255, 240, 210, 0.07); }
 .rp-status.ok { background: rgba(120, 200, 110, 0.18); color: #d6f2c8; }
 .rp-status em { color: #ffc0a8; font-style: normal; }

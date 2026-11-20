@@ -455,7 +455,7 @@ export function parkEconomy(summary: ParkSummary, visitors: number, animalMood: 
     if (ride.state !== "closed") upkeep += RIDE_UPKEEP;
     if (ride.state !== "open" || ride.excitement <= 0) continue;
     const fair = rideFair(ride.excitement);
-    const want = visitors * (0.03 + ride.excitement * 0.012) * mood * priceFactor(ride.price, fair);
+    const want = visitors * (0.015 + ride.excitement * 0.007) * mood * priceFactor(ride.price, fair);
     const riders = Math.round(Math.min(RIDE_CAP, want) * 100) / 100;
     const revenue = Math.round(riders * ride.price * 100) / 100;
     rides.push({ id: ride.id, price: ride.price, fair, riders, revenue, mood: priceMood(ride.price, fair) });

@@ -212,8 +212,8 @@ await page.waitForTimeout(150);
 const kmh = await pk<number>(page, "rideKmh");
 check(kmh > 5, `Tempo im HUD (${kmh} km/h)`);
 await page.screenshot({ path: path.join(SHOTS, "04-first-person.png") });
-await page.waitForFunction((id) => (window as any).__citylineE2E.parkUi().trainPiece(id)?.piece === 8, id, { timeout: 30_000 }).catch(() => undefined);
-await page.waitForTimeout(250);
+// Near the top of the loop (upside down).
+await page.waitForFunction((id) => { const at = (window as any).__citylineE2E.parkUi().trainPiece(id); return at?.piece === 8 && at.y > 3.2; }, id, { timeout: 30_000, polling: 16 }).catch(() => undefined);
 await page.screenshot({ path: path.join(SHOTS, "04b-looping.png") });
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);

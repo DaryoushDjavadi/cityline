@@ -37,6 +37,8 @@ const CAR_GAP = 1.12;
 /** Where the front car stops in the station (arc length). */
 const STOP_S = STATION_LEN * PARK_TILE - 0.75;
 const CAR_CAP = 16;
+/** Sideways shift of a loop (matches LOOP_W in shared/coaster.ts). */
+const LOOP_SIDE = 0.9;
 
 class MeshBuilder {
   readonly pos: number[] = [];
@@ -377,9 +379,17 @@ export class CoasterLayer {
         const top = own.reduce((best, p) => (p.y > best.y ? p : best), own[0]);
         t.set(...own[0].t).setY(0).normalize();
         s.set(-t.z, 0, t.x);
-        for (const side of [-1, 1]) {
-          const foot = new THREE.Vector3(top.x, 0, top.z).addScaledVector(s, side * 1.3 + 0.45);
-          const head = new THREE.Vector3(top.x, top.y - 0.1, top.z).addScaledVector(s, 0.45 + side * 0.45);
+        // Legs stay outside the loop (it spans 0…LOOP_W sideways); a beam over the top joins them.
+        const left = -0.38;
+        const right = 1.28;
+        const beamY = top.y + 0.12;
+        // Lateral 0 = the loop's entry line (the top sits halfway across).
+        const bx = top.x - s.x * LOOP_SIDE / 2;
+        const bz = top.z - s.z * LOOP_SIDE / 2;
+        const sn = s.clone().negate(); // (−s, Y, t) is right-handed
+        for (const [at, out] of [[left, -1.0], [right, 1.0]] as const) {
+          const foot = new THREE.Vector3(bx, 0, bz).addScaledVector(s, at + out);
+          const head = new THREE.Vector3(bx, beamY, bz).addScaledVector(s, at);
           const mid = foot.clone().add(head).multiplyScalar(0.5);
           const dir = head.clone().sub(foot);
           const len = dir.length();
@@ -387,7 +397,14 @@ export class CoasterLayer {
           const ax = new THREE.Vector3().crossVectors(dir, t).normalize();
           // (ax, dir, t) is right-handed: ax × dir = t.
           b.orientedBox(mid, ax, dir, t, 0.075, len / 2, 0.075, SUPPORT);
+          c.copy(foot).setY(0.04);
+          b.orientedBox(c, sn, Y, t, 0.16, 0.04, 0.16, 0xb8b0a0);
         }
+        // Cross beam over the top, and a short hanger down to the (inverted) track.
+        c.set(bx, beamY, bz).addScaledVector(s, (left + right) / 2);
+        b.orientedBox(c, sn, Y, t, (right - left) / 2 + 0.08, 0.06, 0.075, SUPPORT);
+        c.set(top.x, (beamY + top.y) / 2 + 0.05, top.z);
+        b.orientedBox(c, sn, Y, t, 0.05, Math.max(0.03, (beamY - top.y) / 2), 0.05, SUPPORT);
       }
       // Station building.
       const layout = coasterLayout(coaster);
@@ -475,7 +492,7 @@ export class CoasterLayer {
     const up = new THREE.Vector3(...at.up);
     // Look slightly ahead along the track so crests and loop entries read early.
     const forward = new THREE.Vector3(...at.t).multiplyScalar(0.55).add(new THREE.Vector3(...ahead.t).multiplyScalar(0.45)).normalize();
-    const position = new THREE.Vector3(at.x, at.y, at.z).addScaledVector(up, 1.0).addScaledVector(forward, 0.1);
+    const position = new THREE.Vector3(at.x, at.y, at.z).addScaledVector(up, 0.86).addScaledVector(forward, 0.1);
     return { position, forward, up, kmh: Math.round(train.speed * UNIT_M * 3.6) };
   }
 

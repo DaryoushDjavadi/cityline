@@ -925,7 +925,7 @@ export class ParkScene {
     // Look along the track (a little ahead), roll with it; smooth so joints don't jerk.
     this.rideLook.lookAt(pose.position, pose.position.clone().add(pose.forward), pose.up);
     this.rideQuat.setFromRotationMatrix(this.rideLook);
-    this.camera.quaternion.slerp(this.rideQuat, 1 - Math.exp(-dt * 12));
+    this.camera.quaternion.slerp(this.rideQuat, 1 - Math.exp(-dt * 30));
     this.camera.updateMatrixWorld();
   }
 
