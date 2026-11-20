@@ -145,7 +145,15 @@ const styles = ["standard", "pixel", "comic"] as const;
   }
   console.log("perf", JSON.stringify(perf));
   if (process.env.QUICK) {
+    await e2e(page, "setStyle", "standard");
+    await e2e(page, "setHour", 22.5);
+    await cityView(page);
+    await clean(page);
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: "/tmp/std-nacht.png" });
     await e2e(page, "setStyle", "pixel");
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: path.join(SHOTS, "stadt-pixel-nacht.png") });
     await e2e(page, "setHour", 18.2);
     await cityView(page);
     await clean(page);
@@ -162,6 +170,15 @@ const styles = ["standard", "pixel", "comic"] as const;
   await clean(page);
   await page.waitForTimeout(2500);
   await page.screenshot({ path: path.join(SHOTS, "stadt-pixel-daemmerung.png") });
+  for (const style of ["pixel", "comic"] as const) {
+    await e2e(page, "setStyle", style);
+    await e2e(page, "setHour", 22.5);
+    await cityView(page);
+    await clean(page);
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: path.join(SHOTS, `stadt-${style}-nacht.png`) });
+  }
+  await e2e(page, "setStyle", "pixel");
   await e2e(page, "setHour", 10);
   await page.waitForTimeout(800);
   // Tierpark in Pixel-Art and Comic.
