@@ -3,7 +3,8 @@
  * und Streicheln laufen über den Server und kommen bei beiden identisch an; der Server lässt ein
  * Jungtier zur Welt kommen, das bei beiden (und bei einem später beitretenden dritten Spieler)
  * bitgleich ist. Ein 0.47-Spielstand mit Gehegen in der Stadt wird vom Server in einen Tierpark
- * umgezogen, ohne dass ein Tier verloren geht.
+ * umgezogen, ohne dass ein Tier verloren geht. Achterbahn bauen, testen, öffnen und Preise setzen laufen
+ * ebenfalls über den Server und sind bei beiden identisch.
  *   CITYLINE_TICK_MS=20 PORT=8787 DATA_DIR=$(mktemp -d) npm start   →   npx tsx scripts/coop-zoo-check.ts
  */
 import { io } from "socket.io-client";
@@ -162,6 +163,41 @@ async function main(): Promise<void> {
   const itemsOf = (who: Client) => JSON.stringify(zooOf(who)!.habitats.find((h) => h.cell === meadow)!.items);
   const annaItems = zooOf(anna)!.habitats.find((h) => h.cell === meadow)!.items;
   check(itemsOf(anna) === itemsOf(ben) && annaItems.some((i) => i.kind === "pool" && i.rot === 1) && annaItems.some((i) => i.kind === "hay" && i.rot === 3), "Beide sehen dieselbe Einrichtung mit Drehung");
+
+  // Achterbahn and prices (0.52): every step goes through the server, both see the same ride.
+  // A cross path at y = 8, joined to the entrance path at x = 20 (cut at 22/23 above).
+  const lane = [...Array.from({ length: 25 }, (_, k) => parkIndex(8 + k, 8)), ...Array.from({ length: 15 }, (_, k) => parkIndex(20, 9 + k))];
+  check((await send(anna, { op: "pbuild", kind: "path", cells: lane })).ok, "Anna legt einen Weg für die Achterbahn");
+  const station = await send(anna, { op: "cstation", tile: parkIndex(12, 7), dir: 1 });
+  check(station.ok, `Anna setzt eine Station (${station.reason ?? "ok"})`);
+  const far = await send(ben, { op: "cstation", tile: parkIndex(3, 20), dir: 0 });
+  check(!far.ok && far.reason === "coaster_no_path", `Server lehnt eine Station ohne Weg ab (${far.reason})`);
+  await wait(400);
+  const rideId = zooOf(ben)?.coasters?.[0]?.id;
+  check(rideId !== undefined && zooOf(anna)?.coasters?.[0]?.id === rideId, "Ben sieht dieselbe Achterbahn");
+  const track = ["straight", "up", "up", "up", "up", "straight", "down", "down", "loop", "left", "straight", "left"];
+  let built = 0;
+  for (const [k, piece] of track.entries()) if ((await send(k % 2 ? ben : anna, { op: "cpiece", coaster: rideId, piece })).ok) built += 1;
+  check(built === track.length, `Beide bauen abwechselnd Teile (${built}/${track.length})`);
+  const sneaky = await send(ben, { op: "cpiece", coaster: rideId, piece: "corkscrew" });
+  check(!sneaky.ok, "Server lehnt unbekannte Streckenteile ab");
+  check((await send(ben, { op: "cclose", coaster: rideId })).ok, "Ben schließt den Rundkurs");
+  const early = await send(anna, { op: "cstate", coaster: rideId, state: "open" });
+  check(!early.ok && early.reason === "coaster_untested", `Öffnen ohne Testfahrt abgelehnt (${early.reason})`);
+  check((await send(anna, { op: "cstate", coaster: rideId, state: "test" })).ok, "Anna startet die Testfahrt");
+  check((await send(ben, { op: "cstate", coaster: rideId, state: "open" })).ok, "Ben öffnet die Bahn");
+  check((await send(ben, { op: "cprice", coaster: rideId, price: 8 })).ok, "Ben setzt den Ticketpreis auf 8 €");
+  check(!(await send(anna, { op: "cprice", coaster: rideId, price: 99 })).ok, "Server lehnt 99 € ab");
+  check((await send(anna, { op: "sprice", tile: parkIndex(19, 30), price: 6 })).ok, "Anna setzt den Pommes-Preis auf 6 €");
+  check(!(await send(ben, { op: "sprice", tile: parkIndex(20, 30), price: 6 })).ok, "Server lehnt einen Preis auf einem Weg ab");
+  await wait(500);
+  const rideA = zooOf(anna)!.coasters![0];
+  const rideB = zooOf(ben)!.coasters![0];
+  check(rideA.state === "open" && rideA.price === 8 && rideA.stats && rideA.stats.excitement > 0, `Anna: geöffnet, 8 €, Aufregung ${rideA.stats?.excitement}`);
+  check(JSON.stringify({ ...rideA, riders: 0, revenue: 0 }) === JSON.stringify({ ...rideB, riders: 0, revenue: 0 }), "Strecke, Zustand, Bewertung und Preis bei beiden identisch");
+  check(zooOf(anna)!.prices?.[parkIndex(19, 30)] === 6 && zooOf(ben)!.prices?.[parkIndex(19, 30)] === 6, "Standpreis bei beiden");
+  await wait(2500);
+  check((zooOf(ben)!.coasters![0].riders ?? 0) > 0, `Server zählt Fahrgäste (${Math.round(zooOf(ben)!.coasters![0].riders)})`);
 
   // Birth on the server.
   let child: Animal | undefined;

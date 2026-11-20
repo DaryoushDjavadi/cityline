@@ -20,3 +20,4 @@ export * from "./progress.ts";
 export * from "./orders.ts";
 export * from "./zoo.ts";
 export * from "./park.ts";
+export * from "./coaster.ts";
