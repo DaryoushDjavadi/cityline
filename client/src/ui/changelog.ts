@@ -7,6 +7,18 @@ export interface PatchNote {
 
 export const CHANGELOG: PatchNote[] = [
   {
+    version: "0.51",
+    at: "20. Nov 2026, 01:58 Uhr",
+    title: "Gehege-Bau-Modus direkt im Tierpark",
+    items: [
+      "Die eigene Gehege-Innenansicht ist weg: Alles passiert jetzt im Tierpark selbst. Ein Klick aufs Gehege lässt die Kamera sanft heranfahren und öffnet das Gehege-Panel; ein Klick auf ein Tier öffnet seine Karte.",
+      "Neu im Panel: „🔨 Bauen“. Im Bau-Modus wird der übrige Park leicht abgedunkelt, über dem Gehege liegt ein Raster. Näpfe, Tröge, Spielzeug, Felsen, Unterstände und neu Bäume, Heu und Teiche (2 × 2 Felder) setzt du direkt aufs Gehege – mit Vorschau (grün passt, rot belegt), Drehen per R oder ⟳ und „Entfernen“. Esc oder „✓ Fertig“ beendet den Bau-Modus.",
+      "Gehege sehen im Park jetzt so aus wie früher nur innen: bemalter Boden je Gehegetyp, wiegendes Gras, Büsche, Blumen, Steine, Teiche mit Wellen, Eisschollen, Heuballen. Die Einrichtung ist auch aus der Parkübersicht zu sehen.",
+      "Streicheln, Spielen, Füttern und Tierarzt zeigen Herzen und Sterne direkt am Tier im Park; das gewählte Tier bleibt stehen und bekommt einen Ring. Namensschilder, Umbenennen, Gene, Stammbaum, Zucht, Tierkauf mit Herkunft und der Pfleger (läuft jetzt sichtbar im Gehege herum) funktionieren wie gewohnt.",
+      "Bestehende Spielstände übernehmen ihre Einrichtung 1:1 ins Parkgehege. Im Koop prüft weiter der Server jede Platzierung. Das ganze Gehege-Dekor samt Möbeln braucht nur wenige Draw Calls, und es gibt kein zweites WebGL-Canvas mehr.",
+    ],
+  },
+  {
     version: "0.50",
     at: "20. Nov 2026, 01:12 Uhr",
     title: "Grafikstile: Pixel-Art und Comic",

@@ -425,13 +425,6 @@ export class Game {
       closed: () => {
         this.selected = -1;
       },
-      interior: (open) => {
-        document.body.dataset.zooInterior = open ? "on" : "off";
-        if (!open) {
-          this.resize();
-          this.parkView?.resize();
-        }
-      },
     });
     this.parkView = new ParkView({
       command: (zoo) => this.applyLocal({ type: "zoo", zoo }),
@@ -452,12 +445,18 @@ export class Game {
       },
       mode: (open) => {
         this.zooView.hide();
+        this.zooView.park = open ? this.parkView.bridge : null;
         this.setTool("inspect");
         this.hud.hideInspect();
         if (!open) this.resize();
       },
       habitat: (cell) => this.zooView.showHabitat(this.city, cell),
+      animal: (id) => this.zooView.showAnimal(this.city, id),
       closeHabitat: () => this.zooView.hide(),
+      build: () => this.zooView.buildMode,
+      buildAt: (x, y) => this.zooView.buildAt(x, y),
+      endBuild: () => this.zooView.setBuilding(false),
+      frame: () => this.zooView.frame(),
       flash: (text) => this.flash(text),
     });
     bindAudioControls();
@@ -1016,12 +1015,6 @@ export class Game {
   private frame(time: number): void {
     const dt = Math.min(0.05, (time - this.lastFrame) / 1000);
     this.lastFrame = time;
-    if (this.zooView.interiorOpen) {
-      // Interior view: its own scene; the city waits.
-      this.zooView.frame(dt);
-      requestAnimationFrame((next) => this.frame(next));
-      return;
-    }
     if (this.parkView.isOpen) {
       // Tierpark level: its own scene; the city waits (the simulation keeps running).
       this.parkView.frame(dt);
@@ -2103,7 +2096,6 @@ export class Game {
     this.lastShipments = [];
     this.life.reset();
     this.orders.reset();
-    this.zooView.closeInterior();
     this.zooView.closeShop();
     this.zooView.hide();
     this.parkView.close();
@@ -2192,7 +2184,6 @@ export class Game {
   private flash(text: string): void {
     this.statusUntil = performance.now() + 2600;
     this.hud.flashStatus(text);
-    this.zooView?.notice(text);
     this.parkView?.notice(text);
   }
 

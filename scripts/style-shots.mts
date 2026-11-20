@@ -194,19 +194,20 @@ const styles = ["standard", "pixel", "comic"] as const;
     const stats = await pk<{ drawCalls: number }>(page, "stats");
     console.log("park", style, JSON.stringify(stats));
   }
-  // Interior in Pixel-Art.
+  // Habitat close-up (camera flies in on click) in Pixel-Art and Comic, with build mode.
   await e2e(page, "setStyle", "pixel");
   await pk(page, "openHabitat", P(15, 33));
-  await page.waitForTimeout(300);
-  const list = page.locator('#zoo-panel [data-act="list"]');
-  if (await list.isVisible().catch(() => false)) await list.click();
-  await page.locator("#zoo-open-interior").click();
-  await page.waitForTimeout(1500);
-  await page.screenshot({ path: path.join(SHOTS, "innen-pixel.png") });
+  await page.waitForFunction(() => !(window as any).__citylineE2E.parkUi().flying(), undefined, { timeout: 8000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
+  await clean(page);
+  await page.screenshot({ path: path.join(SHOTS, "gehege-pixel.png") });
   await e2e(page, "setStyle", "comic");
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: path.join(SHOTS, "innen-comic.png") });
-  await page.locator("#zoo-interior .zi-back").click();
+  await page.locator("#zoo-build").click();
+  await page.waitForTimeout(1200);
+  await clean(page);
+  await page.screenshot({ path: path.join(SHOTS, "gehege-comic-bauen.png") });
+  check(await page.locator("#pk-dim").isVisible(), "Bau-Modus dimmt den Park auch im Comic-Stil");
+  await page.locator("#zb-done").click();
   await page.locator("#zoo-close").click().catch(() => undefined);
   await pk(page, "leave");
   await settings(page);

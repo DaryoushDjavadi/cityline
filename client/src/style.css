@@ -3619,71 +3619,66 @@ body[data-look="shot"] #zoo-panel { display: none !important; }
 .shop-card .shop-foot p { flex: 1; margin: 0; font-size: 12px; color: rgba(246, 236, 216, 0.75); }
 .shop-card .shop-foot button { min-height: 42px; padding: 8px 18px; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid; }
 
-/* Interior */
-#zoo-interior { position: fixed; inset: 0; z-index: 20; background: #bfd9e6; pointer-events: auto; }
-body[data-zoo-interior="on"] #zoo-panel,
-body[data-zoo-interior="on"] #hud > *:not(#toast):not(#status) { visibility: hidden; }
-#zoo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-#zoo-tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+/* Shared bits of the park bars, name tags over animals in the park */
+#zoo-tags { position: fixed; inset: 0; z-index: 19; pointer-events: none; overflow: hidden; }
 .zi-tag {
   position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; white-space: nowrap;
   background: rgba(44, 30, 18, 0.72); color: #fff4dc; border: 1px solid rgba(240, 205, 125, 0.35);
 }
 .zi-tag.on { background: #f0cd7d; color: #3a2410; }
-.zi-top {
-  position: absolute; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-  border-radius: 16px; background: linear-gradient(180deg, rgba(58, 40, 24, 0.94), rgba(42, 30, 18, 0.94)); color: #f6ecd8;
-  border: 1px solid rgba(232, 190, 120, 0.45); box-shadow: 0 10px 30px rgba(12, 8, 4, 0.35);
-}
 .zi-back { min-height: 38px; padding: 6px 14px; border-radius: 11px; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid #f6d690; background: linear-gradient(180deg, #f2c66a, #d99a3c); color: #3a2410; }
 .zi-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .zi-title small { font-size: 10.5px; color: #f0cd7d; text-transform: uppercase; letter-spacing: 0.08em; }
 .zi-title b { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.zi-info { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.zi-info button { flex: none; min-height: 34px; font-size: 12.5px; }
 .zi-chip { white-space: nowrap; padding: 5px 9px; border-radius: 9px; font-size: 12.5px; font-weight: 600; background: rgba(255, 240, 210, 0.08); }
 .zi-chip.bad { color: #ffb0a0; background: rgba(232, 100, 80, 0.2); }
-.zi-tools {
-  position: absolute; left: 12px; top: 84px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 16px;
-  background: rgba(42, 30, 18, 0.88); border: 1px solid rgba(232, 190, 120, 0.4);
+.zoo-tip { margin: 6px 0 0; font-size: 11.5px; color: rgba(246, 236, 216, 0.6); }
+
+/* Habitat build mode (in the park) */
+#zoo-build { font-weight: 800; }
+.zb-hint { margin: 2px 0 8px; font-size: 12.5px; line-height: 1.4; color: rgba(246, 236, 216, 0.85); }
+.zb-palette { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.zb-item {
+  display: grid; grid-template-rows: auto auto auto; justify-items: center; gap: 1px; padding: 7px 4px 6px; border-radius: 12px; cursor: pointer;
+  border: 1px solid rgba(232, 205, 150, 0.2); background: rgba(255, 240, 210, 0.06); color: #f6ecd8; font: inherit;
 }
-.zi-tools button {
-  display: grid; grid-template-columns: 28px 1fr; grid-template-rows: auto auto; column-gap: 6px; align-items: center; width: 132px; padding: 5px 8px;
-  border-radius: 11px; border: 1px solid rgba(232, 205, 150, 0.18); background: rgba(255, 240, 210, 0.05); color: #f6ecd8; font: inherit; text-align: left; cursor: pointer;
-}
-.zi-tools button span { grid-row: span 2; font-size: 20px; text-align: center; }
-.zi-tools button b { font-size: 12.5px; }
-.zi-tools button small { font-size: 10.5px; color: rgba(246, 236, 216, 0.65); }
-.zi-tools button.on { border-color: #f0cd7d; background: rgba(240, 205, 125, 0.22); }
-.zi-side {
-  position: absolute; right: 12px; top: 84px; bottom: 12px; width: 350px; overflow-y: auto; padding: 10px 12px; border-radius: 16px;
-  background: linear-gradient(180deg, rgba(58, 40, 24, 0.95), rgba(42, 30, 18, 0.95)); border: 1px solid rgba(232, 190, 120, 0.45); color: #f6ecd8;
-  scrollbar-width: thin;
-}
-.zi-hint {
-  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 12px; max-width: calc(100% - 24px);
-  background: rgba(42, 30, 18, 0.82); color: #f6ecd8; font-size: 12.5px; text-align: center; pointer-events: none;
+.zb-item span { font-size: 22px; line-height: 1.1; }
+.zb-item b { font-size: 12px; }
+.zb-item small { font-size: 10.5px; color: rgba(246, 236, 216, 0.65); }
+.zb-item:hover { background: rgba(255, 240, 210, 0.12); }
+.zb-item.on { border-color: #f0cd7d; background: rgba(240, 205, 125, 0.24); box-shadow: inset 0 0 0 1px rgba(240, 205, 125, 0.5); }
+.zb-item.poor { opacity: 0.55; }
+.zb-row button:disabled { opacity: 0.45; cursor: default; }
+.zb-row button.on { border-color: #ff9a7a; background: rgba(232, 100, 80, 0.22); }
+.zb-count { margin: 4px 0 0; font-size: 11.5px; color: rgba(246, 236, 216, 0.6); }
+#pk-dim { position: absolute; inset: 0; pointer-events: none; background: rgba(18, 14, 30, 0.36); transition: opacity 0.25s; }
+#pk-dim[hidden] { display: none; }
+body[data-zoo-build="on"] #park-view .pk-build { visibility: hidden; }
+/* Desktop: with the habitat panel open, bars and hints centre in the free part of the park. */
+@media (min-width: 1101px) and (min-height: 521px) {
+  body[data-park="on"][data-zoo="on"] #park-view .pk-build,
+  body[data-park="on"][data-zoo="on"] #park-view .pk-hint { left: calc((100% - 388px) / 2); max-width: calc(100% - 412px); }
 }
 @media (max-width: 1100px), (max-height: 520px) {
   #zoo-panel {
     top: auto; right: max(8px, env(safe-area-inset-right)); left: max(8px, env(safe-area-inset-left));
     bottom: max(64px, calc(env(safe-area-inset-bottom) + 56px)); width: auto; max-width: 420px; margin-left: auto; max-height: min(62dvh, 560px);
   }
-  .zi-top { left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); top: max(6px, env(safe-area-inset-top)); padding: 6px 8px; gap: 6px; flex-wrap: wrap; }
   .zi-back { min-height: 34px; padding: 4px 10px; }
   .zi-title b { font-size: 14px; }
-  .zi-info { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 5px; }
-  .zi-info button { min-height: 30px; padding: 4px 8px; white-space: nowrap; font-size: 12px; }
-  .zi-info .zi-chip { padding: 4px 7px; font-size: 12px; }
-  .zi-tools { left: 6px; right: 6px; top: auto; bottom: 6px; flex-direction: row; overflow-x: auto; padding: 6px; scrollbar-width: none; }
-  .zi-tools button { width: auto; min-width: 92px; grid-template-columns: 22px auto; }
-  .zi-tools button span { font-size: 17px; }
-  .zi-side { left: 6px; right: 6px; top: auto; bottom: 74px; width: auto; max-height: 52dvh; }
-  .zi-hint { bottom: 78px; font-size: 11.5px; }
-  body[data-zoo-interior="on"] .zi-side:not([hidden]) ~ .zi-hint { display: none; }
   .shop-origins { grid-template-columns: 1fr; }
   .shop-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  /* Build mode: a slim sheet, palette scrolls sideways so the habitat stays visible. */
+  #zoo-panel.building { max-height: none; padding: 8px 6px 8px 10px; }
+  #zoo-panel.building .panel-head { margin-bottom: 0; }
+  #zoo-panel.building .zb-hint { margin: 0 0 6px; font-size: 11.5px; }
+  #zoo-panel.building .zb-palette { display: flex; overflow-x: auto; scrollbar-width: none; gap: 5px; margin-bottom: 6px; }
+  #zoo-panel.building .zb-item { flex: none; min-width: 74px; padding: 5px 4px; }
+  #zoo-panel.building .zb-item span { font-size: 19px; }
+  #zoo-panel.building .zb-count { display: none; }
+  #zoo-panel.building .zoo-actions button { min-height: 34px; }
 }
+
 .zi-toast {
   position: absolute; left: 50%; top: 76px; transform: translateX(-50%); margin: 0; padding: 9px 16px; border-radius: 12px; max-width: min(560px, calc(100% - 24px));
   background: #f6e7c4; color: #3a2410; font-size: 13px; font-weight: 600; box-shadow: 0 10px 26px rgba(12, 8, 4, 0.3); text-align: center;
@@ -3717,8 +3712,7 @@ body[data-look="shot"] #park-gate { display: none !important; }
 #park-view { position: fixed; inset: 0; z-index: 18; background: #cfe3ea; pointer-events: auto; overflow: hidden; }
 body[data-park="on"] #hud > *:not(#toast):not(#status),
 body[data-park="on"] #life, body[data-park="on"] #event-card, body[data-park="on"] #feed-ticker, body[data-park="on"] #life-toast { visibility: hidden; }
-body[data-park="on"] #zoo-panel { z-index: 19; top: 72px; }
-body[data-park="on"][data-zoo-interior="on"] #zoo-panel { visibility: hidden; }
+body[data-park="on"] #zoo-panel { z-index: 20; top: 72px; }
 #park-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 #park-view[data-tool]:not([data-tool="select"]) #park-canvas { cursor: crosshair; }
 #park-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -3802,6 +3796,6 @@ body[data-park="on"][data-zoo-interior="on"] #zoo-panel { visibility: hidden; }
   .pk-hint { bottom: 122px; font-size: 11.5px; max-width: calc(100% - 16px); }
   #park-view.stats-on .pk-hint { visibility: hidden; }
   .pk-stats { bottom: 128px; }
-  body[data-park="on"] #zoo-panel { top: auto; bottom: 8px; z-index: 19; }
+  body[data-park="on"] #zoo-panel { top: auto; bottom: 8px; z-index: 20; }
   body[data-park="on"][data-zoo="on"] .pk-build, body[data-park="on"][data-zoo="on"] .pk-hint { visibility: hidden; }
 }

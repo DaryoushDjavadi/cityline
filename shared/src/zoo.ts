@@ -156,8 +156,8 @@ const MALE_NAMES = [
 const EITHER_NAMES = ["Sam", "Momo", "Pünktchen", "Socke", "Krümel", "Wolke", "Sunny", "Bambi", "Lucky", "Toni"];
 export const NAME_POOL = [...FEMALE_NAMES, ...MALE_NAMES, ...EITHER_NAMES];
 
-export type ItemKind = "food" | "water" | "toy" | "shelter" | "plant" | "rock";
-export const ITEM_KINDS: ItemKind[] = ["food", "water", "toy", "shelter", "plant", "rock"];
+export type ItemKind = "food" | "water" | "toy" | "shelter" | "plant" | "rock" | "tree" | "pool" | "hay";
+export const ITEM_KINDS: ItemKind[] = ["food", "water", "toy", "shelter", "plant", "rock", "tree", "pool", "hay"];
 export const ITEM_INFO: Record<ItemKind, { name: string; cost: number; blurb: string }> = {
   food: { name: "Futternapf", cost: 60, blurb: "Muss nachgefüllt werden (oder ein Pfleger macht das)." },
   water: { name: "Wassertrog", cost: 60, blurb: "Frisches Wasser. Leert sich mit der Zeit." },
@@ -165,11 +165,38 @@ export const ITEM_INFO: Record<ItemKind, { name: string; cost: number; blurb: st
   shelter: { name: "Unterstand", cost: 400, blurb: "Schatten und Rückzug. Wichtig für scheue Tiere." },
   plant: { name: "Pflanze", cost: 40, blurb: "Busch oder Gras. Etwas mehr Wohlfühlen." },
   rock: { name: "Felsen", cost: 50, blurb: "Zum Klettern und Sonnen." },
+  tree: { name: "Baum", cost: 90, blurb: "Schatten und etwas zum Knabbern. Zählt als Deko." },
+  pool: { name: "Teich", cost: 250, blurb: "Kleiner Teich (2 × 2 Felder) zum Baden. Zählt als Deko." },
+  hay: { name: "Heu", cost: 30, blurb: "Heuballen zum Knabbern und Kuscheln. Zählt als Deko." },
 };
+/** Kinds that count as decoration for animal well-being. */
+export const DECOR_ITEMS: ItemKind[] = ["plant", "rock", "tree", "pool", "hay"];
+/** Kinds where turning makes a visible difference. */
+export const TURNABLE_ITEMS: ItemKind[] = ["water", "toy", "shelter", "rock", "hay"];
+/** Footprint in grid spots (square). */
+export function itemSize(kind: ItemKind): number {
+  return kind === "pool" ? 2 : 1;
+}
+/** Does an item cover grid spot (x, y)? */
+export function itemCovers(item: { kind: ItemKind; x: number; y: number }, x: number, y: number): boolean {
+  const size = itemSize(item.kind);
+  return x >= item.x && y >= item.y && x < item.x + size && y < item.y + size;
+}
+/** Item standing on a grid spot (also the larger ones), or undefined. */
+export function itemAt(habitat: Habitat, x: number, y: number): HabitatItem | undefined {
+  return habitat.items.find((item) => itemCovers(item, x, y));
+}
+/** Can a new item of this kind stand with its top-left corner on (x, y)? */
+export function itemFits(habitat: Habitat, kind: ItemKind, x: number, y: number): boolean {
+  const size = itemSize(kind);
+  if (x < 0 || y < 0 || x + size > ITEM_GRID || y + size > ITEM_GRID) return false;
+  for (let dy = 0; dy < size; dy += 1) for (let dx = 0; dx < size; dx += 1) if (itemAt(habitat, x + dx, y + dy)) return false;
+  return true;
+}
 
 /** Interior grid is ITEM_GRID × ITEM_GRID. */
 export const ITEM_GRID = 8;
-export const MAX_ITEMS = 14;
+export const MAX_ITEMS = 20;
 export const HABITAT_SPACE = 8;
 export const MAX_ANIMALS = 72;
 export const NAME_MAX = 18;
@@ -247,6 +274,8 @@ export interface HabitatItem {
   y: number;
   /** 0–100 for bowls. */
   fill?: number;
+  /** Quarter turns (0–3), set in the build mode. */
+  rot?: number;
 }
 
 export interface Habitat {
@@ -576,7 +605,7 @@ export function stepZoo(city: CityState): void {
     }
     const shelter = habitat.items.some((item) => item.kind === "shelter");
     const toy = habitat.items.some((item) => item.kind === "toy");
-    const decor = Math.min(3, habitat.items.filter((item) => item.kind === "plant" || item.kind === "rock").length);
+    const decor = Math.min(3, habitat.items.filter((item) => DECOR_ITEMS.includes(item.kind)).length);
     const crowded = spaceUsed(zoo, habitat.cell) > HABITAT_SPACE;
     for (const animal of animals) stepAnimal(city, zoo, animal, habitat, { shelter, toy, decor, crowded });
     for (const animal of animals) cost += (speciesInfo(animal.species)?.eat ?? 0.3) * 0.6;
@@ -754,7 +783,7 @@ export type CareAct = "pet" | "play" | "feed" | "vet";
 
 export type ZooOp =
   | { op: "buy"; cell: number; species: string; origin: Exclude<OriginId, "born"> }
-  | { op: "place"; cell: number; item: ItemKind; x: number; y: number }
+  | { op: "place"; cell: number; item: ItemKind; x: number; y: number; rot?: number }
   | { op: "take"; cell: number; item: number }
   | { op: "refill"; cell: number }
   | { op: "keeper"; cell: number; on: boolean }
@@ -855,11 +884,12 @@ export function applyZoo(city: CityState, op: ZooOp): ApplyResult {
   if (op.op === "place") {
     if (!ITEM_KINDS.includes(op.item)) return fail("rejected");
     if (habitat.items.length >= MAX_ITEMS) return fail("zoo_items_full");
-    if (habitat.items.some((item) => item.x === op.x && item.y === op.y)) return fail("zoo_spot_taken");
+    if (!itemFits(habitat, op.item, op.x, op.y)) return fail("zoo_spot_taken");
     const cost = ITEM_INFO[op.item].cost;
     if (city.funds < cost) return fail("funds");
     city.funds -= cost;
-    habitat.items.push({ id: zoo.itemSeq++, kind: op.item, x: op.x, y: op.y, ...(op.item === "food" || op.item === "water" ? { fill: 100 } : {}) });
+    const rot = op.rot ? op.rot & 3 : 0;
+    habitat.items.push({ id: zoo.itemSeq++, kind: op.item, x: op.x, y: op.y, ...(op.item === "food" || op.item === "water" ? { fill: 100 } : {}), ...(rot ? { rot } : {}) });
     return done(cost);
   }
   if (op.op === "take") {
@@ -990,7 +1020,8 @@ export function parseZooOp(raw: unknown): ZooOp | null {
       return { op: "buy", cell: r.cell as number, species: r.species, origin: r.origin as Exclude<OriginId, "born"> };
     case "place":
       if (!cellOk || !ITEM_KINDS.includes(r.item as ItemKind) || !int(r.x, 0, ITEM_GRID - 1) || !int(r.y, 0, ITEM_GRID - 1)) return null;
-      return { op: "place", cell: r.cell as number, item: r.item as ItemKind, x: r.x as number, y: r.y as number };
+      if (r.rot !== undefined && !int(r.rot, 0, 3)) return null;
+      return { op: "place", cell: r.cell as number, item: r.item as ItemKind, x: r.x as number, y: r.y as number, ...(r.rot ? { rot: r.rot as number } : {}) };
     case "take":
       if (!cellOk || !int(r.item, 0, 0x7fffffff)) return null;
       return { op: "take", cell: r.cell as number, item: r.item as number };
@@ -1034,12 +1065,15 @@ export function cloneZoo(raw: unknown): ZooState | undefined {
       const items = Array.isArray(entry.items)
         ? entry.items.slice(0, MAX_ITEMS).flatMap((item) => {
           if (!item || !ITEM_KINDS.includes(item.kind)) return [];
+          const size = itemSize(item.kind);
+          const rot = num(item.rot) & 3;
           return [{
             id: num(item.id) >>> 0,
             kind: item.kind,
-            x: clamp(num(item.x) | 0, 0, ITEM_GRID - 1),
-            y: clamp(num(item.y) | 0, 0, ITEM_GRID - 1),
+            x: clamp(num(item.x) | 0, 0, ITEM_GRID - size),
+            y: clamp(num(item.y) | 0, 0, ITEM_GRID - size),
             ...(item.kind === "food" || item.kind === "water" ? { fill: clamp(num(item.fill, 100), 0, 100) } : {}),
+            ...(rot ? { rot } : {}),
           }];
         })
         : [];

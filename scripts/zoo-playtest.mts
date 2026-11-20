@@ -1,8 +1,8 @@
 /**
  * Tierpark im Browser: Tierpark in der Stadt bauen (Baumenü), Tor-Panel, Park betreten, Wege ziehen,
  * Gehege und Stände setzen, Tiere im Shop kaufen, Besucher laufen auf Wegen und kaufen (+€),
- * Statistik, Innenansicht mit Näpfen, Streicheln, Umbenennen, Zucht (Zeitraffer), zurück zum Park
- * und zur Stadt, Mobile. Screenshots nach SHOTS.
+ * Statistik, Gehege-Bau-Modus im Park (Näpfe, Unterstand), Tier im Park anklicken, Streicheln,
+ * Umbenennen, Zucht (Zeitraffer), zurück zur Stadt, Mobile. Screenshots nach SHOTS.
  *   npm run build && PORT=8787 npm start
  *   SHOTS=/workspace/cityline-shots/tierpark npx tsx scripts/zoo-playtest.mts
  */
@@ -141,14 +141,15 @@ async function dragTiles(page: Page, from: number, to: number): Promise<void> {
 
 const FIX_SHOTS = process.env.FIX_SHOTS ?? "/workspace/cityline-shots/fix-innen";
 mkdirSync(FIX_SHOTS, { recursive: true });
+const settle = (page: Page) => page.waitForFunction(() => !(window as any).__citylineE2E.parkUi().flying(), undefined, { timeout: 8000 }).catch(() => undefined);
 
 /**
- * Regression (0.49): the interior view must always let you out – via "← Zum Tierpark" (real
- * click/tap at its position) and via Escape – back into a park that renders and reacts, and from
- * there to the city. Repeated visits must not leak WebGL contexts, and without a context the
- * interior must not open an empty overlay.
+ * Regression: the habitat build mode (replaces the old interior view) must always let you out –
+ * via "✓ Fertig" (real click/tap at its position) and via Escape, one step per press – into a
+ * park that keeps rendering and reacting, and from there to the city. Repeated visits must not
+ * leak WebGL contexts (there is only the park canvas now).
  */
-async function exitRegression(page: Page, mobile: boolean): Promise<void> {
+async function buildRegression(page: Page, mobile: boolean): Promise<void> {
   const tag = mobile ? "Mobile" : "Desktop";
   const press = async (selector: string) => {
     const locator = page.locator(selector);
@@ -159,7 +160,7 @@ async function exitRegression(page: Page, mobile: boolean): Promise<void> {
   page.on("console", (msg) => {
     if (/Too many active WebGL contexts|Context Lost/i.test(msg.text())) warnings.push(msg.text());
   });
-  /** Habitat panel on its overview (an animal picked inside shows its card first). */
+  /** Habitat panel on its overview (an animal picked shows its card first). */
   const openPanel = async () => {
     await pk(page, "openHabitat", CELLS.savanne);
     await page.waitForTimeout(200);
@@ -168,54 +169,61 @@ async function exitRegression(page: Page, mobile: boolean): Promise<void> {
     await page.waitForTimeout(100);
   };
   const state = () => page.evaluate(() => ({
-    interior: !(document.querySelector("#zoo-interior") as HTMLElement).hidden,
-    flag: document.body.dataset.zooInterior,
+    build: document.body.dataset.zooBuild === "on",
+    dim: !(document.querySelector("#pk-dim") as HTMLElement).hidden,
     park: !(document.querySelector("#park-view") as HTMLElement).hidden,
     panel: !(document.querySelector("#zoo-panel") as HTMLElement).hidden,
+    canvases: document.querySelectorAll("#zoo-canvas").length,
   }));
   if (!(await pk<boolean>(page, "isOpen"))) await pk(page, "enter");
   await page.waitForTimeout(400);
   await pk(page, "lookAt", P(17, 33), mobile ? 70 : 60);
   await openPanel();
-  await press("#zoo-open-interior");
+  await press("#zoo-build");
   await page.waitForTimeout(600);
-  check((await state()).interior, `${tag}: Innenansicht offen`);
+  let now = await state();
+  check(now.build && now.dim && now.canvases === 0, `${tag}: Bau-Modus im Park, Umgebung gedimmt, kein zweites Canvas (${JSON.stringify(now)})`);
 
-  // A. The button, clicked/tapped at its real position.
-  const box = (await page.locator("#zoo-interior .zi-back").boundingBox())!;
+  // A. "✓ Fertig", clicked/tapped at its real position.
+  const box = (await page.locator("#zb-done").boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  const hit = await page.evaluate(({ x, y }) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest(".zi-back") !== null, { x: cx, y: cy });
-  check(hit, `${tag}: »← Zum Tierpark« liegt oben und wird nicht verdeckt`);
+  const hit = await page.evaluate(({ x, y }) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest("#zb-done") !== null, { x: cx, y: cy });
+  check(hit, `${tag}: »✓ Fertig« ist sichtbar und nicht verdeckt`);
   if (mobile) await page.touchscreen.tap(cx, cy);
   else await page.mouse.click(cx, cy);
-  await page.waitForTimeout(500);
-  let now = await state();
-  check(!now.interior && now.flag === "off" && now.park, `${tag}: Knopf verlässt die Innenansicht in den Tierpark (${JSON.stringify(now)})`);
+  await page.waitForTimeout(400);
+  now = await state();
+  check(!now.build && !now.dim && now.park && now.panel, `${tag}: Fertig beendet den Bau-Modus, Park und Panel bleiben (${JSON.stringify(now)})`);
   const before = JSON.stringify(await pk(page, "walkers"));
   await page.waitForTimeout(700);
   const after = JSON.stringify(await pk(page, "walkers"));
   check(before !== after, `${tag}: Park-Szene läuft danach weiter`);
   await hideToasts(page);
-  await page.screenshot({ path: path.join(FIX_SHOTS, `${mobile ? "mobile" : "desktop"}-nach-verlassen.png`) });
+  await page.screenshot({ path: path.join(FIX_SHOTS, `${mobile ? "mobile" : "desktop"}-nach-baumodus.png`) });
   // Controls still work: clicking/tapping the habitat opens its panel again.
   await page.locator("#zoo-close").click().catch(() => undefined);
   await page.waitForTimeout(200);
-  const spot = await pk<{ x: number; y: number }>(page, "habitatScreen", CELLS.savanne);
+  await pk(page, "lookAt", P(17, 33), mobile ? 70 : 60);
+  await page.waitForTimeout(200);
+  const spot = await pk<{ x: number; y: number }>(page, "tileScreen", CELLS.savanne + 41);
   if (mobile) await page.touchscreen.tap(spot.x, spot.y);
   else await page.mouse.click(spot.x, spot.y);
   await page.waitForTimeout(400);
   check((await state()).panel, `${tag}: Park reagiert danach wieder (Gehege antippen öffnet das Panel)`);
   await openPanel();
 
-  // B. Escape, one step per press: interior → panel → park → city.
-  await press("#zoo-open-interior");
-  await page.waitForTimeout(600);
-  check((await state()).interior, `${tag}: Innenansicht wieder offen`);
-  await page.keyboard.press("Escape");
+  // B. Escape, one step per press: tool → build mode → panel → park → city.
+  await press("#zoo-build");
   await page.waitForTimeout(300);
+  await press('.zb-item[data-id="rock"]');
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  check((await ui<{ tool: string | null } | null>(page, "build"))?.tool === null && (await state()).build, `${tag}: Esc legt zuerst das Werkzeug weg`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
   now = await state();
-  check(!now.interior && now.park && now.panel, `${tag}: Esc schließt nur die Innenansicht (${JSON.stringify(now)})`);
+  check(!now.build && now.park && now.panel, `${tag}: Esc beendet dann den Bau-Modus (${JSON.stringify(now)})`);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(250);
   now = await state();
@@ -227,55 +235,31 @@ async function exitRegression(page: Page, mobile: boolean): Promise<void> {
   const frameMs = await page.evaluate(() => (window as Window & { __cityline?: { frameMs?: number } }).__cityline?.frameMs);
   check(typeof frameMs === "number", `${tag}: Stadt rendert wieder`);
 
-  // C. "Zur Stadt" button after an interior visit.
+  // C. "Zur Stadt" straight out of the build mode.
   await pk(page, "enter");
   await page.waitForTimeout(300);
   await openPanel();
-  await press("#zoo-open-interior");
-  await page.waitForTimeout(500);
-  await press("#zoo-interior .zi-back");
+  await press("#zoo-build");
   await page.waitForTimeout(300);
-  await page.locator("#zoo-close").click().catch(() => undefined);
-  await press('#park-view [data-act="back"]');
+  await page.evaluate(() => (document.querySelector('#park-view [data-act="back"]') as HTMLElement).click());
   await page.waitForTimeout(300);
-  check(!(await state()).park, `${tag}: »← Zur Stadt« nach der Innenansicht klappt`);
+  now = await state();
+  check(!now.park && !now.build && !now.panel, `${tag}: »← Zur Stadt« aus dem Bau-Modus räumt alles auf (${JSON.stringify(now)})`);
 
-  // D. Many visits: no leaked WebGL contexts, the interior opens every time.
+  // D. Many visits: no leaked WebGL contexts, build mode works every time.
   let opened = 0;
   for (let round = 0; round < 12; round += 1) {
     await pk(page, "enter");
     await page.waitForTimeout(150);
     await openPanel();
-    await press("#zoo-open-interior");
-    await page.waitForTimeout(250);
-    if ((await state()).interior) opened += 1;
-    await press("#zoo-interior .zi-back");
-    await page.waitForTimeout(100);
+    await press("#zoo-build");
+    await page.waitForTimeout(150);
+    if ((await state()).build) opened += 1;
+    await press("#zb-done");
+    await page.waitForTimeout(80);
     await pk(page, "leave");
   }
-  check(opened === 12 && warnings.length === 0, `${tag}: 12 Besuche ohne verlorene WebGL-Kontexte (${opened}/12, ${warnings.length} Warnungen)`);
-
-  // E. No WebGL context for the interior: stay in the park instead of an empty overlay.
-  await pk(page, "enter");
-  await page.waitForTimeout(250);
-  await page.evaluate(() => {
-    const proto = HTMLCanvasElement.prototype as unknown as { getContext: (...args: unknown[]) => unknown; __orig?: (...args: unknown[]) => unknown };
-    proto.__orig = proto.getContext;
-    proto.getContext = function (this: HTMLCanvasElement, ...args: unknown[]) {
-      return this.id === "zoo-canvas" ? null : proto.__orig!.apply(this, args);
-    };
-  });
-  await openPanel();
-  await press("#zoo-open-interior");
-  await page.waitForTimeout(400);
-  now = await state();
-  check(!now.interior && now.flag !== "on" && now.park, `${tag}: Ohne WebGL-Kontext bleibt man im Park statt festzustecken (${JSON.stringify(now)})`);
-  await page.evaluate(() => {
-    const proto = HTMLCanvasElement.prototype as unknown as { getContext: unknown; __orig?: unknown };
-    proto.getContext = proto.__orig;
-  });
-  await page.locator("#zoo-close").click().catch(() => undefined);
-  await pk(page, "leave");
+  check(opened === 12 && warnings.length === 0, `${tag}: 12 Besuche mit Bau-Modus ohne verlorene WebGL-Kontexte (${opened}/12, ${warnings.length} Warnungen)`);
 }
 
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--ignore-gpu-blocklist"] });
@@ -386,7 +370,9 @@ const errors: string[] = [];
   await page.mouse.click(at.x, at.y);
   await page.waitForTimeout(300);
   check(await page.locator("#zoo-panel").isVisible(), "Klick aufs Gehege im Park öffnet das Gehege-Panel");
-  check(await page.locator("#zoo-open-interior").isVisible(), "Panel hat den Knopf Innenansicht");
+  check(await page.locator("#zoo-build").isVisible() && (await page.locator("#zoo-open-interior").count()) === 0, "Panel hat den Knopf Bauen (keine Innenansicht mehr)");
+  await settle(page);
+  check((await pk<{ distance: number }>(page, "camera"))!.distance <= 26, "Kamera fährt ans Gehege heran");
   await hideToasts(page);
   await page.screenshot({ path: path.join(SHOTS, "tp-09-gehege-panel.png") });
   await page.locator("#zoo-open-shop").click();
@@ -495,55 +481,62 @@ const errors: string[] = [];
   await page.screenshot({ path: path.join(SHOTS, "tp-08-statistik.png") });
   await page.locator('#park-view [data-act="stats"]').click();
 
-// 7. Interior of the polar habitat: place items, pet, rename.
+// 7. Build mode in the polar habitat (in the park): place items, pet, rename.
   await pk(page, "openHabitat", CELLS.polar);
-  await page.locator("#zoo-open-interior").click();
-  await page.locator("#zoo-interior").waitFor({ state: "visible" });
-  check(await ui(page, "interiorOpen"), "Innenansicht geöffnet");
+  await settle(page);
+  await page.locator("#zoo-build").click();
+  await settle(page);
+  await page.waitForTimeout(200);
+  check((await ui<{ cell: number } | null>(page, "build"))?.cell === CELLS.polar, "Bau-Modus im Park geöffnet");
   const itemsBefore = (await e2e<Zoo>(page, "zoo")).habitats.find((h) => h.cell === CELLS.polar)!.items.length;
-  await page.locator('.zi-tools button[data-id="toy"]').click();
-  let spot = await ui<{ x: number; y: number }>(page, "spotScreen", 2, 2);
-  await page.mouse.click(spot.x, spot.y);
-  await page.locator('.zi-tools button[data-id="shelter"]').click();
-  spot = await ui<{ x: number; y: number }>(page, "spotScreen", 6, 4);
-  await page.mouse.click(spot.x, spot.y);
-  await page.locator('.zi-tools button[data-id="food"]').click();
-  spot = await ui<{ x: number; y: number }>(page, "spotScreen", 1, 6);
-  await page.mouse.click(spot.x, spot.y);
-  await page.locator('.zi-tools button[data-id="rock"]').click();
-  spot = await ui<{ x: number; y: number }>(page, "spotScreen", 6, 6);
-  await page.mouse.click(spot.x, spot.y);
-  await page.keyboard.press("Escape");
+  for (const [kind, x, y] of [["toy", 2, 2], ["shelter", 6, 4], ["food", 1, 6], ["rock", 6, 6]] as const) {
+    await page.locator(`.zb-item[data-id="${kind}"]`).click();
+    const spot = await pk<{ x: number; y: number }>(page, "spotScreen", x, y);
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.click(spot.x, spot.y);
+    await page.waitForTimeout(80);
+  }
   let polar = (await e2e<Zoo>(page, "zoo")).habitats.find((h) => h.cell === CELLS.polar)!;
   check(polar.items.length === itemsBefore + 4, `Einrichtung platziert (${itemsBefore} → ${polar.items.length})`);
   check(polar.items.filter((i) => i.kind === "food").length === 2, "Zweiter Futternapf steht");
-  // empty bowls and refill
   await e2e(page, "advanceZoo", 4);
   await page.waitForTimeout(500);
-  await page.screenshot({ path: path.join(SHOTS, "tp-11-innenansicht.png") });
+  await hideToasts(page);
+  await page.screenshot({ path: path.join(SHOTS, "tp-11-baumodus.png") });
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+  check((await ui(page, "build")) === null, "Esc beendet den Bau-Modus");
 
-  // pet a penguin
+  // pet a penguin – clicked in the park
   zoo = await e2e<Zoo>(page, "zoo");
   const penguins = zoo.animals.filter((a) => a.species === "penguin");
   const target = penguins[0];
-  const pos = await ui<{ x: number; y: number }>(page, "animalScreen", target.id);
+  await ui(page, "select", target.id);
+  await settle(page);
+  await page.waitForTimeout(300);
+  const pos = await pk<{ x: number; y: number }>(page, "animalScreen", target.id);
+  await page.locator('#zoo-panel [data-act="list"]').click();
+  await page.waitForTimeout(100);
   await page.mouse.click(pos.x, pos.y);
-  await page.waitForTimeout(200);
-  check((await ui<number>(page, "selected")) === target.id, "Klick aufs Tier wählt es aus");
-  check(await page.locator("#zi-side .zoo-card").isVisible(), "Tierkarte in der Innenansicht");
+  await page.waitForTimeout(250);
+  check((await ui<number>(page, "selected")) === target.id, "Klick aufs Tier im Park wählt es aus");
+  check(await page.locator("#zoo-panel .zoo-card").isVisible(), "Tierkarte im Panel");
   const trustBefore = target.trust;
-  await page.locator('#zi-side .zoo-care[data-care="pet"]').click();
+  await page.locator('#zoo-panel .zoo-care[data-care="pet"]').click();
   await page.waitForTimeout(450);
+  check((await pk<number>(page, "bursts")) > 0, "Herzen steigen am Tier im Park auf");
+  await hideToasts(page);
   await page.screenshot({ path: path.join(SHOTS, "tp-12-streicheln.png") });
   const petted = (await e2e<Zoo>(page, "zoo")).animals.find((a) => a.id === target.id)!;
   check(petted.trust > trustBefore, `Streicheln erhöht Vertrauen (${trustBefore} → ${petted.trust})`);
-  check(await page.locator('#zi-side .zoo-care[data-care="pet"]').isDisabled(), "Streicheln hat Cooldown");
+  check(await page.locator('#zoo-panel .zoo-care[data-care="pet"]').isDisabled(), "Streicheln hat Cooldown");
   // rename with validation
-  await page.locator("#zi-side #zoo-name").fill("<script>");
-  await page.locator('#zi-side [data-act="rename"]').click();
-  check(await page.locator("#zi-side #zoo-name-error").isVisible(), "Ungültiger Name zeigt Fehler");
-  await page.locator("#zi-side #zoo-name").fill("Kapitän Pingu");
-  await page.locator("#zi-side #zoo-name").press("Enter");
+  await page.locator("#zoo-panel #zoo-name").fill("<script>");
+  await page.locator('#zoo-panel [data-act="rename"]').click();
+  check(await page.locator("#zoo-panel #zoo-name-error").isVisible(), "Ungültiger Name zeigt Fehler");
+  await page.locator("#zoo-panel #zoo-name").fill("Kapitän Pingu");
+  await page.locator("#zoo-panel #zoo-name").press("Enter");
   await page.waitForTimeout(150);
   check((await e2e<Zoo>(page, "zoo")).animals.find((a) => a.id === target.id)!.name === "Kapitän Pingu", "Umbenennen klappt");
 
@@ -559,38 +552,34 @@ const errors: string[] = [];
     const mother = zoo.animals.find((a) => a.id === child!.mother)!;
     const father = zoo.animals.find((a) => a.id === child!.father)!;
     check(child.family === `${father.name}-&-${mother.name}`, `Familienname ${child.family}`);
-    // Focus the family: select the mother (camera follows), zoom in, close the card.
+    // Focus the family: select the mother (camera comes closer), then back to the list.
     await ui(page, "select", mother.id);
-    await page.waitForTimeout(1500);
-    await page.mouse.move(500, 400);
-    for (let i = 0; i < 4; i += 1) await page.mouse.wheel(0, -120);
-    await page.locator('#zi-side [data-act="deselect"]').click().catch(() => undefined);
-    await page.waitForTimeout(900);
+    await settle(page);
+    await page.locator('#zoo-panel [data-act="list"]').click().catch(() => undefined);
+    await page.waitForTimeout(600);
+    await hideToasts(page);
     await page.screenshot({ path: path.join(SHOTS, "tp-13-jungtier.png") });
-    const at = await ui<{ x: number; y: number }>(page, "animalScreen", child.id);
-    await page.mouse.click(at.x, at.y);
+    const at = await pk<{ x: number; y: number } | null>(page, "animalScreen", child.id);
+    if (at) await page.mouse.click(at.x, at.y);
     await page.waitForTimeout(200);
     if ((await ui<number>(page, "selected")) !== child.id) await ui(page, "select", child.id);
     await page.waitForTimeout(1300);
-    check(await page.locator("#zi-side .zoo-tree").isVisible(), "Stammbaum sichtbar");
-    check((await page.locator("#zi-side .zoo-tree").textContent())?.includes(mother.name), "Stammbaum nennt die Mutter");
-    check(await page.locator("#zi-side .zoo-gene").count() === 5, "Fünf Gene in der Karte");
-    await page.locator("#zi-side .zoo-genes").scrollIntoViewIfNeeded();
+    check(await page.locator("#zoo-panel .zoo-tree").isVisible(), "Stammbaum sichtbar");
+    check((await page.locator("#zoo-panel .zoo-tree").textContent())?.includes(mother.name), "Stammbaum nennt die Mutter");
+    check(await page.locator("#zoo-panel .zoo-gene").count() === 5, "Fünf Gene in der Karte");
+    await page.locator("#zoo-panel .zoo-genes").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, "tp-14-gene-stammbaum.png") });
   }
 
-  // 6. Back to the park, then to the city.
-  await page.locator("#zoo-interior .zi-back").click();
-  await page.waitForTimeout(300);
-  check(await page.locator("#zoo-interior").isHidden(), "Zurück schließt die Innenansicht");
-  check(await page.locator("#park-view").isVisible(), "… und man steht wieder im Tierpark");
+  // 6. Close the panel, then back to the city.
   await page.locator('#zoo-close').click().catch(() => undefined);
+  check(await page.locator("#park-view").isVisible(), "Panel zu – man steht weiter im Tierpark");
   await page.locator('#park-view [data-act="back"]').click();
   await page.waitForTimeout(300);
   check(await page.locator("#park-view").isHidden(), "Zur Stadt schließt den Park");
   const ready = await page.evaluate(() => (window as Window & { __cityline?: { frameMs?: number } }).__cityline?.frameMs);
   check(typeof ready === "number", "Stadt rendert wieder");
-  await exitRegression(page, false);
+  await buildRegression(page, false);
   await page.close();
 }
 
@@ -654,19 +643,19 @@ const errors: string[] = [];
   check(panel && panel.x >= 0 && panel.x + panel.width <= 391, "Mobile: Gehege-Panel passt in die Breite");
   check(await page.locator("#pk-build").isHidden() || !(await page.locator("#pk-build").boundingBox()), "Mobile: Bauleiste weicht dem Gehege-Panel");
   await page.screenshot({ path: path.join(SHOTS, "tp-m4-gehege-panel.png") });
-  await page.locator("#zoo-open-interior").tap();
-  await page.waitForTimeout(600);
+  await settle(page);
   const z = await e2e<Zoo>(page, "zoo");
-  const pick = z.animals.find((a) => a.cell === CELLS.savanne)!;
-  const pos = await ui<{ x: number; y: number }>(page, "animalScreen", pick.id);
+  const pick = z.animals.find((a) => a.cell === CELLS.savanne && a.species === "elephant")!;
+  const pos = await pk<{ x: number; y: number }>(page, "animalScreen", pick.id);
   await page.touchscreen.tap(pos.x, pos.y);
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(SHOTS, "tp-m5-innen.png") });
-  const side = await page.locator("#zi-side").boundingBox();
+  check((await ui<number>(page, "selected")) === pick.id, `Mobile: Tier im Park antippen wählt es (${await ui(page, "selected")})`);
+  await hideToasts(page);
+  await page.screenshot({ path: path.join(SHOTS, "tp-m5-tierkarte.png") });
+  const side = await page.locator("#zoo-panel").boundingBox();
   check(!side || (side.x >= 0 && side.x + side.width <= 391), "Mobile: Tierkarte passt");
-  await page.locator("#zoo-interior .zi-back").tap();
-  await page.waitForTimeout(300);
-  await exitRegression(page, true);
+  await page.locator('#zoo-panel [data-act="list"]').tap();
+  await buildRegression(page, true);
   await page.close();
 }
 

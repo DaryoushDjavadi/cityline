@@ -1,11 +1,15 @@
 /**
  * Tierpark level renderer: its own Three.js scene with a 40×40 tile park (2 world units per tile).
- * Paths, curbs, every object kind, habitats, border hedges, outside trees, grass tufts and visitors
- * are instanced (one draw call per kind); animals, jeeps and habitat grass come from a ZooLayer.
+ * Paths, curbs, every object kind, border hedges, outside trees, grass tufts and visitors are
+ * instanced (one draw call per kind); habitats are dressed by a HabitatDressing (merged decor,
+ * ground atlas, grass, water, furniture) and animals and jeeps come from a ZooLayer. The habitat
+ * build mode (grid, furniture preview, removal marker), animal selection and care reactions
+ * (hearts, stars) live here too – there is no separate interior scene anymore.
  */
 import * as THREE from "three";
 import {
   HABITAT_TILES,
+  ITEM_GRID,
   PARK_SIZE,
   PARK_TILE,
   PARK_TILES,
@@ -16,18 +20,43 @@ import {
   parkXY,
   walkable,
   type CrowdEvent,
+  type ItemKind,
   type ParkObject,
   type Walker,
   type ZooState,
 } from "../../../shared/src/index.ts";
-import { ZooLayer, type ZooSite } from "./zooLayer.ts";
-import { buildPersonModels, habitatGeometry } from "./models.ts";
+import { ZooLayer, type Reaction, type ZooSite } from "./zooLayer.ts";
+import { buildPersonModels } from "./models.ts";
+import { HabitatDressing, SPOT_SIZE, itemScale, spotFromOffset, spotOffset } from "./habitatDressing.ts";
 import { StyleFx } from "./styleFx.ts";
 import { boothGeometry, borderGeometry, outerTreeGeometry, parkObjectGeometry } from "./parkModels.ts";
 import { rng, setWindTime, swayMaterial, tuftGeometry } from "./zooDecor.ts";
 
 export const PARK_HALF = (PARK_SIZE * PARK_TILE) / 2;
-const HABITAT_TYPES = ["savanne", "wald", "wasser", "polar", "wiese"] as const;
+const GLYPH: Record<Reaction, { text: string; color: string }> = {
+  pet: { text: "♥", color: "#ff5f8f" },
+  play: { text: "★", color: "#ffd04a" },
+  feed: { text: "♥", color: "#ff9a3c" },
+  vet: { text: "✚", color: "#5fd08a" },
+};
+
+function glyphTexture(kind: Reaction): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = "bold 52px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(60,30,20,0.55)";
+  ctx.strokeText(GLYPH[kind].text, 32, 35);
+  ctx.fillStyle = GLYPH[kind].color;
+  ctx.fillText(GLYPH[kind].text, 32, 35);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 const OBJECT_KINDS: Exclude<ParkObject, "path">[] = ["food", "drink", "souvenir", "bench", "bin", "toilet", "tree", "flowers", "entrance"];
 const CLOTHES = [0x3d88c8, 0xe24a32, 0xf0b43c, 0x3d8a4a, 0xa85a8a, 0xf2efe8, 0x2a3e5c, 0xe98a5a];
 const VISITOR_CAP = 160;
@@ -151,7 +180,17 @@ export class ParkScene {
   private readonly paths: THREE.InstancedMesh;
   private readonly curbs: THREE.InstancedMesh;
   private readonly objects = new Map<string, THREE.InstancedMesh>();
-  private readonly habitats = new Map<string, THREE.InstancedMesh>();
+  readonly dressing: HabitatDressing;
+  /** Build mode: grid over the focused habitat, furniture preview and removal marker. */
+  private readonly buildGrid: THREE.LineSegments;
+  private readonly itemGhost = new THREE.Mesh(undefined, new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.7, roughness: 0.8, depthWrite: false }));
+  private readonly spotMark: THREE.Mesh;
+  private readonly ring: THREE.Mesh;
+  private selected = -1;
+  private readonly bursts: { sprite: THREE.Sprite; born: number; vx: number; vz: number }[] = [];
+  private readonly glyphs = new Map<Reaction, THREE.CanvasTexture>();
+  /** Camera flight (habitat click): from → to over `duration` seconds. */
+  private flight: { t: number; duration: number; from: { x: number; z: number; d: number; a: number }; to: { x: number; z: number; d: number; a: number } } | null = null;
   private readonly booth: THREE.Mesh;
   private readonly grass: THREE.InstancedMesh;
   private readonly visitorMeshes = new Map<string, { body: THREE.InstancedMesh; head: THREE.InstancedMesh }>();
@@ -229,11 +268,7 @@ export class ParkScene {
       this.objects.set(kind, mesh);
       this.scene.add(mesh);
     }
-    for (const type of HABITAT_TYPES) {
-      const mesh = instanced(habitatGeometry(type), this.material, 48, !low);
-      this.habitats.set(type, mesh);
-      this.scene.add(mesh);
-    }
+    this.dressing = new HabitatDressing(this.scene, low);
     this.booth = new THREE.Mesh(boothGeometry(), this.material);
     this.booth.castShadow = !low;
     this.scene.add(this.booth);
@@ -290,7 +325,29 @@ export class ParkScene {
     this.ghostModel.renderOrder = 4;
     this.scene.add(this.ghost, this.ghostBox, this.ghostModel);
 
-    this.zoo = new ZooLayer(this.scene, low ? 30 : 90);
+    this.zoo = new ZooLayer(this.scene, 1);
+
+    // Build-mode helpers (hidden until a habitat is in build mode).
+    const lines: number[] = [];
+    const half = (ITEM_GRID * SPOT_SIZE) / 2;
+    for (let i = 0; i <= ITEM_GRID; i += 1) {
+      const t = -half + i * SPOT_SIZE;
+      lines.push(t, 0, -half, t, 0, half, -half, 0, t, half, 0, t);
+    }
+    const gridGeo = new THREE.BufferGeometry();
+    gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
+    this.buildGrid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.buildGrid.visible = false;
+    this.buildGrid.renderOrder = 2;
+    this.spotMark = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xe8604c, transparent: true, opacity: 0.45, depthWrite: false }));
+    this.spotMark.visible = false;
+    this.spotMark.renderOrder = 3;
+    this.itemGhost.visible = false;
+    this.itemGhost.renderOrder = 4;
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.78, 1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.ring.visible = false;
+    this.ring.renderOrder = 3;
+    this.scene.add(this.buildGrid, this.spotMark, this.itemGhost, this.ring);
   }
 
   private readonly border: THREE.InstancedMesh;
@@ -329,10 +386,11 @@ export class ParkScene {
       this.buildLayout(zoo);
       this.crowd.setLayout(park, zoo.habitats);
     }
-    const sites: ZooSite[] = zoo.habitats.map((habitat) => {
-      const at = habitatWorld(habitat.cell);
-      return { cell: habitat.cell, type: habitat.type, x: at.x, y: 0, z: at.z, animals: zoo.animals.filter((animal) => animal.cell === habitat.cell), roads: [] };
-    });
+    const placed = zoo.habitats.map((habitat) => ({ habitat, ...habitatWorld(habitat.cell) }));
+    this.dressing.setHabitats(placed.map(({ habitat, x, z }) => ({ cell: habitat.cell, type: habitat.type, x, z })));
+    this.dressing.setItems(placed);
+    // Animals stand on the painted ground (ZooLayer adds its city plinth height of 0.25).
+    const sites: ZooSite[] = placed.map(({ habitat, x, z }) => ({ cell: habitat.cell, type: habitat.type, x, y: -0.21, z, animals: zoo.animals.filter((animal) => animal.cell === habitat.cell), roads: [], keeper: habitat.keeper }));
     this.zoo.setSites(sites, tick, zoo.visitors);
   }
 
@@ -413,20 +471,6 @@ export class ParkScene {
     this.curbs.instanceMatrix.needsUpdate = true;
     for (const [kind, mesh] of this.objects) {
       mesh.count = counts.get(kind) ?? 0;
-      mesh.instanceMatrix.needsUpdate = true;
-    }
-    for (const [type, mesh] of this.habitats) {
-      let n = 0;
-      for (const habitat of zoo.habitats) {
-        if (habitat.type !== type) continue;
-        const at = habitatWorld(habitat.cell);
-        this.dummy.position.set(at.x, 0, at.z);
-        this.dummy.rotation.set(0, 0, 0);
-        this.dummy.scale.set(1.04, 1, 1.04);
-        this.dummy.updateMatrix();
-        mesh.setMatrixAt(n++, this.dummy.matrix);
-      }
-      mesh.count = n;
       mesh.instanceMatrix.needsUpdate = true;
     }
     // Border hedge with a gap at the gate.
@@ -512,7 +556,176 @@ export class ParkScene {
     }
   }
 
+  // ------------------------------------------------------------ habitat build mode
+
+  /** Show the furniture grid over a habitat (anchor tile), or hide it. */
+  setBuildGrid(anchor: number | null, type = "savanne"): void {
+    this.buildGrid.visible = anchor !== null;
+    // Dark lines on light floors (sand, snow, meadow), light lines on forest and shore.
+    const light = type === "wald" || type === "wasser";
+    const material = this.buildGrid.material as THREE.LineBasicMaterial;
+    material.color.setHex(light ? 0xfff6d8 : 0x4a3418);
+    material.opacity = light ? 0.6 : 0.42;
+    if (anchor === null) {
+      this.itemGhost.visible = false;
+      this.spotMark.visible = false;
+      return;
+    }
+    const at = habitatWorld(anchor);
+    this.buildGrid.position.set(at.x, 0.06, at.z);
+  }
+
+  /** Furniture preview on a spot (tinted green/red), or null. */
+  setItemGhost(anchor: number, ghost: { kind: ItemKind; x: number; y: number; size: number; rot: number; ok: boolean } | null): void {
+    this.itemGhost.visible = ghost !== null;
+    if (!ghost) return;
+    const at = habitatWorld(anchor);
+    const off = spotOffset(ghost.x, ghost.y, ghost.size);
+    this.itemGhost.geometry = this.dressing.itemGeometry(ghost.kind, 100);
+    this.itemGhost.position.set(at.x + off.x, 0.04, at.z + off.z);
+    this.itemGhost.rotation.set(0, (ghost.rot * Math.PI) / 2, 0);
+    this.itemGhost.scale.setScalar(itemScale(ghost.kind));
+    const material = this.itemGhost.material as THREE.MeshStandardMaterial;
+    material.color.setHex(ghost.ok ? 0xa8ffa0 : 0xff7a6a);
+    material.emissive.setHex(ghost.ok ? 0x1a4a1a : 0x5a1410);
+  }
+
+  /** Red marker over the spots of the item that would be removed, or null. */
+  setSpotMark(anchor: number, spot: { x: number; y: number; size: number; color?: number } | null): void {
+    this.spotMark.visible = spot !== null;
+    if (!spot) return;
+    const at = habitatWorld(anchor);
+    const off = spotOffset(spot.x, spot.y, spot.size);
+    this.spotMark.position.set(at.x + off.x, 0.07, at.z + off.z);
+    this.spotMark.scale.set(SPOT_SIZE * spot.size * 0.96, 1, SPOT_SIZE * spot.size * 0.96);
+    (this.spotMark.material as THREE.MeshBasicMaterial).color.setHex(spot.color ?? 0xe8604c);
+  }
+
+  /** Grid spot of a habitat under a screen point, or null outside its grid. */
+  pickSpot(anchor: number, clientX: number, clientY: number): { x: number; y: number } | null {
+    const hit = this.pick(clientX, clientY);
+    const at = habitatWorld(anchor);
+    return spotFromOffset(hit.x - at.x, hit.z - at.z);
+  }
+
+  /** Screen position (canvas px) of a habitat grid spot. */
+  spotScreen(anchor: number, x: number, y: number): { x: number; y: number } {
+    const at = habitatWorld(anchor);
+    const off = spotOffset(x, y);
+    const p = this.project(at.x + off.x, 0.05, at.z + off.z);
+    return { x: p.x, y: p.y };
+  }
+
+  /** Nearest animal to a screen point (within ~30 px of its body), or −1. */
+  pickAnimal(clientX: number, clientY: number, among?: Set<number>): number {
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = clientX - rect.left;
+    const sy = clientY - rect.top;
+    let best = -1;
+    let bestD = Infinity;
+    for (const [id, pose] of this.zoo.poses) {
+      if (among && !among.has(id)) continue;
+      const p = this.project(pose.x, pose.y + pose.height * 0.5, pose.z);
+      if (p.behind) continue;
+      // Allow a bigger radius for big animals seen close up.
+      const top = this.project(pose.x, pose.y + pose.height, pose.z);
+      const reach = Math.max(26, Math.abs(top.y - p.y) * 1.6);
+      const d = Math.hypot(p.x - sx, p.y - sy);
+      if (d < reach && d < bestD) {
+        best = id;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** Screen position (canvas px) of an animal's head, or null. */
+  animalScreen(id: number): { x: number; y: number } | null {
+    const pose = this.zoo.poses.get(id);
+    if (!pose) return null;
+    const p = this.project(pose.x, pose.y + pose.height * 0.55, pose.z);
+    return p.behind ? null : { x: p.x, y: p.y };
+  }
+
+  /** Select an animal (ring under it, it stands still), −1 = none. */
+  select(id: number): void {
+    this.selected = id;
+    this.zoo.hold(id);
+    this.ring.visible = false;
+  }
+
+  /** Hearts/stars rise from the animal; it hops, spins or squashes. */
+  react(id: number, kind: Reaction): void {
+    this.zoo.react(id, kind);
+    const pose = this.zoo.poses.get(id);
+    if (!pose) return;
+    let texture = this.glyphs.get(kind);
+    if (!texture) {
+      texture = glyphTexture(kind);
+      this.glyphs.set(kind, texture);
+    }
+    const size = Math.max(0.45, Math.min(0.9, pose.height * 0.45));
+    for (let i = 0; i < 7; i += 1) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+      sprite.position.set(pose.x + (Math.random() - 0.5) * 0.6, pose.y + pose.height + 0.15 + Math.random() * 0.3, pose.z + (Math.random() - 0.5) * 0.6);
+      sprite.scale.setScalar(size * (0.8 + Math.random() * 0.45));
+      sprite.visible = false;
+      sprite.renderOrder = 5;
+      this.scene.add(sprite);
+      this.bursts.push({ sprite, born: this.time + i * 0.08, vx: (Math.random() - 0.5) * 0.6, vz: (Math.random() - 0.5) * 0.6 });
+    }
+  }
+
+  /** Visible care bursts (for tests). */
+  burstCount(): number {
+    return this.bursts.length;
+  }
+
+  private updateBursts(dt: number): void {
+    for (let i = this.bursts.length - 1; i >= 0; i -= 1) {
+      const burst = this.bursts[i];
+      const age = this.time - burst.born;
+      if (age < 0) continue;
+      burst.sprite.visible = true;
+      burst.sprite.position.y += dt * 1.2;
+      burst.sprite.position.x += burst.vx * dt;
+      burst.sprite.position.z += burst.vz * dt;
+      (burst.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - age / 1.3);
+      if (age > 1.3) {
+        this.scene.remove(burst.sprite);
+        (burst.sprite.material as THREE.SpriteMaterial).dispose();
+        this.bursts.splice(i, 1);
+      }
+    }
+  }
+
   // ------------------------------------------------------------ camera
+
+  /** Smooth camera flight to a point (habitat click). Any manual pan/zoom/rotate stops it. */
+  flyTo(x: number, z: number, distance: number, azimuth = this.azimuth, duration = 0.75): void {
+    // Shortest way round.
+    let a = azimuth;
+    while (a - this.azimuth > Math.PI) a -= Math.PI * 2;
+    while (a - this.azimuth < -Math.PI) a += Math.PI * 2;
+    this.flight = { t: 0, duration, from: { x: this.target.x, z: this.target.z, d: this.distance, a: this.azimuth }, to: { x, z, d: distance, a } };
+  }
+
+  get flying(): boolean {
+    return this.flight !== null;
+  }
+
+  private fly(dt: number): void {
+    const flight = this.flight;
+    if (!flight) return;
+    flight.t = Math.min(flight.duration, flight.t + dt);
+    const k = flight.t / flight.duration;
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    this.target.x = flight.from.x + (flight.to.x - flight.from.x) * e;
+    this.target.z = flight.from.z + (flight.to.z - flight.from.z) * e;
+    this.distance = flight.from.d + (flight.to.d - flight.from.d) * e;
+    this.azimuth = flight.from.a + (flight.to.a - flight.from.a) * e;
+    if (k >= 1) this.flight = null;
+  }
 
   private polar(): number {
     // Close up the view flattens a little (like the city camera).
@@ -533,6 +746,7 @@ export class ParkScene {
 
   /** Drag in screen pixels moves the park under the finger. */
   pan(dx: number, dy: number): void {
+    this.flight = null;
     const k = (this.distance * 1.15) / Math.max(320, this.height);
     const cos = Math.cos(this.azimuth);
     const sin = Math.sin(this.azimuth);
@@ -542,14 +756,17 @@ export class ParkScene {
   }
 
   rotate(delta: number): void {
+    this.flight = null;
     this.azimuth += delta;
   }
 
   zoom(factor: number): void {
+    this.flight = null;
     this.distance = Math.max(16, Math.min(125, this.distance * factor));
   }
 
   lookAt(x: number, z: number, distance?: number): void {
+    this.flight = null;
     this.target.set(x, 0, z);
     if (distance !== undefined) this.distance = distance;
     this.clampTarget();
@@ -626,16 +843,27 @@ export class ParkScene {
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     }
+    this.fly(dt);
     this.placeCamera();
     this.zoo.setCamera(this.camera.position);
     this.zoo.update(this.time);
+    this.updateBursts(Math.min(dt, 0.1));
+    const pose = this.selected >= 0 ? this.zoo.poses.get(this.selected) : undefined;
+    this.ring.visible = !!pose;
+    if (pose) {
+      const r = Math.max(0.35, pose.height * 0.55);
+      this.ring.position.set(pose.x, 0.08, pose.z);
+      this.ring.scale.setScalar(r * (1 + Math.sin(this.time * 4) * 0.05));
+    }
     if (!this.fx.render(this.scene, this.camera, { focus: this.target, sun: this.sun, hazeRange: [0.9, 3.2], hazeAmount: 0.45 })) this.renderer.render(this.scene, this.camera);
     return events;
   }
 
   /** Counts for tests and the perf check. */
-  stats(): { walkers: number; drawCalls: number; triangles: number; grass: number; paths: number } {
+  stats(): { walkers: number; drawCalls: number; triangles: number; grass: number; paths: number; habitatGrass: number; habitatMeshes: number } {
     return {
+      habitatGrass: this.dressing.stats().grass,
+      habitatMeshes: this.dressing.meshes(),
       walkers: this.crowd.walkers.filter((walker) => walker.state !== "gone").length,
       drawCalls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
@@ -649,6 +877,8 @@ export class ParkScene {
     // push the browser over its limit (the city context gets dropped, new scenes fail to start).
     // (Geometries are cached and partly shared with the city, so they are not disposed here.)
     this.fx.dispose();
+    this.dressing.dispose();
+    for (const texture of this.glyphs.values()) texture.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }

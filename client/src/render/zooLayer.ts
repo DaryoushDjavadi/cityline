@@ -49,7 +49,10 @@ export interface ZooSite {
   roads: { dx: number; dz: number }[];
   /** Tierpark gate in the city: only a queue of visitors, no animals or grass. */
   crowdOnly?: boolean;
+  /** Park level: a keeper walks the habitat and refills the bowls. */
+  keeper?: boolean;
 }
+export type Reaction = "pet" | "play" | "feed" | "vet";
 type Site = ZooSite;
 
 const GRASS_SITES = 48;
@@ -77,7 +80,12 @@ export class ZooLayer {
   private counts = { jeeps: 0, visitors: 0 };
   private readonly camera = new THREE.Vector3(0, 1e4, 0);
   /** Latest pose per animal id (world coordinates), for picking and tests. */
-  readonly poses = new Map<number, { x: number; y: number; z: number; far: boolean }>();
+  readonly poses = new Map<number, { x: number; y: number; z: number; far: boolean; heading: number; height: number }>();
+  /** Selected animal stands still (for petting) at the pose it had when picked. */
+  private holdId = -1;
+  private held: Pose | null = null;
+  private readonly reactions = new Map<number, { kind: Reaction; start: number }>();
+  private now = 0;
 
   /** Wind-swayed grass tufts inside every habitat (one instanced draw call). */
   private readonly grass: THREE.InstancedMesh;
@@ -195,7 +203,21 @@ export class ZooLayer {
     this.tick = tick;
     this.visitors = visitors;
     this.fenceCrowd = false;
-    this.plantGrass();
+    // The park dresses habitats itself (HabitatDressing): no extra tufts here.
+    this.grass.count = 0;
+    this.grassKey = "";
+  }
+
+  /** Keep one animal still (selected in the park); −1 lets it wander again. */
+  hold(id: number): void {
+    if (id === this.holdId) return;
+    this.holdId = id;
+    this.held = null;
+  }
+
+  /** Little hop / spin / squash when the animal is petted, played with, fed or treated. */
+  react(id: number, kind: Reaction): void {
+    this.reactions.set(id, { kind, start: this.now });
   }
 
   /** Re-scatter grass only when the set of habitats (or their height) changed. */
@@ -249,6 +271,7 @@ export class ZooLayer {
   }
 
   update(time: number): void {
+    this.now = time;
     setWindTime(time);
     this.used.clear();
     this.poses.clear();
@@ -267,16 +290,32 @@ export class ZooLayer {
         const radius = Math.max(0.4, INNER - (geo.model.lod[2] * scale) / 2);
         const young = scale < animal.genes.size * 0.95;
         const mother = young && animal.mother !== undefined ? local.get(animal.mother) : undefined;
-        const pose = wanderPose(animal, time, radius, scale, mother);
+        let pose = wanderPose(animal, time, radius, scale, mother);
+        if (animal.id === this.holdId) {
+          // Stand still where it was picked, head slightly bobbing.
+          if (!this.held) this.held = { ...pose, y: 0, roll: 0 };
+          pose = { ...this.held, y: 0, roll: 0, heading: this.held.heading + Math.sin(time * 0.8) * 0.12 };
+        }
         local.set(animal.id, pose);
+        let reactY = 0;
+        let spin = 0;
+        let squash = 1;
+        const reaction = this.reactions.get(animal.id);
+        if (reaction) {
+          const t = time - reaction.start;
+          if (t > 1.4 || t < 0) this.reactions.delete(animal.id);
+          else if (reaction.kind === "play") spin = Math.min(1, t / 0.9) * Math.PI * 2;
+          else if (reaction.kind === "feed") squash = 1 - Math.sin(Math.min(1, t / 0.5) * Math.PI) * 0.18 * Math.max(0, 1 - t);
+          else reactY = Math.max(0, Math.sin(t * 7)) * 0.28 * scale * Math.max(0, 1 - t / 1.4);
+        }
         const wx = site.x + pose.x;
         const wz = site.z + pose.z;
-        const wy = site.y + 0.25 + pose.y;
+        const wy = site.y + 0.25 + pose.y + reactY;
         const dx = wx - this.camera.x;
         const dy = wy - this.camera.y;
         const dz = wz - this.camera.z;
         const far = dx * dx + dy * dy + dz * dz > ZOO_LOD_DISTANCE * ZOO_LOD_DISTANCE;
-        this.poses.set(animal.id, { x: wx, y: wy, z: wz, far });
+        this.poses.set(animal.id, { x: wx, y: wy, z: wz, far, heading: pose.heading, height: geo.model.lod[1] * scale });
         this.dummy.position.set(wx, wy, wz);
         if (far) {
           const [w, h, l] = geo.model.lod;
@@ -285,10 +324,21 @@ export class ZooLayer {
           this.place("block", this.color.setHex(info.color).multiply(coatTint(animal.genes.hue)));
           continue;
         }
-        this.dummy.rotation.set(0, pose.heading, pose.roll);
-        this.dummy.scale.setScalar(scale);
+        this.dummy.rotation.set(0, pose.heading + spin, pose.roll);
+        this.dummy.scale.set(scale * (2 - squash), scale * squash, scale * (2 - squash));
         this.place(`${animal.species}:body`, coatTint(animal.genes.hue, this.color));
         this.place(`${animal.species}:pattern`, patternColor(info.color, geo.model, animal.genes.hue, animal.genes.pattern, this.color));
+      }
+      if (site.keeper && !this.fenceCrowd && people < VISITOR_CAP) {
+        // Keeper in green walks a slow round past the bowls.
+        const a = time * 0.22 + site.cell;
+        const r = 2.2 + Math.sin(time * 0.13 + site.cell) * 0.9;
+        this.dummy.position.set(site.x + Math.cos(a) * r, site.y + 0.27, site.z + Math.sin(a) * r);
+        this.dummy.rotation.set(0, -a, 0);
+        this.dummy.scale.setScalar(0.92);
+        this.place("visitorBody", this.color.setHex(0x3f7a3a));
+        this.place("visitorHead", this.color.setHex(0xffffff));
+        people += 1;
       }
       if (site.animals.length === 0 && !site.crowdOnly) continue;
       if (site.crowdOnly && this.visitors <= 0) continue;
